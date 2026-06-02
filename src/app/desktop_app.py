@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .config import PipelineConfig, load_config, save_config
 from .capture import MssCaptureSource
+from .config import PipelineConfig, load_config, save_config
 from .glossary import Glossary
 from .ocr import TesseractOcrEngine
 from .pipeline import TranslationPipeline
@@ -11,6 +11,9 @@ from .runtime import PipelineRunner
 from .tk_overlay import TkOverlayRenderer
 from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTranslator
 from .window import WindowInfo, list_windows
+
+
+GLOSSARY_EXAMPLES = (("New Game", "ニューゲーム"),)
 
 
 class DesktopApplication:
@@ -33,7 +36,7 @@ class DesktopApplication:
 
         root = tk.Tk()
         root.title("Screen Translation")
-        root.geometry("760x540")
+        root.geometry("760x560")
 
         frame = ttk.Frame(root, padding=16)
         frame.pack(fill=tk.BOTH, expand=True)
@@ -55,6 +58,9 @@ class DesktopApplication:
         window_combo = ttk.Combobox(frame, textvariable=selected_window, state="readonly")
         window_combo.grid(row=2, column=0, columnspan=3, sticky=tk.EW)
 
+        status = tk.StringVar(value="停止中。ローカル処理モードです。")
+        is_running = tk.BooleanVar(value=False)
+
         def refresh_windows() -> None:
             try:
                 self._windows = list_windows()
@@ -68,39 +74,51 @@ class DesktopApplication:
         ttk.Button(frame, text="更新", command=refresh_windows).grid(row=2, column=3, sticky=tk.EW, padx=(12, 0))
 
         ttk.Label(frame, text="辞書登録").grid(row=3, column=0, sticky=tk.W, pady=(24, 0))
-        source_term = tk.StringVar()
-        target_term = tk.StringVar()
-        ttk.Entry(frame, textvariable=source_term).grid(row=4, column=0, columnspan=2, sticky=tk.EW)
-        ttk.Entry(frame, textvariable=target_term).grid(row=4, column=2, sticky=tk.EW, padx=(12, 0))
+        ttk.Label(frame, text="英語").grid(row=4, column=0, sticky=tk.W)
+        ttk.Label(frame, text="日本語").grid(row=4, column=2, sticky=tk.W, padx=(12, 0))
+        source_term = tk.StringVar(value=GLOSSARY_EXAMPLES[0][0])
+        target_term = tk.StringVar(value=GLOSSARY_EXAMPLES[0][1])
+        ttk.Entry(frame, textvariable=source_term).grid(row=5, column=0, columnspan=2, sticky=tk.EW)
+        ttk.Entry(frame, textvariable=target_term).grid(row=5, column=2, sticky=tk.EW, padx=(12, 0))
 
         def add_term() -> None:
             try:
                 self._glossary.register(source_term.get(), target_term.get())
                 self._glossary.save(self._glossary_path)
-                source_term.set("")
-                target_term.set("")
+                source_term.set(GLOSSARY_EXAMPLES[0][0])
+                target_term.set(GLOSSARY_EXAMPLES[0][1])
                 status.set("辞書へ登録しました。")
             except ValueError as error:
                 messagebox.showerror("辞書登録エラー", str(error))
 
-        ttk.Button(frame, text="登録", command=add_term).grid(row=4, column=3, sticky=tk.EW, padx=(12, 0))
+        ttk.Button(frame, text="登録", command=add_term).grid(row=5, column=3, sticky=tk.EW, padx=(12, 0))
 
-        ttk.Label(frame, text="翻訳テスト").grid(row=5, column=0, sticky=tk.W, pady=(24, 0))
-        input_text = tk.StringVar(value="New Game")
-        ttk.Entry(frame, textvariable=input_text).grid(row=6, column=0, columnspan=3, sticky=tk.EW)
+        ttk.Label(frame, text="翻訳テスト").grid(row=6, column=0, sticky=tk.W, pady=(24, 0))
+        input_text = tk.StringVar(value=GLOSSARY_EXAMPLES[0][0])
+        ttk.Entry(frame, textvariable=input_text).grid(row=7, column=0, columnspan=3, sticky=tk.EW)
         output_text = tk.StringVar()
 
         def translate() -> None:
-            translator = GlossaryAwareTranslator(PassthroughTranslator(), self._glossary)
-            output_text.set(translator.translate(input_text.get()))
+            text = input_text.get()
+            test_glossary = self._translation_test_glossary()
+            try:
+                translator = GlossaryAwareTranslator(
+                    ArgosTranslator(self._config.source_language, self._config.target_language),
+                    test_glossary,
+                )
+                output_text.set(translator.translate(text))
+                status.set("翻訳テストを実行しました。")
+            except Exception as error:
+                translator = GlossaryAwareTranslator(PassthroughTranslator(), test_glossary)
+                output_text.set(translator.translate(text))
+                status.set(f"Argos翻訳を使えないため、辞書一致でテストしました: {error}")
 
-        ttk.Button(frame, text="翻訳", command=translate).grid(row=6, column=3, sticky=tk.EW, padx=(12, 0))
+        ttk.Button(frame, text="翻訳", command=translate).grid(row=7, column=3, sticky=tk.EW, padx=(12, 0))
         ttk.Label(frame, textvariable=output_text, wraplength=640).grid(
-            row=7, column=0, columnspan=4, sticky=tk.EW, pady=(16, 0)
+            row=8, column=0, columnspan=4, sticky=tk.EW, pady=(16, 0)
         )
 
-        ttk.Label(frame, text="実行").grid(row=8, column=0, sticky=tk.W, pady=(28, 0))
-        status = tk.StringVar(value="停止中。ローカル処理モードです。")
+        ttk.Label(frame, text="実行").grid(row=9, column=0, sticky=tk.W, pady=(28, 0))
 
         def start_translation() -> None:
             try:
@@ -121,6 +139,8 @@ class DesktopApplication:
                 )
                 self._runner = PipelineRunner(pipeline)
                 self._runner.start()
+                is_running.set(True)
+                update_run_buttons()
                 status.set("翻訳中。オーバーレイを表示しています。")
             except Exception as error:
                 status.set(f"開始できません: {error}")
@@ -132,13 +152,9 @@ class DesktopApplication:
             if self._overlay is not None:
                 self._overlay.close()
                 self._overlay = None
+            is_running.set(False)
+            update_run_buttons()
             status.set("停止中。")
-
-        ttk.Button(frame, text="開始", command=start_translation).grid(row=9, column=0, sticky=tk.EW)
-        ttk.Button(frame, text="停止", command=stop_translation).grid(row=9, column=1, sticky=tk.EW, padx=(12, 0))
-        ttk.Label(frame, textvariable=status, wraplength=700).grid(
-            row=10, column=0, columnspan=4, sticky=tk.W, pady=(18, 0)
-        )
 
         def on_close() -> None:
             stop_translation()
@@ -147,6 +163,25 @@ class DesktopApplication:
             self._glossary.save(self._glossary_path)
             root.destroy()
 
+        start_button = ttk.Button(frame, text="開始", command=start_translation)
+        stop_button = ttk.Button(frame, text="停止", command=stop_translation)
+        exit_button = ttk.Button(frame, text="終了", command=on_close)
+
+        def update_run_buttons() -> None:
+            if is_running.get():
+                start_button.grid_remove()
+                stop_button.grid(row=10, column=0, sticky=tk.EW)
+                exit_button.grid(row=10, column=1, sticky=tk.EW, padx=(12, 0))
+            else:
+                stop_button.grid_remove()
+                exit_button.grid_remove()
+                start_button.grid(row=10, column=0, sticky=tk.EW)
+
+        update_run_buttons()
+        ttk.Label(frame, textvariable=status, wraplength=700).grid(
+            row=11, column=0, columnspan=4, sticky=tk.W, pady=(18, 0)
+        )
+
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
         frame.columnconfigure(2, weight=1)
@@ -154,6 +189,13 @@ class DesktopApplication:
         root.protocol("WM_DELETE_WINDOW", on_close)
         refresh_windows()
         root.mainloop()
+
+    def _translation_test_glossary(self) -> Glossary:
+        glossary = Glossary(self._glossary.terms)
+        for source, target in GLOSSARY_EXAMPLES:
+            if glossary.translate_exact(source) is None:
+                glossary.register(source, target)
+        return glossary
 
     def _current_config(self, ocr_fps: object, overlay_opacity: object) -> PipelineConfig:
         return PipelineConfig(
