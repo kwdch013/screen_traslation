@@ -13,3 +13,10 @@
 - `.cmd` は `.exe` ではないが、Windowsでダブルクリック起動できる。
 - 依存ライブラリは `.venv` 内へ入るため、Windows全体のPython環境には入らない。
 - Tesseract OCR本体はPython依存ライブラリではないため、PATHから見つからない場合は警告を出す。
+
+## 追加修正
+
+- `cmd.exe` で日本語メッセージが文字化けし、バッチ処理の改行も崩れる問題があったため、`start_screen_translation.cmd` の表示文言をASCIIのみに変更した。
+- GUIを開かずに起動ファイルを検証できる `--check` モードを追加した。
+- `.\start_screen_translation.cmd --check` を実行し、ランチャー処理が成功することを確認した。
+- 確認時点ではTesseract OCR本体がPATHから見つからないため、警告が表示された。
