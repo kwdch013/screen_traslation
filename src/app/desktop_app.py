@@ -8,6 +8,7 @@ from .glossary import Glossary
 from .ocr import TesseractOcrEngine
 from .pipeline import TranslationPipeline
 from .runtime import PipelineRunner
+from .single_instance import SingleInstanceLock
 from .tk_overlay import TkOverlayRenderer
 from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTranslator
 from .window import WindowInfo, list_windows
@@ -33,6 +34,14 @@ class DesktopApplication:
     def run(self) -> None:
         import tkinter as tk
         from tkinter import messagebox, ttk
+
+        instance_lock = SingleInstanceLock(self._config_path.parent / "screen_translation.lock")
+        if not instance_lock.acquire():
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showwarning("Screen Translation", "Screen Translationはすでに起動しています。")
+            root.destroy()
+            return
 
         root = tk.Tk()
         root.title("Screen Translation")
@@ -163,6 +172,7 @@ class DesktopApplication:
             updated = self._current_config(ocr_fps, overlay_opacity)
             save_config(updated, self._config_path)
             self._glossary.save(self._glossary_path)
+            instance_lock.release()
             root.destroy()
 
         start_button = ttk.Button(frame, text="開始", command=start_translation)
@@ -190,7 +200,10 @@ class DesktopApplication:
         frame.columnconfigure(3, weight=1)
         root.protocol("WM_DELETE_WINDOW", on_close)
         refresh_windows()
-        root.mainloop()
+        try:
+            root.mainloop()
+        finally:
+            instance_lock.release()
 
     def _translation_test_glossary(self) -> Glossary:
         glossary = Glossary(self._glossary.terms)
