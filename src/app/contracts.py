@@ -11,6 +11,14 @@ class Rect:
     width: int
     height: int
 
+    def scaled(self, scale: float) -> "Rect":
+        return Rect(
+            x=round(self.x * scale),
+            y=round(self.y * scale),
+            width=round(self.width * scale),
+            height=round(self.height * scale),
+        )
+
 
 @dataclass(frozen=True)
 class Frame:
@@ -53,3 +61,5 @@ class OverlayRenderer(Protocol):
     def render(self, regions: Sequence[TranslationRegion]) -> None:
         """翻訳結果をオーバーレイへ描画する。"""
 
+    def close(self) -> None:
+        """オーバーレイを閉じる。"""

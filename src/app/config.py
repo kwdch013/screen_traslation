@@ -25,7 +25,12 @@ class OverlayStyle:
 class PipelineConfig:
     ocr_fps: float = 5.0
     min_confidence: float = 0.45
+    capture_backend: str = "mss"
+    ocr_backend: str = "tesseract"
+    translator_backend: str = "argos"
+    overlay_backend: str = "tk"
     source_language: str = "en"
+    target_language: str = "ja"
     target_scope: str = "ui_all"
     external_api_policy: str = "local_first_free_only"
     ui_mode: str = "desktop"
@@ -38,6 +43,10 @@ class PipelineConfig:
             raise ValueError("ocr_fpsは0より大きくしてください。")
         if not 0.0 <= self.min_confidence <= 1.0:
             raise ValueError("min_confidenceは0.0から1.0の範囲にしてください。")
+        if self.source_language != "en":
+            raise ValueError("初期実装のsource_languageはenのみ対応です。")
+        if self.target_language != "ja":
+            raise ValueError("初期実装のtarget_languageはjaのみ対応です。")
 
 
 def load_config(path: Path) -> PipelineConfig:
@@ -65,7 +74,12 @@ def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
     return PipelineConfig(
         ocr_fps=float(data.get("ocr_fps", 5.0)),
         min_confidence=float(data.get("min_confidence", 0.45)),
+        capture_backend=str(data.get("capture_backend", "mss")),
+        ocr_backend=str(data.get("ocr_backend", "tesseract")),
+        translator_backend=str(data.get("translator_backend", "argos")),
+        overlay_backend=str(data.get("overlay_backend", "tk")),
         source_language=str(data.get("source_language", "en")),
+        target_language=str(data.get("target_language", "ja")),
         target_scope=str(data.get("target_scope", "ui_all")),
         external_api_policy=str(data.get("external_api_policy", "local_first_free_only")),
         ui_mode=str(data.get("ui_mode", "desktop")),

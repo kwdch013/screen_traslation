@@ -12,9 +12,14 @@ class InMemoryOverlayRenderer:
     def render(self, regions: Sequence[TranslationRegion]) -> None:
         self.last_regions = list(regions)
 
+    def close(self) -> None:
+        self.last_regions = []
+
 
 class ConsoleOverlayRenderer:
     def render(self, regions: Sequence[TranslationRegion]) -> None:
         for region in regions:
             print(region.translated)
 
+    def close(self) -> None:
+        return None

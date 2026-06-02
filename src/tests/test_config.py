@@ -15,7 +15,12 @@ class ConfigTest(unittest.TestCase):
         config = PipelineConfig(
             ocr_fps=3.0,
             min_confidence=0.7,
+            capture_backend="mss",
+            ocr_backend="tesseract",
+            translator_backend="argos",
+            overlay_backend="tk",
             source_language="en",
+            target_language="ja",
             target_scope="ui_all",
             external_api_policy="local_first_free_only",
             ui_mode="desktop",
