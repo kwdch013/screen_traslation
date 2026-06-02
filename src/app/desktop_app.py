@@ -127,9 +127,11 @@ class DesktopApplication:
                 if selected is not None:
                     self._config = self._config_with_region(self._config, selected.region)
                 self._overlay = TkOverlayRenderer(self._config.overlay_style, master=root)
+                ocr_engine = TesseractOcrEngine(language="eng", min_confidence=self._config.min_confidence)
+                ocr_engine.validate()
                 pipeline = TranslationPipeline(
                     capture_source=MssCaptureSource(self._config.target_region),
-                    ocr_engine=TesseractOcrEngine(language="eng", min_confidence=self._config.min_confidence),
+                    ocr_engine=ocr_engine,
                     translator=GlossaryAwareTranslator(
                         ArgosTranslator(self._config.source_language, self._config.target_language),
                         self._glossary,

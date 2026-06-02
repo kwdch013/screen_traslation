@@ -34,10 +34,16 @@ if errorlevel 1 (
 
 where tesseract >nul 2>nul
 if errorlevel 1 (
-    echo.
-    echo Warning: Tesseract OCR was not found in PATH.
-    echo OCR requires the Tesseract OCR desktop program.
-    echo.
+    if exist "C:\Program Files\Tesseract-OCR\tesseract.exe" (
+        set "PATH=C:\Program Files\Tesseract-OCR;%PATH%"
+    ) else (
+        echo.
+        echo Warning: Tesseract OCR was not found.
+        echo OCR requires the Tesseract OCR desktop program.
+        echo Install it with:
+        echo winget install --id UB-Mannheim.TesseractOCR --source winget
+        echo.
+    )
 )
 
 if not exist "config" mkdir "config"
