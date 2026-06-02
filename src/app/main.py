@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 
 from .capture import BlankCaptureSource
 from .config import PipelineConfig, load_config, save_config
+from .factory import build_pipeline
 from .glossary import Glossary
 from .ocr import StaticOcrEngine, text_to_region
 from .overlay import ConsoleOverlayRenderer
@@ -16,6 +18,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="リアルタイム画面翻訳アプリの最小実行コマンド")
     parser.add_argument("--text", help="OCRの代わりに処理するテキスト。初期検証用。")
     parser.add_argument("--desktop", action="store_true", help="デスクトップアプリを起動する。")
+    parser.add_argument("--run-once", action="store_true", help="設定された実バックエンドで1回だけ翻訳処理する。")
     parser.add_argument("--config", type=Path, default=Path("config/app.json"))
     parser.add_argument("--glossary", type=Path, default=Path("config/glossary.json"))
     parser.add_argument("--add-term", nargs=2, metavar=("SOURCE", "TARGET"), help="辞書へ用語を登録する。")
@@ -34,6 +37,21 @@ def main() -> int:
         glossary.register(args.add_term[0], args.add_term[1])
         glossary.save(args.glossary)
         save_config(config, args.config)
+        return 0
+
+    if args.run_once:
+        if args.text:
+            config = replace(
+                config,
+                capture_backend="blank",
+                ocr_backend="static",
+                translator_backend="passthrough",
+                overlay_backend="console",
+            )
+        pipeline = build_pipeline(config, glossary, static_text=args.text)
+        pipeline.tick()
+        save_config(config, args.config)
+        glossary.save(args.glossary)
         return 0
 
     if not args.text:

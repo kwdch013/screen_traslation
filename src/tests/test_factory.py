@@ -19,6 +19,19 @@ class FactoryTest(unittest.TestCase):
         self.assertIsNotNone(build_translator(config, Glossary()))
         self.assertIsNotNone(build_overlay_renderer(config))
 
+    def test_build_pipeline_with_static_text(self) -> None:
+        from app.factory import build_pipeline
+
+        config = PipelineConfig(
+            capture_backend="blank",
+            translator_backend="passthrough",
+            overlay_backend="memory",
+        )
+
+        pipeline = build_pipeline(config, Glossary(), static_text="Start")
+
+        self.assertTrue(pipeline.tick(now=0.0))
+
 
 if __name__ == "__main__":
     unittest.main()

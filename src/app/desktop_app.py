@@ -3,8 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from .config import PipelineConfig, load_config, save_config
+from .capture import MssCaptureSource
 from .glossary import Glossary
-from .translator import GlossaryAwareTranslator, PassthroughTranslator
+from .ocr import TesseractOcrEngine
+from .pipeline import TranslationPipeline
+from .runtime import PipelineRunner
+from .tk_overlay import TkOverlayRenderer
+from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTranslator
 
 
 class DesktopApplication:
@@ -17,6 +22,8 @@ class DesktopApplication:
         self._glossary_path = glossary_path
         self._config = load_config(config_path) if config_path.exists() else PipelineConfig()
         self._glossary = Glossary.load(glossary_path)
+        self._runner: PipelineRunner | None = None
+        self._overlay: TkOverlayRenderer | None = None
 
     def run(self) -> None:
         import tkinter as tk
@@ -24,7 +31,7 @@ class DesktopApplication:
 
         root = tk.Tk()
         root.title("Screen Translation")
-        root.geometry("720x460")
+        root.geometry("760x540")
 
         frame = ttk.Frame(root, padding=16)
         frame.pack(fill=tk.BOTH, expand=True)
@@ -73,26 +80,47 @@ class DesktopApplication:
             row=5, column=0, columnspan=4, sticky=tk.EW, pady=(16, 0)
         )
 
-        status = tk.StringVar(value="ローカル処理モード。完全無料APIのみ将来オプションとして許可します。")
-        ttk.Label(frame, textvariable=status).grid(row=6, column=0, columnspan=4, sticky=tk.W, pady=(32, 0))
+        ttk.Label(frame, text="実行").grid(row=6, column=0, sticky=tk.W, pady=(28, 0))
+        status = tk.StringVar(value="停止中。ローカル処理モードです。")
+
+        def start_translation() -> None:
+            try:
+                self._config = self._current_config(ocr_fps, overlay_opacity)
+                self._overlay = TkOverlayRenderer(self._config.overlay_style, master=root)
+                pipeline = TranslationPipeline(
+                    capture_source=MssCaptureSource(self._config.target_region),
+                    ocr_engine=TesseractOcrEngine(language="eng", min_confidence=self._config.min_confidence),
+                    translator=GlossaryAwareTranslator(
+                        ArgosTranslator(self._config.source_language, self._config.target_language),
+                        self._glossary,
+                    ),
+                    overlay_renderer=self._overlay,
+                    config=self._config,
+                )
+                self._runner = PipelineRunner(pipeline)
+                self._runner.start()
+                status.set("翻訳中。オーバーレイを表示しています。")
+            except Exception as error:
+                status.set(f"開始できません: {error}")
+
+        def stop_translation() -> None:
+            if self._runner is not None:
+                self._runner.stop()
+                self._runner = None
+            if self._overlay is not None:
+                self._overlay.close()
+                self._overlay = None
+            status.set("停止中。")
+
+        ttk.Button(frame, text="開始", command=start_translation).grid(row=7, column=0, sticky=tk.EW)
+        ttk.Button(frame, text="停止", command=stop_translation).grid(row=7, column=1, sticky=tk.EW, padx=(12, 0))
+        ttk.Label(frame, textvariable=status, wraplength=700).grid(
+            row=8, column=0, columnspan=4, sticky=tk.W, pady=(18, 0)
+        )
 
         def on_close() -> None:
-            updated = PipelineConfig(
-                ocr_fps=float(ocr_fps.get()),
-                min_confidence=self._config.min_confidence,
-                source_language=self._config.source_language,
-                target_scope=self._config.target_scope,
-                external_api_policy=self._config.external_api_policy,
-                ui_mode=self._config.ui_mode,
-                priority_order=self._config.priority_order,
-                target_region=self._config.target_region,
-                overlay_style=type(self._config.overlay_style)(
-                    font_size=self._config.overlay_style.font_size,
-                    text_color=self._config.overlay_style.text_color,
-                    background_color=self._config.overlay_style.background_color,
-                    overlay_opacity=float(overlay_opacity.get()),
-                ),
-            )
+            stop_translation()
+            updated = self._current_config(ocr_fps, overlay_opacity)
             save_config(updated, self._config_path)
             self._glossary.save(self._glossary_path)
             root.destroy()
@@ -103,6 +131,29 @@ class DesktopApplication:
         frame.columnconfigure(3, weight=1)
         root.protocol("WM_DELETE_WINDOW", on_close)
         root.mainloop()
+
+    def _current_config(self, ocr_fps: object, overlay_opacity: object) -> PipelineConfig:
+        return PipelineConfig(
+            ocr_fps=float(ocr_fps.get()),
+            min_confidence=self._config.min_confidence,
+            capture_backend=self._config.capture_backend,
+            ocr_backend=self._config.ocr_backend,
+            translator_backend=self._config.translator_backend,
+            overlay_backend=self._config.overlay_backend,
+            source_language=self._config.source_language,
+            target_language=self._config.target_language,
+            target_scope=self._config.target_scope,
+            external_api_policy=self._config.external_api_policy,
+            ui_mode=self._config.ui_mode,
+            priority_order=self._config.priority_order,
+            target_region=self._config.target_region,
+            overlay_style=type(self._config.overlay_style)(
+                font_size=self._config.overlay_style.font_size,
+                text_color=self._config.overlay_style.text_color,
+                background_color=self._config.overlay_style.background_color,
+                overlay_opacity=float(overlay_opacity.get()),
+            ),
+        )
 
 
 def main() -> int:
