@@ -35,6 +35,17 @@
 - `PYTHONPATH=src python3 -m py_compile src/app/*.py`
 - `PYTHONPATH=src python3 -c "from app.desktop_app import DesktopApplication; print(DesktopApplication.__name__)"`
 
+## 追加実装
+
+- `mss` による画面キャプチャアダプタを追加した。
+- `pytesseract` によるOCRアダプタを追加した。
+- Argos Translateによるローカル翻訳アダプタを追加した。
+- Argos Translate英日モデル導入コマンドを追加した。
+- Tkによる透過オーバーレイを追加した。
+- 起動中ウィンドウ選択を追加した。
+- デスクトップアプリから翻訳開始、停止できるようにした。
+- 仕様書、利用手順書、開発者向け説明書を追加した。
+
 ## 未実行
 
 - `docker compose build`
