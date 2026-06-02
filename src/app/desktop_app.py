@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .capture import MssCaptureSource
+from .capture import WindowCaptureSource
 from .config import PipelineConfig, load_config, save_config
 from .glossary import Glossary
 from .ocr import TesseractOcrEngine
@@ -145,7 +145,7 @@ class DesktopApplication:
                 ocr_engine = TesseractOcrEngine(language="eng", min_confidence=self._config.min_confidence)
                 ocr_engine.validate()
                 pipeline = TranslationPipeline(
-                    capture_source=MssCaptureSource(self._config.target_region),
+                    capture_source=WindowCaptureSource(selected.title),
                     ocr_engine=ocr_engine,
                     translator=GlossaryAwareTranslator(
                         ArgosTranslator(self._config.source_language, self._config.target_language),

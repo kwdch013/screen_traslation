@@ -28,6 +28,16 @@ def list_windows() -> list[WindowInfo]:
     return windows
 
 
+def find_window_by_title(title: str) -> WindowInfo | None:
+    normalized_title = title.strip()
+    if not normalized_title:
+        return None
+    for window in list_windows():
+        if window.title == normalized_title:
+            return window
+    return None
+
+
 def window_info_from_object(window: object) -> WindowInfo | None:
     title = str(getattr(window, "title", "")).strip()
     width = int(getattr(window, "width", 0))
