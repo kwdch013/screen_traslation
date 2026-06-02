@@ -52,3 +52,9 @@
 - 2026-06-02 22:08 時点で Docker CLI と Compose は導入済み。
 - 通常実行と権限昇格付き実行のどちらでも Docker デーモンソケットへの接続が `permission denied` になったため、ビルドは未検証。
 - `PYTHONPATH=src python3 -m unittest discover -s src/tests` は成功。15件のテストが通過した。
+
+## Docker再起動後の確認
+
+- 2026-06-02 22:18 に権限付き `docker info` でDockerサーバー接続に成功した。
+- `docker compose build` は成功した。
+- `docker compose run --rm app` は成功し、15件のテストが通過した。

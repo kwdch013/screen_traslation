@@ -23,6 +23,9 @@
 - `docker compose build`: 2026-06-02 22:08 に通常実行と権限昇格付き実行で再確認。どちらもDockerソケットのpermission denied
 - `docker info`: クライアント情報は表示されるが、サーバー接続でpermission denied
 - `PYTHONPATH=src python3 -m unittest discover -s src/tests`: 成功。15件のテストが通過
+- `docker info`: 2026-06-02 22:18 に権限付き実行でDockerサーバー接続に成功
+- `docker compose build`: 2026-06-02 22:26 に成功
+- `docker compose run --rm app`: 2026-06-02 22:26 に成功。15件のテストが通過
 
 ## 手動インストール手順
 
