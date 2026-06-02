@@ -10,6 +10,7 @@ from .pipeline import TranslationPipeline
 from .runtime import PipelineRunner
 from .tk_overlay import TkOverlayRenderer
 from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTranslator
+from .window import WindowInfo, list_windows
 
 
 class DesktopApplication:
@@ -24,6 +25,7 @@ class DesktopApplication:
         self._glossary = Glossary.load(glossary_path)
         self._runner: PipelineRunner | None = None
         self._overlay: TkOverlayRenderer | None = None
+        self._windows: list[WindowInfo] = []
 
     def run(self) -> None:
         import tkinter as tk
@@ -48,11 +50,28 @@ class DesktopApplication:
             row=0, column=3, sticky=tk.EW
         )
 
-        ttk.Label(frame, text="辞書登録").grid(row=1, column=0, sticky=tk.W, pady=(24, 0))
+        ttk.Label(frame, text="対象ウィンドウ").grid(row=1, column=0, sticky=tk.W, pady=(20, 0))
+        selected_window = tk.StringVar()
+        window_combo = ttk.Combobox(frame, textvariable=selected_window, state="readonly")
+        window_combo.grid(row=2, column=0, columnspan=3, sticky=tk.EW)
+
+        def refresh_windows() -> None:
+            try:
+                self._windows = list_windows()
+                window_combo["values"] = [window.title for window in self._windows]
+                if self._windows and not selected_window.get():
+                    selected_window.set(self._windows[0].title)
+                status.set("ウィンドウ一覧を更新しました。")
+            except Exception as error:
+                status.set(f"ウィンドウ一覧を取得できません: {error}")
+
+        ttk.Button(frame, text="更新", command=refresh_windows).grid(row=2, column=3, sticky=tk.EW, padx=(12, 0))
+
+        ttk.Label(frame, text="辞書登録").grid(row=3, column=0, sticky=tk.W, pady=(24, 0))
         source_term = tk.StringVar()
         target_term = tk.StringVar()
-        ttk.Entry(frame, textvariable=source_term).grid(row=2, column=0, columnspan=2, sticky=tk.EW)
-        ttk.Entry(frame, textvariable=target_term).grid(row=2, column=2, sticky=tk.EW, padx=(12, 0))
+        ttk.Entry(frame, textvariable=source_term).grid(row=4, column=0, columnspan=2, sticky=tk.EW)
+        ttk.Entry(frame, textvariable=target_term).grid(row=4, column=2, sticky=tk.EW, padx=(12, 0))
 
         def add_term() -> None:
             try:
@@ -64,28 +83,31 @@ class DesktopApplication:
             except ValueError as error:
                 messagebox.showerror("辞書登録エラー", str(error))
 
-        ttk.Button(frame, text="登録", command=add_term).grid(row=2, column=3, sticky=tk.EW, padx=(12, 0))
+        ttk.Button(frame, text="登録", command=add_term).grid(row=4, column=3, sticky=tk.EW, padx=(12, 0))
 
-        ttk.Label(frame, text="翻訳テスト").grid(row=3, column=0, sticky=tk.W, pady=(24, 0))
+        ttk.Label(frame, text="翻訳テスト").grid(row=5, column=0, sticky=tk.W, pady=(24, 0))
         input_text = tk.StringVar(value="New Game")
-        ttk.Entry(frame, textvariable=input_text).grid(row=4, column=0, columnspan=3, sticky=tk.EW)
+        ttk.Entry(frame, textvariable=input_text).grid(row=6, column=0, columnspan=3, sticky=tk.EW)
         output_text = tk.StringVar()
 
         def translate() -> None:
             translator = GlossaryAwareTranslator(PassthroughTranslator(), self._glossary)
             output_text.set(translator.translate(input_text.get()))
 
-        ttk.Button(frame, text="翻訳", command=translate).grid(row=4, column=3, sticky=tk.EW, padx=(12, 0))
+        ttk.Button(frame, text="翻訳", command=translate).grid(row=6, column=3, sticky=tk.EW, padx=(12, 0))
         ttk.Label(frame, textvariable=output_text, wraplength=640).grid(
-            row=5, column=0, columnspan=4, sticky=tk.EW, pady=(16, 0)
+            row=7, column=0, columnspan=4, sticky=tk.EW, pady=(16, 0)
         )
 
-        ttk.Label(frame, text="実行").grid(row=6, column=0, sticky=tk.W, pady=(28, 0))
+        ttk.Label(frame, text="実行").grid(row=8, column=0, sticky=tk.W, pady=(28, 0))
         status = tk.StringVar(value="停止中。ローカル処理モードです。")
 
         def start_translation() -> None:
             try:
                 self._config = self._current_config(ocr_fps, overlay_opacity)
+                selected = self._selected_window(selected_window.get())
+                if selected is not None:
+                    self._config = self._config_with_region(self._config, selected.region)
                 self._overlay = TkOverlayRenderer(self._config.overlay_style, master=root)
                 pipeline = TranslationPipeline(
                     capture_source=MssCaptureSource(self._config.target_region),
@@ -112,10 +134,10 @@ class DesktopApplication:
                 self._overlay = None
             status.set("停止中。")
 
-        ttk.Button(frame, text="開始", command=start_translation).grid(row=7, column=0, sticky=tk.EW)
-        ttk.Button(frame, text="停止", command=stop_translation).grid(row=7, column=1, sticky=tk.EW, padx=(12, 0))
+        ttk.Button(frame, text="開始", command=start_translation).grid(row=9, column=0, sticky=tk.EW)
+        ttk.Button(frame, text="停止", command=stop_translation).grid(row=9, column=1, sticky=tk.EW, padx=(12, 0))
         ttk.Label(frame, textvariable=status, wraplength=700).grid(
-            row=8, column=0, columnspan=4, sticky=tk.W, pady=(18, 0)
+            row=10, column=0, columnspan=4, sticky=tk.W, pady=(18, 0)
         )
 
         def on_close() -> None:
@@ -130,6 +152,7 @@ class DesktopApplication:
         frame.columnconfigure(2, weight=1)
         frame.columnconfigure(3, weight=1)
         root.protocol("WM_DELETE_WINDOW", on_close)
+        refresh_windows()
         root.mainloop()
 
     def _current_config(self, ocr_fps: object, overlay_opacity: object) -> PipelineConfig:
@@ -153,6 +176,30 @@ class DesktopApplication:
                 background_color=self._config.overlay_style.background_color,
                 overlay_opacity=float(overlay_opacity.get()),
             ),
+        )
+
+    def _selected_window(self, title: str) -> WindowInfo | None:
+        for window in self._windows:
+            if window.title == title:
+                return window
+        return None
+
+    def _config_with_region(self, config: PipelineConfig, region: object) -> PipelineConfig:
+        return PipelineConfig(
+            ocr_fps=config.ocr_fps,
+            min_confidence=config.min_confidence,
+            capture_backend=config.capture_backend,
+            ocr_backend=config.ocr_backend,
+            translator_backend=config.translator_backend,
+            overlay_backend=config.overlay_backend,
+            source_language=config.source_language,
+            target_language=config.target_language,
+            target_scope=config.target_scope,
+            external_api_policy=config.external_api_policy,
+            ui_mode=config.ui_mode,
+            priority_order=config.priority_order,
+            target_region=region,
+            overlay_style=config.overlay_style,
         )
 
 
