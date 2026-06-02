@@ -74,4 +74,4 @@ PYTHONPATH=src python3 -m py_compile src/app/*.py
 ## 未検証範囲
 
 - このLinux/WSL環境ではWindowsの実画面キャプチャ、Tkデスクトップ表示、透過オーバーレイの実表示は検証できていない。
-- Dockerはこの環境で未導入のため、Dockerビルドは未検証。
+- Docker CLIとComposeは確認できたが、Dockerデーモンのソケット権限によりDockerビルドは未検証。

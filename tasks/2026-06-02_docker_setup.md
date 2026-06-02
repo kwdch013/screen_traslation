@@ -10,11 +10,16 @@
 
 この実行環境では `sudo` が対話認証を要求し、Codexからパスワード入力用TTYを提供できないため、Docker本体のインストールは実施できなかった。
 
+最終確認時点ではDocker CLIとComposeが利用可能になっていたが、Dockerデーモンのソケット権限によりビルドは実行できなかった。
+
 実行した確認:
 
 - `docker --version`: 未導入
 - `sudo apt update`: `sudo: A terminal is required to authenticate`
 - `sudo -n true`: `sudo: interactive authentication is required`
+- `docker --version`: `Docker version 29.1.3, build 29.1.3-0ubuntu4.1`
+- `docker compose version`: `Docker Compose version 2.40.3+ds1-0ubuntu1`
+- `docker compose build`: Dockerソケットのpermission denied
 
 ## 手動インストール手順
 

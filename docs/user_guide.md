@@ -84,13 +84,22 @@ docker compose run --rm app
 
 ## Dockerインストール
 
-この作業環境ではsudoの対話認証が必要だったため、CodexからDockerを直接インストールできなかった。Ubuntu/WSLでは次を実行する。
+この作業環境ではsudoの対話認証が必要だったため、CodexからDockerを直接インストールできなかった。最終確認時点ではDocker CLIとComposeは存在したが、Dockerデーモンのソケット権限によりビルドは実行できなかった。
+
+Ubuntu/WSLで未導入、または権限設定をやり直す場合は次を実行する。
 
 ```bash
 scripts/install_docker_ubuntu.sh
 ```
 
 実行後、WSLまたはシェルを再起動する。
+
+再起動後に確認する。
+
+```bash
+docker info
+docker compose version
+```
 
 ## トラブルシュート
 
