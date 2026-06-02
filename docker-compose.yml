@@ -1,0 +1,9 @@
+services:
+  app:
+    build: .
+    environment:
+      PYTHONPATH: /app/src
+    volumes:
+      - ./config:/app/config
+    command: python -m app.main --text "New Game"
+
