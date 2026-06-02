@@ -18,6 +18,25 @@
 
 ## 実行
 
+Windowsデスクトップアプリとして使う場合:
+
+```powershell
+git clone https://github.com/kwdch013/screen_traslation.git
+cd screen_traslation
+py -3.14 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+$env:PYTHONPATH = "src"
+python -m app.main --install-argos-en-ja
+python -m app.main --desktop
+```
+
+Tesseract OCR本体も別途インストールし、`tesseract --version` が実行できる状態にする。
+詳細は [利用手順書](docs/user_guide.md) を参照する。
+
+CLIで最小動作を確認する場合:
+
 ```bash
 PYTHONPATH=src python3 -m app.main --text "New Game"
 ```

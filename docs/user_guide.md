@@ -4,38 +4,74 @@
 
 - Windows環境で実行する。
 - Python 3.14を使用する。
+- Gitを使用できる。
 - Tesseract OCR本体をインストールする。
 - Python依存ライブラリをインストールする。
 - Argos Translateの英日モデルを導入する。
 
 ## セットアップ
 
-### 1. Python依存ライブラリ
+### 1. リポジトリ取得
 
-```bash
+PowerShellで任意の作業ディレクトリへ移動し、リポジトリを取得する。
+
+```powershell
+git clone git@github.com:kwdch013/screen_traslation.git
+cd screen_traslation
+```
+
+SSH設定をしていない場合はHTTPSで取得する。
+
+```powershell
+git clone https://github.com/kwdch013/screen_traslation.git
+cd screen_traslation
+```
+
+### 2. Python仮想環境
+
+Python 3.14で仮想環境を作成して有効化する。
+
+```powershell
+py -3.14 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+```
+
+`py -3.14` で起動できない場合は、Python 3.14をインストールし、`python --version` でバージョンを確認する。
+
+### 3. Python依存ライブラリ
+
+```powershell
 python -m pip install -r requirements.txt
 ```
 
-### 2. Tesseract OCR
+### 4. Tesseract OCR
 
 WindowsではTesseract OCR本体をインストールし、`tesseract` がPATHから実行できるようにする。
 
 確認:
 
-```bash
+```powershell
 tesseract --version
 ```
 
-### 3. 英日翻訳モデル
+`tesseract` が見つからない場合は、Tesseract OCRのインストール先をPATHに追加してからPowerShellを開き直す。
 
-```bash
-PYTHONPATH=src python -m app.main --install-argos-en-ja
+### 5. 英日翻訳モデル
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m app.main --install-argos-en-ja
 ```
 
 ## 起動
 
-```bash
-PYTHONPATH=src python -m app.main --desktop
+PowerShellで仮想環境を有効化し、デスクトップアプリを起動する。
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+$env:PYTHONPATH = "src"
+python -m app.main --desktop
 ```
 
 ## 基本操作
@@ -51,8 +87,9 @@ PYTHONPATH=src python -m app.main --desktop
 
 CLIからも登録できる。
 
-```bash
-PYTHONPATH=src python -m app.main --add-term "New Game" "ニューゲーム"
+```powershell
+$env:PYTHONPATH = "src"
+python -m app.main --add-term "New Game" "ニューゲーム"
 ```
 
 登録内容は `config/glossary.json` に保存される。
@@ -61,14 +98,16 @@ PYTHONPATH=src python -m app.main --add-term "New Game" "ニューゲーム"
 
 実OCRや実翻訳を使わず、辞書とパイプラインの動作だけ確認する。
 
-```bash
-PYTHONPATH=src python -m app.main --text "New Game"
+```powershell
+$env:PYTHONPATH = "src"
+python -m app.main --text "New Game"
 ```
 
 1回だけ実行する。
 
-```bash
-PYTHONPATH=src python -m app.main --run-once --text "New Game"
+```powershell
+$env:PYTHONPATH = "src"
+python -m app.main --run-once --text "New Game"
 ```
 
 ## Docker
@@ -102,6 +141,15 @@ docker compose version
 ```
 
 ## トラブルシュート
+
+### PowerShellで仮想環境を有効化できない
+
+実行ポリシーにより `Activate.ps1` がブロックされている可能性がある。現在のPowerShellだけ許可してから再実行する。
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
 
 ### `tesseract` が見つからない
 
