@@ -46,7 +46,9 @@
 - デスクトップアプリから翻訳開始、停止できるようにした。
 - 仕様書、利用手順書、開発者向け説明書を追加した。
 
-## 未実行
+## 再確認結果
 
 - `docker compose build`
-- 理由: 現在の実行環境に `docker` コマンドが存在しないため。
+- 2026-06-02 22:08 時点で Docker CLI と Compose は導入済み。
+- 通常実行と権限昇格付き実行のどちらでも Docker デーモンソケットへの接続が `permission denied` になったため、ビルドは未検証。
+- `PYTHONPATH=src python3 -m unittest discover -s src/tests` は成功。15件のテストが通過した。

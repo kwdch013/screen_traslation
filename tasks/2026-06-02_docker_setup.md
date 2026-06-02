@@ -20,6 +20,9 @@
 - `docker --version`: `Docker version 29.1.3, build 29.1.3-0ubuntu4.1`
 - `docker compose version`: `Docker Compose version 2.40.3+ds1-0ubuntu1`
 - `docker compose build`: Dockerソケットのpermission denied
+- `docker compose build`: 2026-06-02 22:08 に通常実行と権限昇格付き実行で再確認。どちらもDockerソケットのpermission denied
+- `docker info`: クライアント情報は表示されるが、サーバー接続でpermission denied
+- `PYTHONPATH=src python3 -m unittest discover -s src/tests`: 成功。15件のテストが通過
 
 ## 手動インストール手順
 
