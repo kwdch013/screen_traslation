@@ -34,6 +34,8 @@ def window_info_from_object(window: object) -> WindowInfo | None:
     height = int(getattr(window, "height", 0))
     if not title or width <= 0 or height <= 0:
         return None
+    if not is_selectable_window_title(title):
+        return None
     return WindowInfo(
         title=title,
         region=Rect(
@@ -43,3 +45,23 @@ def window_info_from_object(window: object) -> WindowInfo | None:
             height=height,
         ),
     )
+
+
+def is_selectable_window_title(title: str) -> bool:
+    normalized = " ".join(title.casefold().split())
+    if not normalized:
+        return False
+    excluded_exact = {
+        "desktop",
+        "program manager",
+        "screen translation",
+        "screen translation overlay",
+        "windows input experience",
+    }
+    if normalized in excluded_exact:
+        return False
+    excluded_fragments = (
+        "screen translation",
+        "start menu",
+    )
+    return not any(fragment in normalized for fragment in excluded_fragments)

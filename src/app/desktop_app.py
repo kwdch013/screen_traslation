@@ -74,9 +74,14 @@ class DesktopApplication:
             try:
                 self._windows = list_windows()
                 window_combo["values"] = [window.title for window in self._windows]
-                if self._windows and not selected_window.get():
+                if self._windows and selected_window.get() not in [window.title for window in self._windows]:
                     selected_window.set(self._windows[0].title)
-                status.set("ウィンドウ一覧を更新しました。")
+                if self._windows:
+                    selected = self._selected_window(selected_window.get())
+                    status.set(_target_status("ウィンドウ一覧を更新しました。", selected))
+                else:
+                    selected_window.set("")
+                    status.set("翻訳対象のアプリウィンドウが見つかりません。対象アプリを起動してから更新してください。")
             except Exception as error:
                 status.set(f"ウィンドウ一覧を取得できません: {error}")
 
@@ -133,8 +138,9 @@ class DesktopApplication:
             try:
                 self._config = self._current_config(ocr_fps, overlay_opacity)
                 selected = self._selected_window(selected_window.get())
-                if selected is not None:
-                    self._config = self._config_with_region(self._config, selected.region)
+                if selected is None:
+                    raise ValueError("翻訳対象のアプリを選択してください。デスクトップ全体は翻訳対象にしません。")
+                self._config = self._config_with_region(self._config, selected.region)
                 self._overlay = TkOverlayRenderer(self._config.overlay_style, master=root)
                 ocr_engine = TesseractOcrEngine(language="eng", min_confidence=self._config.min_confidence)
                 ocr_engine.validate()
@@ -152,7 +158,7 @@ class DesktopApplication:
                 self._runner.start()
                 is_running.set(True)
                 update_run_buttons()
-                status.set("翻訳中。オーバーレイを表示しています。")
+                status.set(_target_status("翻訳中。右下の翻訳パネルへ表示しています。", selected))
             except Exception as error:
                 status.set(f"開始できません: {error}")
 
@@ -267,3 +273,13 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _target_status(message: str, window: WindowInfo | None) -> str:
+    if window is None:
+        return f"{message} 対象範囲: 未選択"
+    region = window.region
+    return (
+        f"{message} 対象: {window.title} "
+        f"範囲: x={region.x}, y={region.y}, width={region.width}, height={region.height}"
+    )

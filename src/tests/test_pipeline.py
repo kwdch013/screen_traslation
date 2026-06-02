@@ -5,7 +5,7 @@ from app.config import PipelineConfig
 from app.contracts import Rect, TextRegion
 from app.ocr import StaticOcrEngine
 from app.overlay import InMemoryOverlayRenderer
-from app.pipeline import FrameLimiter, TranslationPipeline
+from app.pipeline import FrameLimiter, OcrStabilizer, TranslationPipeline
 
 
 class CountingTranslator:
@@ -15,6 +15,17 @@ class CountingTranslator:
     def translate(self, text: str) -> str:
         self.calls += 1
         return f"訳:{text}"
+
+
+class SequenceOcrEngine:
+    def __init__(self, frames: list[list[TextRegion]]) -> None:
+        self._frames = frames
+        self._index = 0
+
+    def recognize(self, frame: object) -> list[TextRegion]:
+        result = self._frames[min(self._index, len(self._frames) - 1)]
+        self._index += 1
+        return result
 
 
 class PipelineTest(unittest.TestCase):
@@ -42,6 +53,7 @@ class PipelineTest(unittest.TestCase):
             translator=translator,
             overlay_renderer=renderer,
             config=PipelineConfig(ocr_fps=10.0),
+            stabilizer=OcrStabilizer(required_repeats=1),
         )
 
         self.assertTrue(pipeline.tick(now=0.0))
@@ -67,6 +79,7 @@ class PipelineTest(unittest.TestCase):
             translator=translator,
             overlay_renderer=renderer,
             config=PipelineConfig(min_confidence=0.5),
+            stabilizer=OcrStabilizer(required_repeats=1),
         )
 
         pipeline.tick(now=0.0)
@@ -74,7 +87,58 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(translator.calls, 0)
         self.assertEqual(renderer.last_regions, [])
 
+    def test_pipeline_waits_for_stable_ocr_before_rendering(self) -> None:
+        translator = CountingTranslator()
+        renderer = InMemoryOverlayRenderer()
+        pipeline = TranslationPipeline(
+            capture_source=BlankCaptureSource(),
+            ocr_engine=SequenceOcrEngine(
+                [
+                    [TextRegion(text="Noise", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
+                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
+                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
+                ]
+            ),
+            translator=translator,
+            overlay_renderer=renderer,
+            config=PipelineConfig(ocr_fps=10.0),
+            stabilizer=OcrStabilizer(required_repeats=2),
+        )
+
+        pipeline.tick(now=0.0)
+        self.assertEqual(renderer.last_regions, [])
+        pipeline.tick(now=0.2)
+        self.assertEqual(renderer.last_regions, [])
+        pipeline.tick(now=0.4)
+
+        self.assertEqual(renderer.last_regions[0].source, "New Game")
+
+    def test_pipeline_filters_previous_overlay_feedback(self) -> None:
+        translator = CountingTranslator()
+        renderer = InMemoryOverlayRenderer()
+        pipeline = TranslationPipeline(
+            capture_source=BlankCaptureSource(),
+            ocr_engine=SequenceOcrEngine(
+                [
+                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
+                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
+                    [TextRegion(text="New Game -> 訳:New Game", bounds=Rect(0, 0, 200, 20), confidence=0.9)],
+                    [TextRegion(text="New Game -> 訳:New Game", bounds=Rect(0, 0, 200, 20), confidence=0.9)],
+                ]
+            ),
+            translator=translator,
+            overlay_renderer=renderer,
+            config=PipelineConfig(ocr_fps=10.0),
+            stabilizer=OcrStabilizer(required_repeats=2),
+        )
+
+        pipeline.tick(now=0.0)
+        pipeline.tick(now=0.2)
+        pipeline.tick(now=0.4)
+        pipeline.tick(now=0.6)
+
+        self.assertEqual(renderer.last_regions[0].source, "New Game")
+
 
 if __name__ == "__main__":
     unittest.main()
-

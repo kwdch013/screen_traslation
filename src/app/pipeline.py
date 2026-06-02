@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from time import monotonic
 
 from .config import PipelineConfig
-from .contracts import CaptureSource, OcrEngine, OverlayRenderer, TranslationRegion, Translator
+from .contracts import CaptureSource, OcrEngine, OverlayRenderer, TextRegion, TranslationRegion, Translator
 
 
 class TranslationCache:
@@ -16,6 +16,28 @@ class TranslationCache:
         if key not in self._values:
             self._values[key] = translator.translate(text)
         return self._values[key]
+
+
+class OcrStabilizer:
+    def __init__(self, required_repeats: int = 2) -> None:
+        self._required_repeats = max(required_repeats, 1)
+        self._pending_signature: tuple[str, ...] | None = None
+        self._pending_count = 0
+        self._stable_regions: list[TextRegion] = []
+
+    def stable_regions(self, regions: list[TextRegion]) -> list[TextRegion]:
+        signature = tuple(_normalize_cache_key(region.text) for region in regions)
+        if signature == self._pending_signature:
+            self._pending_count += 1
+        else:
+            self._pending_signature = signature
+            self._pending_count = 1
+        if self._pending_count >= self._required_repeats:
+            self._stable_regions = list(regions)
+        return list(self._stable_regions)
+
+    def current_regions(self) -> list[TextRegion]:
+        return list(self._stable_regions)
 
 
 @dataclass
@@ -43,6 +65,7 @@ class TranslationPipeline:
         config: PipelineConfig,
         cache: TranslationCache | None = None,
         frame_limiter: FrameLimiter | None = None,
+        stabilizer: OcrStabilizer | None = None,
     ) -> None:
         self._capture_source = capture_source
         self._ocr_engine = ocr_engine
@@ -51,6 +74,8 @@ class TranslationPipeline:
         self._config = config
         self._cache = cache or TranslationCache()
         self._frame_limiter = frame_limiter or FrameLimiter(config.ocr_fps)
+        self._stabilizer = stabilizer or OcrStabilizer()
+        self._last_overlay_texts: set[str] = set()
 
     def tick(self, now: float | None = None) -> bool:
         current_time = monotonic() if now is None else now
@@ -58,11 +83,18 @@ class TranslationPipeline:
             return False
 
         frame = self._capture_source.capture()
-        text_regions = [
+        raw_text_regions = [
             region
             for region in self._ocr_engine.recognize(frame)
             if region.text.strip() and region.confidence >= self._config.min_confidence
         ]
+        text_regions = [
+            region for region in raw_text_regions if not _looks_like_overlay_feedback(region.text, self._last_overlay_texts)
+        ]
+        if raw_text_regions and not text_regions:
+            text_regions = self._stabilizer.current_regions()
+        else:
+            text_regions = self._stabilizer.stable_regions(text_regions)
         translations = [
             TranslationRegion(
                 source=region.text,
@@ -72,6 +104,7 @@ class TranslationPipeline:
             )
             for region in text_regions
         ]
+        self._last_overlay_texts = _overlay_feedback_texts(translations)
         self._overlay_renderer.render(translations)
         return True
 
@@ -79,3 +112,23 @@ class TranslationPipeline:
 def _normalize_cache_key(text: str) -> str:
     return " ".join(text.casefold().split())
 
+
+def _looks_like_overlay_feedback(text: str, overlay_texts: set[str]) -> bool:
+    normalized = _normalize_cache_key(text)
+    if not normalized:
+        return True
+    if normalized in overlay_texts:
+        return True
+    return "->" in text or "翻訳待機中" in text
+
+
+def _overlay_feedback_texts(regions: list[TranslationRegion]) -> set[str]:
+    texts: set[str] = set()
+    for region in regions:
+        source = region.source.strip()
+        translated = region.translated.strip()
+        for value in (translated, f"{source} -> {translated}"):
+            normalized = _normalize_cache_key(value)
+            if normalized:
+                texts.add(normalized)
+    return texts
