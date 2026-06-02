@@ -7,6 +7,10 @@ from .config import OverlayStyle
 from .contracts import TranslationRegion
 
 
+PANEL_WIDTH = 520
+PANEL_HEIGHT = 220
+
+
 class TkOverlayRenderer:
     def __init__(self, style: OverlayStyle, master: object | None = None) -> None:
         import tkinter as tk
@@ -19,22 +23,28 @@ class TkOverlayRenderer:
         if self._owns_root:
             self._root.withdraw()
         self._window = tk.Toplevel(self._root)
-        self._window.title("Screen Translation Overlay")
-        self._window.overrideredirect(True)
+        self._window.title("Screen Translation")
         self._window.attributes("-topmost", True)
         self._window.attributes("-alpha", self._style.overlay_opacity)
         self._window.configure(bg=self._style.background_color)
-        self._window.geometry(
-            f"{self._window.winfo_screenwidth()}x{self._window.winfo_screenheight()}+0+0"
-        )
-        self._canvas = tk.Canvas(
+        self._window.geometry(self._panel_geometry())
+        self._window.minsize(320, 140)
+        self._text = tk.Text(
             self._window,
+            wrap=tk.WORD,
+            height=8,
             highlightthickness=0,
             bd=0,
+            padx=12,
+            pady=10,
             bg=self._style.background_color,
+            fg=self._style.text_color,
+            insertbackground=self._style.text_color,
+            font=("Yu Gothic UI", max(min(self._style.font_size, 20), 11), "bold"),
         )
-        self._canvas.pack(fill=tk.BOTH, expand=True)
-        self._enable_click_through_if_supported()
+        self._text.pack(fill=tk.BOTH, expand=True)
+        self._text.configure(state=tk.DISABLED)
+        self._draw([])
         self._schedule_drain()
 
     def render(self, regions: Sequence[TranslationRegion]) -> None:
@@ -42,6 +52,13 @@ class TkOverlayRenderer:
 
     def close(self) -> None:
         self._queue.put(None)
+
+    def _panel_geometry(self) -> str:
+        screen_width = self._window.winfo_screenwidth()
+        screen_height = self._window.winfo_screenheight()
+        x = max(screen_width - PANEL_WIDTH - 24, 0)
+        y = max(screen_height - PANEL_HEIGHT - 72, 0)
+        return f"{PANEL_WIDTH}x{PANEL_HEIGHT}+{x}+{y}"
 
     def _schedule_drain(self) -> None:
         self._window.after(33, self._drain)
@@ -68,63 +85,20 @@ class TkOverlayRenderer:
         self._schedule_drain()
 
     def _draw(self, regions: list[TranslationRegion]) -> None:
-        self._canvas.delete("all")
-        for region in regions:
-            x = region.bounds.x
-            y = region.bounds.y
-            width = max(region.bounds.width, 200)
-            height = max(region.bounds.height + 12, self._style.font_size + 16)
-            self._canvas.create_rectangle(
-                x,
-                y,
-                x + width,
-                y + height,
-                fill=self._style.background_color,
-                outline="",
-            )
-            self._canvas.create_text(
-                x + 8,
-                y + height / 2,
-                anchor=self._tk.W,
-                text=region.translated,
-                fill=self._style.text_color,
-                font=("Yu Gothic UI", self._style.font_size, "bold"),
-                width=max(width - 16, 1),
-            )
+        lines = translation_panel_lines(regions)
+        self._text.configure(state=self._tk.NORMAL)
+        self._text.delete("1.0", self._tk.END)
+        self._text.insert("1.0", "\n".join(lines))
+        self._text.configure(state=self._tk.DISABLED)
 
-    def _enable_click_through_if_supported(self) -> None:
-        if self._tk.TkVersion <= 0:
-            return
-        try:
-            import ctypes
-        except ImportError:
-            return
-        try:
-            self._window.update_idletasks()
-            hwnd = self._window.winfo_id()
-            user32 = ctypes.windll.user32
-            gwl_exstyle = -20
-            ws_ex_transparent = 0x00000020
-            ws_ex_layered = 0x00080000
-            ws_ex_noactivate = 0x08000000
-            swp_nosize = 0x0001
-            swp_nomove = 0x0002
-            swp_nozorder = 0x0004
-            swp_framechanged = 0x0020
-            current_style = user32.GetWindowLongW(hwnd, gwl_exstyle)
-            user32.SetWindowLongW(
-                hwnd,
-                gwl_exstyle,
-                current_style | ws_ex_transparent | ws_ex_layered | ws_ex_noactivate,
-            )
-            user32.SetWindowPos(
-                hwnd,
-                0,
-                0,
-                0,
-                0,
-                0,
-                swp_nomove | swp_nosize | swp_nozorder | swp_framechanged,
-            )
-        except Exception:
-            return
+
+def translation_panel_lines(regions: Sequence[TranslationRegion]) -> list[str]:
+    if not regions:
+        return ["翻訳待機中"]
+    lines: list[str] = []
+    for region in regions[:8]:
+        if region.source.strip() == region.translated.strip():
+            lines.append(region.translated.strip())
+        else:
+            lines.append(f"{region.source.strip()} -> {region.translated.strip()}")
+    return lines
