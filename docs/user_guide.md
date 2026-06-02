@@ -66,6 +66,23 @@ python -m app.main --install-argos-en-ja
 
 ## 起動
 
+### クリックで起動する
+
+リポジトリ直下の `start_screen_translation.cmd` をダブルクリックする。
+
+初回起動時は次を自動で行う。
+
+- `.venv` の作成
+- Python依存ライブラリのインストール
+- `PYTHONPATH` の設定
+- デスクトップアプリの起動
+
+依存ライブラリは `.venv` 内へ入るため、Windows全体のPython環境には入らない。
+
+Tesseract OCR本体がPATHから見つからない場合は警告を表示する。OCRを使うには、Tesseract OCR本体を別途インストールする。
+
+### PowerShellから起動する
+
 PowerShellで仮想環境を有効化し、デスクトップアプリを起動する。
 
 ```powershell

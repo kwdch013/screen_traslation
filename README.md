@@ -18,6 +18,15 @@
 
 ## 実行
 
+クリックで起動する場合:
+
+```text
+start_screen_translation.cmd
+```
+
+リポジトリ直下の `start_screen_translation.cmd` をダブルクリックする。
+初回は `.venv` の作成と依存ライブラリのインストールを行い、2回目以降はそのままデスクトップアプリを起動する。
+
 Windowsデスクトップアプリとして使う場合:
 
 ```powershell
