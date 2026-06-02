@@ -5,5 +5,4 @@ services:
       PYTHONPATH: /app/src
     volumes:
       - ./config:/app/config
-    command: python -m app.main --text "New Game"
-
+    command: python -m unittest discover -s src/tests
