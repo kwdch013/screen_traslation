@@ -1,1 +1,4 @@
-
+mss>=9.0.1
+pillow>=10.4.0
+pytesseract>=0.3.13
+argostranslate>=1.9.6

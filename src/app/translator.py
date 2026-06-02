@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .glossary import Glossary
+from .errors import DependencyUnavailableError
 
 
 class PassthroughTranslator:
@@ -22,3 +23,38 @@ class GlossaryAwareTranslator:
         translated = self._base_translator.translate(text)
         return self._glossary.apply(translated)
 
+
+class ArgosTranslator:
+    def __init__(self, source_language: str = "en", target_language: str = "ja") -> None:
+        self._source_language = source_language
+        self._target_language = target_language
+        self._translator = None
+
+    def translate(self, text: str) -> str:
+        translator = self._load_translator()
+        return translator.translate(text)
+
+    def _load_translator(self):
+        if self._translator is not None:
+            return self._translator
+        try:
+            from argostranslate import translate
+        except ImportError as error:
+            raise DependencyUnavailableError(
+                "ローカル翻訳には argostranslate と英日翻訳パッケージが必要です。"
+            ) from error
+
+        installed_languages = translate.get_installed_languages()
+        source = _find_language(installed_languages, self._source_language)
+        target = _find_language(installed_languages, self._target_language)
+        if source is None or target is None:
+            raise DependencyUnavailableError("Argos Translateの英日翻訳パッケージが未導入です。")
+        self._translator = source.get_translation(target)
+        return self._translator
+
+
+def _find_language(languages: list[object], code: str):
+    for language in languages:
+        if getattr(language, "code", None) == code:
+            return language
+    return None
