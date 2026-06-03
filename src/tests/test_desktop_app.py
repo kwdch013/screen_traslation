@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.desktop_app import DesktopApplication
+from app.desktop_app import DesktopApplication, virtual_screen_geometry
 from app.glossary import Glossary
 
 
@@ -31,6 +31,19 @@ class DesktopApplicationTest(unittest.TestCase):
             test_glossary = app._translation_test_glossary()
 
         self.assertEqual(test_glossary.translate_exact("New Game"), "新規ゲーム")
+
+    def test_virtual_screen_geometry_returns_positive_size(self) -> None:
+        class FakeRoot:
+            def winfo_screenwidth(self) -> int:
+                return 1920
+
+            def winfo_screenheight(self) -> int:
+                return 1080
+
+        geometry = virtual_screen_geometry(FakeRoot())
+
+        self.assertGreaterEqual(geometry.width, 1)
+        self.assertGreaterEqual(geometry.height, 1)
 
 
 if __name__ == "__main__":
