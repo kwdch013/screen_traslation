@@ -3,13 +3,21 @@ from __future__ import annotations
 from threading import Event, Thread
 from time import sleep
 
+from collections.abc import Callable
+
 from .pipeline import TranslationPipeline
 
 
 class PipelineRunner:
-    def __init__(self, pipeline: TranslationPipeline, poll_interval_seconds: float = 0.01) -> None:
+    def __init__(
+        self,
+        pipeline: TranslationPipeline,
+        poll_interval_seconds: float = 0.01,
+        on_error: Callable[[Exception], None] | None = None,
+    ) -> None:
         self._pipeline = pipeline
         self._poll_interval_seconds = poll_interval_seconds
+        self._on_error = on_error
         self._stop_event = Event()
         self._thread: Thread | None = None
 
@@ -32,5 +40,12 @@ class PipelineRunner:
 
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
-            self._pipeline.tick()
-            sleep(self._poll_interval_seconds)
+            try:
+                self._pipeline.tick()
+            except Exception as error:
+                self._stop_event.set()
+                if self._on_error is not None:
+                    self._on_error(error)
+                return
+            else:
+                sleep(self._poll_interval_seconds)

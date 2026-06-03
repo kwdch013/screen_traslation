@@ -68,6 +68,29 @@ class WindowTest(unittest.TestCase):
         self.assertIsNotNone(info)
         self.assertEqual(info.region.x, 10)
 
+    def test_find_window_by_title_tolerates_minecraft_title_changes(self) -> None:
+        import app.window as window_module
+
+        class MinecraftWindow:
+            title = "Minecraft Forge 1.20.1"
+            left = 30
+            top = 40
+            width = 1280
+            height = 720
+
+        original = window_module.list_windows
+        try:
+            window_module.list_windows = lambda: [
+                window_info_from_object(MinecraftWindow()),
+            ]
+
+            info = find_window_by_title("Minecraft* Forge 1.20.1")
+        finally:
+            window_module.list_windows = original
+
+        self.assertIsNotNone(info)
+        self.assertEqual(info.region.x, 30)
+
 
 if __name__ == "__main__":
     unittest.main()

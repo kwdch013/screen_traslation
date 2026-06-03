@@ -154,7 +154,7 @@ class DesktopApplication:
                     overlay_renderer=self._overlay,
                     config=self._config,
                 )
-                self._runner = PipelineRunner(pipeline)
+                self._runner = PipelineRunner(pipeline, on_error=on_pipeline_error)
                 self._runner.start()
                 is_running.set(True)
                 update_run_buttons()
@@ -172,6 +172,18 @@ class DesktopApplication:
             is_running.set(False)
             update_run_buttons()
             status.set("停止中。")
+
+        def on_pipeline_error(error: Exception) -> None:
+            def update_status() -> None:
+                self._runner = None
+                if self._overlay is not None:
+                    self._overlay.close()
+                    self._overlay = None
+                is_running.set(False)
+                update_run_buttons()
+                status.set(f"翻訳処理を停止しました: {error}")
+
+            root.after(0, update_status)
 
         def on_close() -> None:
             stop_translation()

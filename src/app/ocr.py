@@ -32,6 +32,7 @@ class TesseractOcrEngine:
     def __init__(self, language: str = "eng", min_confidence: float = 0.0) -> None:
         self._language = language
         self._min_confidence = min_confidence
+        self._config = "--psm 6"
 
     def validate(self) -> None:
         pytesseract = _load_pytesseract()
@@ -53,6 +54,7 @@ class TesseractOcrEngine:
                 preprocess_image_for_ocr(frame.image),
                 lang=self._language,
                 output_type=Output.DICT,
+                config=self._config,
             )
         except Exception as error:
             raise DependencyUnavailableError(_tesseract_unavailable_message()) from error
