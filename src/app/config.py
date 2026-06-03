@@ -27,6 +27,7 @@ class PipelineConfig:
     min_confidence: float = 0.45
     capture_backend: str = "mss"
     ocr_backend: str = "tesseract"
+    ocr_gpu: bool = True
     translator_backend: str = "argos"
     translator_model_path: str | None = None
     translator_tokenizer_name: str = "Helsinki-NLP/opus-mt-en-jap"
@@ -78,6 +79,7 @@ def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
         min_confidence=float(data.get("min_confidence", 0.45)),
         capture_backend=str(data.get("capture_backend", "mss")),
         ocr_backend=str(data.get("ocr_backend", "tesseract")),
+        ocr_gpu=bool(data.get("ocr_gpu", True)),
         translator_backend=str(data.get("translator_backend", "argos")),
         translator_model_path=(
             str(data["translator_model_path"]) if data.get("translator_model_path") is not None else None

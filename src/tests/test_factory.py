@@ -43,6 +43,26 @@ class FactoryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_translator(config, Glossary())
 
+    def test_build_easyocr_backend(self) -> None:
+        config = PipelineConfig(
+            capture_backend="blank",
+            ocr_backend="easyocr",
+            translator_backend="passthrough",
+            overlay_backend="memory",
+        )
+
+        self.assertIsNotNone(build_ocr_engine(config))
+
+    def test_build_windows_ocr_backend(self) -> None:
+        config = PipelineConfig(
+            capture_backend="blank",
+            ocr_backend="windows",
+            translator_backend="passthrough",
+            overlay_backend="memory",
+        )
+
+        self.assertIsNotNone(build_ocr_engine(config))
+
 
 if __name__ == "__main__":
     unittest.main()

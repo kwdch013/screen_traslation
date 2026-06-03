@@ -12,7 +12,7 @@ import unicodedata
 from PIL import Image
 
 from .contracts import Frame, Rect, TextRegion
-from .ocr import TesseractOcrEngine
+from .ocr import EasyOcrEngine, TesseractOcrEngine, WindowsOcrEngine
 
 
 @dataclass(frozen=True)
@@ -27,11 +27,13 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="テスト画像のOCR速度と正解テキスト一致率を測定する。")
     parser.add_argument("--expected", type=Path, default=Path("src/tests/test_images/expected_ocr.json"))
+    parser.add_argument("--engine", choices=("tesseract", "easyocr", "windows"), default="tesseract")
     parser.add_argument("--language", default="eng")
     parser.add_argument("--min-confidence", type=float, default=0.0)
+    parser.add_argument("--cpu", action="store_true", help="EasyOCRをCPUで実行する。")
     args = parser.parse_args()
 
-    engine = TesseractOcrEngine(language=args.language, min_confidence=args.min_confidence)
+    engine = build_engine(args.engine, args.language, args.min_confidence, not args.cpu)
     engine.validate()
     for case in load_cases(args.expected):
         start = perf_counter()
@@ -41,6 +43,14 @@ def main() -> int:
         score = similarity(actual_text, case.expected_text)
         print(json.dumps(_result(case, elapsed, score, regions, actual_text), ensure_ascii=False))
     return 0
+
+
+def build_engine(engine: str, language: str, min_confidence: float, gpu: bool) -> object:
+    if engine == "tesseract":
+        return TesseractOcrEngine(language=language, min_confidence=min_confidence)
+    if engine == "windows":
+        return WindowsOcrEngine(language="en", min_confidence=min_confidence)
+    return EasyOcrEngine(languages=("en",), gpu=gpu, min_confidence=min_confidence)
 
 
 def load_cases(path: Path) -> list[EvaluationCase]:

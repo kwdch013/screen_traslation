@@ -61,6 +61,68 @@ class TesseractOcrEngine:
         return regions_from_tesseract_data(data, self._min_confidence)
 
 
+class EasyOcrEngine:
+    def __init__(
+        self,
+        languages: Sequence[str] = ("en",),
+        gpu: bool = True,
+        min_confidence: float = 0.0,
+        paragraph: bool = False,
+    ) -> None:
+        self._languages = list(languages)
+        self._gpu = gpu
+        self._min_confidence = min_confidence
+        self._paragraph = paragraph
+        self._reader = None
+
+    def validate(self) -> None:
+        self._load_reader()
+
+    def recognize(self, frame: Frame) -> Sequence[TextRegion]:
+        if frame.image is None:
+            return []
+        reader = self._load_reader()
+        image = _pil_image_to_numpy(frame.image)
+        try:
+            results = reader.readtext(image, detail=1, paragraph=self._paragraph)
+        except Exception as error:
+            raise DependencyUnavailableError("EasyOCRで画像を読み取れませんでした。") from error
+        return [region for region in (_easyocr_region(result) for result in results) if region.confidence >= self._min_confidence]
+
+    def _load_reader(self):
+        if self._reader is not None:
+            return self._reader
+        try:
+            import easyocr
+        except ImportError as error:
+            raise DependencyUnavailableError("EasyOCRには easyocr と torch が必要です。") from error
+        self._reader = easyocr.Reader(self._languages, gpu=self._gpu)
+        return self._reader
+
+
+class WindowsOcrEngine:
+    def __init__(self, language: str = "en", min_confidence: float = 0.0) -> None:
+        self._language = language
+        self._min_confidence = min_confidence
+
+    def validate(self) -> None:
+        _load_winocr()
+
+    def recognize(self, frame: Frame) -> Sequence[TextRegion]:
+        if frame.image is None:
+            return []
+        winocr = _load_winocr()
+        try:
+            result = winocr.recognize_pil_sync(frame.image, self._language)
+        except Exception as error:
+            raise DependencyUnavailableError("Windows OCRで画像を読み取れませんでした。") from error
+        return [
+            region
+            for region in (_windows_ocr_region(line) for line in result.get("lines", []))
+            if region.text.strip() and region.confidence >= self._min_confidence
+        ]
+
+
 def regions_from_tesseract_data(data: dict[str, list[object]], min_confidence: float) -> list[TextRegion]:
     words_by_line: dict[tuple[object, ...], list[tuple[int, str, float, Rect]]] = {}
     count = len(data.get("text", []))
@@ -106,6 +168,59 @@ def preprocess_image_for_ocr(image: object) -> object:
     if width > 0 and height > 0:
         processed = processed.resize((width * 2, height * 2))
     return processed
+
+
+def _pil_image_to_numpy(image: object) -> object:
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise DependencyUnavailableError("EasyOCRには numpy が必要です。") from error
+    if hasattr(image, "convert"):
+        return np.array(image.convert("RGB"))
+    return image
+
+
+def _easyocr_region(result: object) -> TextRegion:
+    points, text, *rest = result
+    confidence = float(rest[0]) if rest else 1.0
+    xs = [round(point[0]) for point in points]
+    ys = [round(point[1]) for point in points]
+    left = min(xs)
+    top = min(ys)
+    right = max(xs)
+    bottom = max(ys)
+    return TextRegion(
+        text=str(text).strip(),
+        bounds=Rect(x=left, y=top, width=right - left, height=bottom - top),
+        confidence=confidence,
+    )
+
+
+def _windows_ocr_region(line: dict[str, object]) -> TextRegion:
+    words = line.get("words", [])
+    rects = [_rect_from_windows_ocr_word(word) for word in words if isinstance(word, dict)]
+    if not rects:
+        return text_to_region(str(line.get("text", "")))
+    left = min(rect.x for rect in rects)
+    top = min(rect.y for rect in rects)
+    right = max(rect.x + rect.width for rect in rects)
+    bottom = max(rect.y + rect.height for rect in rects)
+    return TextRegion(
+        text=str(line.get("text", "")).strip(),
+        bounds=Rect(x=left, y=top, width=right - left, height=bottom - top),
+        confidence=1.0,
+    )
+
+
+def _rect_from_windows_ocr_word(word: dict[str, object]) -> Rect:
+    raw = word.get("bounding_rect", {})
+    rect = raw if isinstance(raw, dict) else {}
+    return Rect(
+        x=round(float(rect.get("x", 0))),
+        y=round(float(rect.get("y", 0))),
+        width=round(float(rect.get("width", 0))),
+        height=round(float(rect.get("height", 0))),
+    )
 
 
 def group_text_lines(lines: Sequence[TextRegion]) -> list[TextRegion]:
@@ -215,6 +330,14 @@ def _load_pytesseract():
     except ImportError as error:
         raise DependencyUnavailableError("OCRには pytesseract と Tesseract OCR 本体が必要です。") from error
     return pytesseract
+
+
+def _load_winocr():
+    try:
+        import winocr
+    except ImportError as error:
+        raise DependencyUnavailableError("Windows OCRには winocr が必要です。") from error
+    return winocr
 
 
 def _configure_tesseract_command(pytesseract: object) -> None:

@@ -4,7 +4,7 @@ from .capture import BlankCaptureSource, MssCaptureSource
 from .config import PipelineConfig
 from .contracts import CaptureSource, OcrEngine, OverlayRenderer, Translator
 from .glossary import Glossary
-from .ocr import StaticOcrEngine, TesseractOcrEngine
+from .ocr import EasyOcrEngine, StaticOcrEngine, TesseractOcrEngine, WindowsOcrEngine
 from .overlay import ConsoleOverlayRenderer, InMemoryOverlayRenderer
 from .pipeline import TranslationPipeline
 from .translator import ArgosTranslator, CTranslate2MarianTranslator, GlossaryAwareTranslator, PassthroughTranslator
@@ -27,6 +27,10 @@ def build_ocr_engine(config: PipelineConfig, static_text: str | None = None) -> 
         return StaticOcrEngine([])
     if config.ocr_backend == "tesseract":
         return TesseractOcrEngine(language="eng", min_confidence=config.min_confidence)
+    if config.ocr_backend == "easyocr":
+        return EasyOcrEngine(languages=("en",), gpu=config.ocr_gpu, min_confidence=config.min_confidence)
+    if config.ocr_backend == "windows":
+        return WindowsOcrEngine(language="en", min_confidence=config.min_confidence)
     raise ValueError(f"未対応のocr_backendです: {config.ocr_backend}")
 
 

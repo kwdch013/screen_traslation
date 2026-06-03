@@ -57,6 +57,34 @@ tesseract --version
 
 `tesseract` が見つからない場合は、Tesseract OCRのインストール先をPATHに追加してからPowerShellを開き直す。
 
+### 任意: Windows OCR
+
+Windows標準OCRを使う場合は追加依存を入れる。
+
+```powershell
+python -m pip install -r requirements-windows-ocr.txt
+```
+
+設定ファイルの `ocr_backend` を `windows` にするとWindows OCRを使う。通常のUIフォントではTesseractより高速な場合がある。
+
+### 任意: EasyOCR
+
+GPU EasyOCRを試す場合は、Python 3.13などの別仮想環境を作って追加依存を入れる。
+
+```powershell
+py -3.13 -m venv .venv_ocr
+.\.venv_ocr\Scripts\Activate.ps1
+python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+python -m pip install -r requirements-ocr.txt
+```
+
+評価コマンド例:
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv_ocr\Scripts\python.exe -m app.evaluate_test_images --engine easyocr
+```
+
 ### 5. 英日翻訳モデル
 
 ```powershell
@@ -125,6 +153,14 @@ python -m app.main --text "New Game"
 ```powershell
 $env:PYTHONPATH = "src"
 python -m app.main --run-once --text "New Game"
+```
+
+テスト画像OCR評価:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m app.evaluate_test_images --engine tesseract
+python -m app.evaluate_test_images --engine windows
 ```
 
 ## Docker

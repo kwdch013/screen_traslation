@@ -62,6 +62,8 @@ PYTHONPATH=src python3 -m py_compile src/app/*.py
 - 対象ウィンドウ選択
 - 領域キャプチャ
 - Tesseract OCRアダプタ
+- Windows OCRアダプタ
+- EasyOCRアダプタ
 - Argos Translateアダプタ
 - 英日モデル導入コマンド
 - 辞書登録と辞書補正
@@ -74,4 +76,4 @@ PYTHONPATH=src python3 -m py_compile src/app/*.py
 ## 未検証範囲
 
 - このLinux/WSL環境ではWindowsの実画面キャプチャ、Tkデスクトップ表示、透過オーバーレイの実表示は検証できていない。
-- Dockerビルドとコンテナ内テストは確認済み。Windowsの実画面キャプチャ、Tkデスクトップ表示、透過オーバーレイの実表示はWindowsネイティブ環境で追加検証する。
+- Dockerビルドとコンテナ内テストは環境にDocker CLIがある場合に確認する。Windowsの実画面キャプチャ、Tkデスクトップ表示、透過オーバーレイの実表示はWindowsネイティブ環境で追加検証する。

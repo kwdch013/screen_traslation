@@ -6,7 +6,7 @@
 
 - キャプチャ、OCR、翻訳、辞書、オーバーレイ、パイプラインを疎結合なモジュールとして分離しています。
 - 起動中ウィンドウを選択し、対象領域としてキャプチャできます。
-- Tesseract OCR、Argos Translate、Tk透過オーバーレイのアダプタを用意しています。
+- Tesseract OCR、Windows OCR、EasyOCR、Argos Translate、Tk透過オーバーレイのアダプタを用意しています。
 - 用語辞書はJSONで登録、保存、読み込みできます。
 - 初期検証用に、任意テキストをOCR結果として扱うCLIも用意しています。
 
@@ -67,6 +67,16 @@ Argos Translateの英日モデル導入:
 ```bash
 PYTHONPATH=src python3 -m app.main --install-argos-en-ja
 ```
+
+OCR評価:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m app.evaluate_test_images --engine tesseract
+python -m app.evaluate_test_images --engine windows
+```
+
+GPU EasyOCRを試す場合は、Python 3.13などの別venvに `requirements-ocr.txt` を入れて実行する。
 
 ## テスト
 

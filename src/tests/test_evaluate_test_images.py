@@ -2,7 +2,8 @@ import unittest
 from pathlib import Path
 import tempfile
 
-from app.evaluate_test_images import load_cases, normalize_text, similarity
+from app.evaluate_test_images import build_engine, load_cases, normalize_text, similarity
+from app.ocr import TesseractOcrEngine, WindowsOcrEngine
 
 
 class EvaluateTestImagesTest(unittest.TestCase):
@@ -25,6 +26,12 @@ class EvaluateTestImagesTest(unittest.TestCase):
         self.assertEqual(cases[0].image.name, "image.png")
         self.assertEqual(cases[0].crop.width, 3)
         self.assertEqual(cases[0].expected_text, "Text")
+
+    def test_build_engine_defaults_to_tesseract(self) -> None:
+        self.assertIsInstance(build_engine("tesseract", "eng", 0.0, True), TesseractOcrEngine)
+
+    def test_build_engine_supports_windows_ocr(self) -> None:
+        self.assertIsInstance(build_engine("windows", "eng", 0.0, True), WindowsOcrEngine)
 
 
 if __name__ == "__main__":
