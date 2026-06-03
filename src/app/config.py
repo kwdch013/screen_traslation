@@ -28,6 +28,8 @@ class PipelineConfig:
     capture_backend: str = "mss"
     ocr_backend: str = "tesseract"
     translator_backend: str = "argos"
+    translator_model_path: str | None = None
+    translator_tokenizer_name: str = "Helsinki-NLP/opus-mt-en-jap"
     overlay_backend: str = "tk"
     source_language: str = "en"
     target_language: str = "ja"
@@ -77,6 +79,10 @@ def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
         capture_backend=str(data.get("capture_backend", "mss")),
         ocr_backend=str(data.get("ocr_backend", "tesseract")),
         translator_backend=str(data.get("translator_backend", "argos")),
+        translator_model_path=(
+            str(data["translator_model_path"]) if data.get("translator_model_path") is not None else None
+        ),
+        translator_tokenizer_name=str(data.get("translator_tokenizer_name", "Helsinki-NLP/opus-mt-en-jap")),
         overlay_backend=str(data.get("overlay_backend", "tk")),
         source_language=str(data.get("source_language", "en")),
         target_language=str(data.get("target_language", "ja")),

@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "image": "test_image1.png",
+      "crop": {
+        "x": 730,
+        "y": 70,
+        "width": 530,
+        "height": 650
+      },
+      "expected_text": "[[An explorer's notebook, written on faintly glowing paper]] The tendrils of darkness surrounding this area are just a manifestation of a protective spell over the entire dark forest. The spell causes blindness, which is quite vexing. I have seen several"
+    },
+    {
+      "image": "test_image2.png",
+      "crop": {
+        "x": 680,
+        "y": 170,
+        "width": 840,
+        "height": 300
+      },
+      "expected_text": "Important Security Update Available Your safety while playing our games is our top priority. We’ve been informed of a recent security vulnerability affecting Unity. Although no malicious activity has been detected in connection with this issue, we’re taking immediate action to keep our players protected. A new update is now live on Nocturnal and includes the necessary security fixes. We strongly encourage all players to update the game as soon as possible to ensure the best and most secure gameplay experience. You can find additional details on Unity’s official website here: https://unity.com/security/sept-2025-01"
+    }
+  ]
+}

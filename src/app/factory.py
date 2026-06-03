@@ -7,7 +7,7 @@ from .glossary import Glossary
 from .ocr import StaticOcrEngine, TesseractOcrEngine
 from .overlay import ConsoleOverlayRenderer, InMemoryOverlayRenderer
 from .pipeline import TranslationPipeline
-from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTranslator
+from .translator import ArgosTranslator, CTranslate2MarianTranslator, GlossaryAwareTranslator, PassthroughTranslator
 
 
 def build_capture_source(config: PipelineConfig) -> CaptureSource:
@@ -35,6 +35,13 @@ def build_translator(config: PipelineConfig, glossary: Glossary) -> Translator:
         base_translator = PassthroughTranslator()
     elif config.translator_backend == "argos":
         base_translator = ArgosTranslator(config.source_language, config.target_language)
+    elif config.translator_backend == "ctranslate2":
+        if not config.translator_model_path:
+            raise ValueError("ctranslate2にはtranslator_model_pathを指定してください。")
+        base_translator = CTranslate2MarianTranslator(
+            model_path=config.translator_model_path,
+            tokenizer_name=config.translator_tokenizer_name,
+        )
     else:
         raise ValueError(f"未対応のtranslator_backendです: {config.translator_backend}")
     return GlossaryAwareTranslator(base_translator, glossary)

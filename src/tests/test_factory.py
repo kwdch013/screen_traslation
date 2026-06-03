@@ -32,6 +32,17 @@ class FactoryTest(unittest.TestCase):
 
         self.assertTrue(pipeline.tick(now=0.0))
 
+    def test_ctranslate2_backend_requires_model_path(self) -> None:
+        config = PipelineConfig(
+            capture_backend="blank",
+            ocr_backend="static",
+            translator_backend="ctranslate2",
+            overlay_backend="memory",
+        )
+
+        with self.assertRaises(ValueError):
+            build_translator(config, Glossary())
+
 
 if __name__ == "__main__":
     unittest.main()
