@@ -7,7 +7,7 @@ from app.ocr import group_text_lines, preprocess_image_for_ocr, regions_from_tes
 
 
 class OcrTest(unittest.TestCase):
-    def test_regions_from_tesseract_data_filters_blank_low_confidence_and_non_words(self) -> None:
+    def test_regions_from_tesseract_data_keeps_useful_single_word_labels(self) -> None:
         data = {
             "text": ["Start", "", "Noise", "!", "123", "#123"],
             "conf": ["92", "90", "12", "99", "99", "99"],
@@ -22,7 +22,7 @@ class OcrTest(unittest.TestCase):
 
         regions = regions_from_tesseract_data(data, min_confidence=0.5)
 
-        self.assertEqual(regions, [])
+        self.assertEqual([region.text for region in regions], ["Start"])
 
     def test_regions_from_tesseract_data_groups_words_by_line(self) -> None:
         data = {
@@ -66,7 +66,7 @@ class OcrTest(unittest.TestCase):
 
         self.assertEqual(processed.size, (40, 20))
 
-    def test_group_text_lines_filters_single_words(self) -> None:
+    def test_group_text_lines_keeps_useful_single_words(self) -> None:
         lines = [
             TextRegion("Inventory", Rect(100, 300, 120, 24), 0.9),
             TextRegion("Open Door", Rect(100, 380, 160, 24), 0.9),
@@ -74,7 +74,7 @@ class OcrTest(unittest.TestCase):
 
         regions = group_text_lines(lines)
 
-        self.assertEqual([region.text for region in regions], ["Open Door"])
+        self.assertEqual([region.text for region in regions], ["Inventory", "Open Door"])
 
     def test_resolve_tesseract_command_uses_candidate_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

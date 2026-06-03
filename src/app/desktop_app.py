@@ -60,6 +60,16 @@ class DesktopApplication:
         ttk.Scale(frame, from_=0.1, to=1.0, variable=overlay_opacity, orient=tk.HORIZONTAL).grid(
             row=0, column=3, sticky=tk.EW
         )
+        overlay_opacity_label = tk.StringVar(value=_opacity_label(overlay_opacity.get()))
+        ttk.Label(frame, textvariable=overlay_opacity_label, width=6).grid(row=0, column=4, sticky=tk.E)
+
+        def on_overlay_opacity_changed(*args: object) -> None:
+            overlay_opacity_label.set(_opacity_label(overlay_opacity.get()))
+            self._config = self._current_config(ocr_fps, overlay_opacity)
+            if self._overlay is not None:
+                self._overlay.set_opacity(overlay_opacity.get())
+
+        overlay_opacity.trace_add("write", on_overlay_opacity_changed)
 
         status = tk.StringVar(value="停止中。ローカル処理モードです。")
         is_running = tk.BooleanVar(value=False)
@@ -184,13 +194,14 @@ class DesktopApplication:
 
         update_run_buttons()
         ttk.Label(frame, textvariable=status, wraplength=700).grid(
-            row=9, column=0, columnspan=4, sticky=tk.W, pady=(18, 0)
+            row=9, column=0, columnspan=5, sticky=tk.W, pady=(18, 0)
         )
 
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
         frame.columnconfigure(2, weight=1)
         frame.columnconfigure(3, weight=1)
+        frame.columnconfigure(4, weight=0)
         root.protocol("WM_DELETE_WINDOW", on_close)
         try:
             root.mainloop()
@@ -342,3 +353,7 @@ def _target_status(message: str, selection: Rect | None = None) -> str:
         f"{message} 選択範囲: x={selection.x}, y={selection.y}, "
         f"width={selection.width}, height={selection.height}"
     )
+
+
+def _opacity_label(opacity: float) -> str:
+    return f"{round(float(opacity) * 100):>3}%"

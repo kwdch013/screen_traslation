@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from queue import Empty, Queue
 
 from .config import OverlayStyle
@@ -11,13 +12,18 @@ PANEL_WIDTH = 520
 PANEL_HEIGHT = 220
 
 
+@dataclass(frozen=True)
+class _OpacityCommand:
+    value: float
+
+
 class TkOverlayRenderer:
     def __init__(self, style: OverlayStyle, master: object | None = None) -> None:
         import tkinter as tk
 
         self._tk = tk
         self._style = style
-        self._queue: Queue[list[TranslationRegion] | None] = Queue()
+        self._queue: Queue[list[TranslationRegion] | _OpacityCommand | None] = Queue()
         self._root = master if master is not None else tk.Tk()
         self._owns_root = master is None
         if self._owns_root:
@@ -53,6 +59,9 @@ class TkOverlayRenderer:
     def close(self) -> None:
         self._queue.put(None)
 
+    def set_opacity(self, opacity: float) -> None:
+        self._queue.put(_OpacityCommand(normalize_overlay_opacity(opacity)))
+
     def _panel_geometry(self) -> str:
         screen_width = self._window.winfo_screenwidth()
         screen_height = self._window.winfo_screenheight()
@@ -66,6 +75,7 @@ class TkOverlayRenderer:
     def _drain(self) -> None:
         closed = False
         latest: list[TranslationRegion] | None = None
+        latest_opacity: float | None = None
         while True:
             try:
                 item = self._queue.get_nowait()
@@ -73,8 +83,12 @@ class TkOverlayRenderer:
                 break
             if item is None:
                 closed = True
+            elif isinstance(item, _OpacityCommand):
+                latest_opacity = item.value
             else:
                 latest = item
+        if latest_opacity is not None:
+            self._window.attributes("-alpha", latest_opacity)
         if latest is not None:
             self._draw(latest)
         if closed:
@@ -102,3 +116,7 @@ def translation_panel_lines(regions: Sequence[TranslationRegion]) -> list[str]:
         else:
             lines.append(f"{region.source.strip()} -> {region.translated.strip()}")
     return lines
+
+
+def normalize_overlay_opacity(opacity: float) -> float:
+    return min(max(float(opacity), 0.1), 1.0)

@@ -116,11 +116,7 @@ def group_text_lines(lines: Sequence[TextRegion]) -> list[TextRegion]:
             groups.append([line])
         else:
             groups[-1].append(line)
-    return [
-        region
-        for region in (_text_block_region(group) for group in groups)
-        if _has_multiple_words(region.text)
-    ]
+    return [region for region in (_text_block_region(group) for group in groups) if _is_useful_text(region.text)]
 
 
 def resolve_tesseract_command(
@@ -204,9 +200,13 @@ def _has_translatable_text(text: str) -> bool:
     return re.search(r"[A-Za-z]", text) is not None
 
 
-def _has_multiple_words(text: str) -> bool:
+def _is_useful_text(text: str) -> bool:
     words = re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", text)
-    return len(words) >= 2
+    if len(words) >= 2:
+        return True
+    if len(words) != 1:
+        return False
+    return len(words[0]) >= 4
 
 
 def _load_pytesseract():

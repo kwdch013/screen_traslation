@@ -113,6 +113,32 @@ class PipelineTest(unittest.TestCase):
 
         self.assertEqual(renderer.last_regions[0].source, "New Game")
 
+    def test_pipeline_clears_stale_text_when_only_overlay_feedback_is_seen(self) -> None:
+        translator = CountingTranslator()
+        renderer = InMemoryOverlayRenderer()
+        pipeline = TranslationPipeline(
+            capture_source=BlankCaptureSource(),
+            ocr_engine=SequenceOcrEngine(
+                [
+                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
+                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
+                    [TextRegion(text="New Game -> 險ｳ:New Game", bounds=Rect(0, 0, 200, 20), confidence=0.9)],
+                ]
+            ),
+            translator=translator,
+            overlay_renderer=renderer,
+            config=PipelineConfig(ocr_fps=10.0),
+            stabilizer=OcrStabilizer(required_repeats=2),
+        )
+
+        pipeline.tick(now=0.0)
+        pipeline.tick(now=0.2)
+        self.assertEqual(renderer.last_regions[0].source, "New Game")
+
+        pipeline.tick(now=0.4)
+
+        self.assertEqual(renderer.last_regions, [])
+
     def test_pipeline_filters_previous_overlay_feedback(self) -> None:
         translator = CountingTranslator()
         renderer = InMemoryOverlayRenderer()
@@ -137,7 +163,7 @@ class PipelineTest(unittest.TestCase):
         pipeline.tick(now=0.4)
         pipeline.tick(now=0.6)
 
-        self.assertEqual(renderer.last_regions[0].source, "New Game")
+        self.assertEqual(renderer.last_regions, [])
 
 
 if __name__ == "__main__":

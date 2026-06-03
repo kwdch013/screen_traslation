@@ -39,6 +39,11 @@ class OcrStabilizer:
     def current_regions(self) -> list[TextRegion]:
         return list(self._stable_regions)
 
+    def clear(self) -> None:
+        self._pending_signature = None
+        self._pending_count = 0
+        self._stable_regions = []
+
 
 @dataclass
 class FrameLimiter:
@@ -92,7 +97,8 @@ class TranslationPipeline:
             region for region in raw_text_regions if not _looks_like_overlay_feedback(region.text, self._last_overlay_texts)
         ]
         if raw_text_regions and not text_regions:
-            text_regions = self._stabilizer.current_regions()
+            self._stabilizer.clear()
+            text_regions = []
         else:
             text_regions = self._stabilizer.stable_regions(text_regions)
         translations = [
