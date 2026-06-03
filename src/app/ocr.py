@@ -49,7 +49,11 @@ class TesseractOcrEngine:
         from pytesseract import Output
 
         try:
-            data = pytesseract.image_to_data(frame.image, lang=self._language, output_type=Output.DICT)
+            data = pytesseract.image_to_data(
+                preprocess_image_for_ocr(frame.image),
+                lang=self._language,
+                output_type=Output.DICT,
+            )
         except Exception as error:
             raise DependencyUnavailableError(_tesseract_unavailable_message()) from error
         return regions_from_tesseract_data(data, self._min_confidence)
@@ -83,7 +87,38 @@ def regions_from_tesseract_data(data: dict[str, list[object]], min_confidence: f
                 ),
             )
         )
-    return [_line_region(words) for words in words_by_line.values()]
+    return group_text_lines([_line_region(words) for words in words_by_line.values()])
+
+
+def preprocess_image_for_ocr(image: object) -> object:
+    try:
+        from PIL import ImageEnhance, ImageOps
+    except ImportError:
+        return image
+    if not hasattr(image, "convert"):
+        return image
+    processed = image.convert("L")
+    processed = ImageOps.autocontrast(processed)
+    processed = ImageEnhance.Contrast(processed).enhance(1.8)
+    width, height = processed.size
+    if width > 0 and height > 0:
+        processed = processed.resize((width * 2, height * 2))
+    return processed
+
+
+def group_text_lines(lines: Sequence[TextRegion]) -> list[TextRegion]:
+    sorted_lines = sorted(lines, key=lambda region: (region.bounds.y, region.bounds.x))
+    groups: list[list[TextRegion]] = []
+    for line in sorted_lines:
+        if not groups or not _should_merge_line(groups[-1][-1], line):
+            groups.append([line])
+        else:
+            groups[-1].append(line)
+    return [
+        region
+        for region in (_text_block_region(group) for group in groups)
+        if _has_multiple_words(region.text)
+    ]
 
 
 def resolve_tesseract_command(
@@ -123,6 +158,39 @@ def _line_region(words: list[tuple[int, str, float, Rect]]) -> TextRegion:
     )
 
 
+def _text_block_region(lines: list[TextRegion]) -> TextRegion:
+    bounds = [line.bounds for line in lines]
+    left = min(bound.x for bound in bounds)
+    top = min(bound.y for bound in bounds)
+    right = max(bound.x + bound.width for bound in bounds)
+    bottom = max(bound.y + bound.height for bound in bounds)
+    return TextRegion(
+        text=" ".join(line.text for line in lines),
+        bounds=Rect(x=left, y=top, width=right - left, height=bottom - top),
+        confidence=sum(line.confidence for line in lines) / len(lines),
+    )
+
+
+def _should_merge_line(previous: TextRegion, current: TextRegion) -> bool:
+    previous_bottom = previous.bounds.y + previous.bounds.height
+    vertical_gap = current.bounds.y - previous_bottom
+    if vertical_gap < 0:
+        vertical_gap = 0
+    average_height = (previous.bounds.height + current.bounds.height) / 2
+    max_gap = max(8, average_height * 0.85)
+    if vertical_gap > max_gap:
+        return False
+    return _horizontal_overlap_ratio(previous.bounds, current.bounds) >= 0.25
+
+
+def _horizontal_overlap_ratio(first: Rect, second: Rect) -> float:
+    left = max(first.x, second.x)
+    right = min(first.x + first.width, second.x + second.width)
+    overlap = max(right - left, 0)
+    narrower = max(min(first.width, second.width), 1)
+    return overlap / narrower
+
+
 def _data_value(data: dict[str, list[object]], key: str, index: int) -> object:
     values = data.get(key)
     if not values or index >= len(values):
@@ -132,6 +200,11 @@ def _data_value(data: dict[str, list[object]], key: str, index: int) -> object:
 
 def _has_translatable_text(text: str) -> bool:
     return re.search(r"[A-Za-z]", text) is not None
+
+
+def _has_multiple_words(text: str) -> bool:
+    words = re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", text)
+    return len(words) >= 2
 
 
 def _load_pytesseract():
