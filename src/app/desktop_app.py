@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .capture import WindowCaptureSource
+from .capture import WindowCaptureSource, relative_region
 from .config import PipelineConfig, load_config, save_config
+from .contracts import Rect
 from .glossary import Glossary
 from .ocr import TesseractOcrEngine
 from .pipeline import TranslationPipeline
@@ -141,11 +142,12 @@ class DesktopApplication:
                 if selected is None:
                     raise ValueError("翻訳対象のアプリを選択してください。デスクトップ全体は翻訳対象にしません。")
                 self._config = self._config_with_region(self._config, selected.region)
+                selection = select_translation_region(root, selected)
                 self._overlay = TkOverlayRenderer(self._config.overlay_style, master=root)
                 ocr_engine = TesseractOcrEngine(language="eng", min_confidence=self._config.min_confidence)
                 ocr_engine.validate()
                 pipeline = TranslationPipeline(
-                    capture_source=WindowCaptureSource(selected.title),
+                    capture_source=WindowCaptureSource(selected.title, selection),
                     ocr_engine=ocr_engine,
                     translator=GlossaryAwareTranslator(
                         ArgosTranslator(self._config.source_language, self._config.target_language),
@@ -158,7 +160,7 @@ class DesktopApplication:
                 self._runner.start()
                 is_running.set(True)
                 update_run_buttons()
-                status.set(_target_status("翻訳中。右下の翻訳パネルへ表示しています。", selected))
+                status.set(_target_status("翻訳中。選択範囲を右下の翻訳パネルへ表示しています。", selected, selection))
             except Exception as error:
                 status.set(f"開始できません: {error}")
 
@@ -287,11 +289,81 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-def _target_status(message: str, window: WindowInfo | None) -> str:
+def select_translation_region(root: object, window: WindowInfo) -> Rect:
+    import tkinter as tk
+
+    selection: dict[str, Rect | None] = {"value": None}
+    start: dict[str, int] = {"x": 0, "y": 0}
+    overlay = tk.Toplevel(root)
+    overlay.title("翻訳範囲を選択")
+    overlay.attributes("-topmost", True)
+    overlay.attributes("-alpha", 0.28)
+    overlay.configure(bg="black")
+    overlay.geometry(f"{window.region.width}x{window.region.height}+{window.region.x}+{window.region.y}")
+    overlay.overrideredirect(True)
+    canvas = tk.Canvas(overlay, bg="black", highlightthickness=0, cursor="crosshair")
+    canvas.pack(fill=tk.BOTH, expand=True)
+    rect_id: list[int | None] = [None]
+
+    def on_press(event: object) -> None:
+        start["x"] = int(event.x)
+        start["y"] = int(event.y)
+        if rect_id[0] is not None:
+            canvas.delete(rect_id[0])
+        rect_id[0] = canvas.create_rectangle(
+            start["x"],
+            start["y"],
+            start["x"],
+            start["y"],
+            outline="#00d1ff",
+            width=3,
+            fill="#00d1ff",
+            stipple="gray25",
+        )
+
+    def on_drag(event: object) -> None:
+        if rect_id[0] is None:
+            return
+        canvas.coords(rect_id[0], start["x"], start["y"], int(event.x), int(event.y))
+
+    def on_release(event: object) -> None:
+        end_x = int(event.x)
+        end_y = int(event.y)
+        left = min(start["x"], end_x)
+        top = min(start["y"], end_y)
+        width = abs(end_x - start["x"])
+        height = abs(end_y - start["y"])
+        if width >= 20 and height >= 20:
+            absolute = Rect(x=window.region.x + left, y=window.region.y + top, width=width, height=height)
+            selection["value"] = relative_region(window.region, absolute)
+        overlay.destroy()
+
+    def on_cancel(event: object | None = None) -> None:
+        overlay.destroy()
+
+    canvas.bind("<ButtonPress-1>", on_press)
+    canvas.bind("<B1-Motion>", on_drag)
+    canvas.bind("<ButtonRelease-1>", on_release)
+    overlay.bind("<Escape>", on_cancel)
+    overlay.grab_set()
+    overlay.focus_force()
+    root.wait_window(overlay)
+    if selection["value"] is None:
+        raise ValueError("翻訳範囲が選択されませんでした。")
+    return selection["value"]
+
+
+def _target_status(message: str, window: WindowInfo | None, selection: Rect | None = None) -> str:
     if window is None:
         return f"{message} 対象範囲: 未選択"
     region = window.region
-    return (
+    status = (
         f"{message} 対象: {window.title} "
         f"範囲: x={region.x}, y={region.y}, width={region.width}, height={region.height}"
     )
+    if selection is not None:
+        status += (
+            f" 選択範囲: x={selection.x}, y={selection.y}, "
+            f"width={selection.width}, height={selection.height}"
+        )
+    return status
