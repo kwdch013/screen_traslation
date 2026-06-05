@@ -4,7 +4,7 @@ from .capture import BlankCaptureSource, MssCaptureSource
 from .config import PipelineConfig
 from .contracts import CaptureSource, OcrEngine, OverlayRenderer, Translator
 from .glossary import Glossary
-from .ocr import EasyOcrEngine, LlmOcrEngine, StaticOcrEngine, TesseractOcrEngine, WindowsOcrEngine
+from .ocr import EasyOcrEngine, FallbackOcrEngine, LlmOcrEngine, StaticOcrEngine, TesseractOcrEngine, WindowsOcrEngine
 from .overlay import ConsoleOverlayRenderer, InMemoryOverlayRenderer
 from .pipeline import TranslationPipeline
 from .translator import ArgosTranslator, CTranslate2MarianTranslator, GlossaryAwareTranslator, LlmTranslator, PassthroughTranslator
@@ -27,6 +27,18 @@ def build_ocr_engine(config: PipelineConfig, static_text: str | None = None) -> 
         return StaticOcrEngine([])
     if config.ocr_backend == "tesseract":
         return TesseractOcrEngine(language="eng", min_confidence=config.min_confidence)
+    if config.ocr_backend == "tesseract_llm_fallback":
+        if not config.llm_model:
+            raise ValueError("tesseract_llm_fallbackにはllm_modelを指定してください。")
+        return FallbackOcrEngine(
+            primary=TesseractOcrEngine(language="eng", min_confidence=0.0),
+            fallback=LlmOcrEngine(
+                model=config.llm_model,
+                base_url=config.llm_base_url,
+                timeout_seconds=config.llm_timeout_seconds,
+            ),
+            min_primary_confidence=config.ocr_fallback_min_confidence,
+        )
     if config.ocr_backend == "easyocr":
         return EasyOcrEngine(languages=("en",), gpu=config.ocr_gpu, min_confidence=config.min_confidence)
     if config.ocr_backend == "windows":

@@ -44,3 +44,6 @@ python -m app.evaluate_translations --engine llm --llm-base-url http://127.0.0.1
 - `qwen2.5vl:7b` は `ollama pull` が2分で完了せず、モデル一覧にも追加されなかったため今回の実測対象から外した。
 - `minicpm-v` は `test_image1.png` の類似度を0.4187まで改善したが、ラベル・説明・補完が混ざるためOCR本線には不適。
 - `gemma3:12b` は通常フォントでは高精度だが、ピクセルフォントではTesseract以下だった。
+- `qwen2.5vl:7b` は追加実測で `test_image1.png` が0.3887、`test_image2.png` が0.9984、`test_image3.jpg` が1.0000となり、説明混入も少ないため補助OCRとして採用した。
+- `ocr_backend` を `tesseract_llm_fallback` に変更し、Tesseractの平均信頼度が `ocr_fallback_min_confidence` 未満の場合のみ `qwen2.5vl:7b` を呼ぶ構成にした。
+- 不採用モデルは検証記録を残し、Ollama上の `gemma3:4b`、`gemma3:12b`、`minicpm-v` とCTranslate2モデル実体 `models/opus-mt-en-jap-ct2` を削除した。

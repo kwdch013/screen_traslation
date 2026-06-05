@@ -124,6 +124,31 @@ class WindowsOcrEngine:
         ]
 
 
+class FallbackOcrEngine:
+    def __init__(
+        self,
+        primary: object,
+        fallback: object,
+        min_primary_confidence: float = 0.65,
+    ) -> None:
+        self._primary = primary
+        self._fallback = fallback
+        self._min_primary_confidence = min_primary_confidence
+
+    def validate(self) -> None:
+        for engine in (self._primary, self._fallback):
+            validate = getattr(engine, "validate", None)
+            if validate is not None:
+                validate()
+
+    def recognize(self, frame: Frame) -> Sequence[TextRegion]:
+        primary_regions = list(self._primary.recognize(frame))
+        if not _should_use_fallback(primary_regions, self._min_primary_confidence):
+            return primary_regions
+        fallback_regions = [region for region in (_clean_llm_region(region) for region in self._fallback.recognize(frame)) if region.text]
+        return fallback_regions or primary_regions
+
+
 class LlmOcrEngine:
     def __init__(
         self,
@@ -158,6 +183,43 @@ class LlmOcrEngine:
         if not text:
             return []
         return [text_to_region(text)]
+
+
+def _should_use_fallback(regions: Sequence[TextRegion], min_primary_confidence: float) -> bool:
+    if not regions:
+        return True
+    mean_confidence = sum(region.confidence for region in regions) / len(regions)
+    return mean_confidence < min_primary_confidence
+
+
+def _clean_llm_region(region: TextRegion) -> TextRegion:
+    text = clean_llm_ocr_text(region.text)
+    return TextRegion(text=text, bounds=region.bounds, confidence=region.confidence)
+
+
+def clean_llm_ocr_text(text: str) -> str:
+    lines = []
+    skip_note = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            lines.append("")
+            continue
+        normalized = line.strip("*").strip()
+        lower = normalized.casefold()
+        if lower.startswith(("note:", "notes:", "(note:", "**note:**")):
+            skip_note = True
+            continue
+        if skip_note:
+            continue
+        if lower in {"title:", "body text:", "hyperlink:"}:
+            continue
+        for prefix in ("Title:", "Body Text:", "Hyperlink:", "**Title:**", "**Body Text:**"):
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix) :].strip()
+        if normalized:
+            lines.append(normalized)
+    return "\n".join(lines).strip()
 
 
 def regions_from_tesseract_data(data: dict[str, list[object]], min_confidence: float) -> list[TextRegion]:

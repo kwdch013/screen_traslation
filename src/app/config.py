@@ -28,6 +28,7 @@ class PipelineConfig:
     capture_backend: str = "mss"
     ocr_backend: str = "tesseract"
     ocr_gpu: bool = True
+    ocr_fallback_min_confidence: float = 0.65
     translator_backend: str = "argos"
     translator_model_path: str | None = None
     translator_tokenizer_name: str = "Helsinki-NLP/opus-mt-en-jap"
@@ -49,6 +50,8 @@ class PipelineConfig:
             raise ValueError("ocr_fpsは0より大きくしてください。")
         if not 0.0 <= self.min_confidence <= 1.0:
             raise ValueError("min_confidenceは0.0から1.0の範囲にしてください。")
+        if not 0.0 <= self.ocr_fallback_min_confidence <= 1.0:
+            raise ValueError("ocr_fallback_min_confidenceは0.0から1.0の範囲にしてください。")
         if self.source_language != "en":
             raise ValueError("初期実装のsource_languageはenのみ対応です。")
         if self.target_language != "ja":
@@ -85,6 +88,7 @@ def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
         capture_backend=str(data.get("capture_backend", "mss")),
         ocr_backend=str(data.get("ocr_backend", "tesseract")),
         ocr_gpu=bool(data.get("ocr_gpu", True)),
+        ocr_fallback_min_confidence=float(data.get("ocr_fallback_min_confidence", 0.65)),
         translator_backend=str(data.get("translator_backend", "argos")),
         translator_model_path=(
             str(data["translator_model_path"]) if data.get("translator_model_path") is not None else None

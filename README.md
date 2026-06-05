@@ -82,6 +82,9 @@ python -m app.evaluate_translations --engine llm --llm-base-url http://127.0.0.1
 `cpu_seconds` がCPU時間、`memory_bytes` / `memory_delta_bytes` がプロセスのメモリ負荷です。
 LLM系はOpenAI互換の `/v1/chat/completions` を持つローカルAPIを想定します。
 
+実運用候補は `ocr_backend: tesseract_llm_fallback`、`translator_backend: argos` です。
+Tesseractの平均信頼度が低い場合のみ、Ollama上の `qwen2.5vl:7b` を補助OCRとして呼び出します。
+
 GPU EasyOCRを試す場合は、Python 3.13などの別venvに `requirements-ocr.txt` を入れて実行する。
 
 ## テスト

@@ -36,6 +36,9 @@ Dockerはこの環境で `docker` コマンドが見つからなかったため�
 | `minicpm-v` | `test_image1.png` | 0.4187 | 1.0000 | 15.127 | 0.062 | 4,956,160 | ピクセルフォントは改善 |
 | `minicpm-v` | `test_image2.png` | 0.9749 | 1.0000 | 8.606 | 0.031 | -462,848 | 説明ラベルが混ざる |
 | `minicpm-v` | `test_image3.jpg` | 0.6507 | 1.0000 | 4.274 | 0.016 | 167,936 | 内容補完が多く不安定 |
+| `qwen2.5vl:7b` | `test_image1.png` | 0.3887 | 1.0000 | 4.780 | 0.062 | 4,775,936 | ピクセルフォントを改善 |
+| `qwen2.5vl:7b` | `test_image2.png` | 0.9984 | 1.0000 | 1.528 | 0.031 | -454,656 | 高精度 |
+| `qwen2.5vl:7b` | `test_image3.jpg` | 1.0000 | 1.0000 | 2.822 | 0.016 | 172,032 | 高精度 |
 | `gemma3:12b` | `test_image1.png` | 0.2020 | 1.0000 | 4.151 | 0.062 | 4,997,120 | 改善なし |
 | `gemma3:12b` | `test_image2.png` | 0.9984 | 1.0000 | 3.682 | 0.031 | -462,848 | 高精度 |
 | `gemma3:12b` | `test_image3.jpg` | 0.9981 | 1.0000 | 6.801 | 0.016 | 172,032 | 高精度 |
@@ -47,7 +50,7 @@ Tesseract平均:
 
 比較元コミットの記録では、`test_image1.png` は類似度0.2392、`test_image2.png` は0.9952、`test_image3.jpg` は0.9969だった。現在の再実測でも精度は同一で、LLM OCRを試す価値が高い対象は主に `test_image1.png`。
 
-Ollama VLMの詳細比較は `ollama_vlm_comparison.md` に記載した。VRAM 10GB枠では `gemma3:12b` まで実行可能だったが、ピクセルフォント改善は見られなかった。
+Ollama VLMの詳細比較は `ollama_vlm_comparison.md` に記載した。総合的には `qwen2.5vl:7b` がフォールバックOCRとして最良だった。
 
 ## 翻訳スコア
 | エンジン | 入力 | 類似度 | 秒 | CPU秒 | メモリ差分 | 出力 | 判断 |
@@ -72,14 +75,14 @@ CTranslate2平均:
 
 ## 結論
 - OCRは、通常フォントではTesseractが十分高精度。低精度の主因は `test_image1.png` のピクセルフォントであり、LLM/VLM OCRの検証優先度は高い。
-- Ollama VLM比較では、`minicpm-v` のみ `test_image1.png` の類似度を改善したが、説明・補完が混ざるためそのまま採用しない。
+- Ollama VLM比較では、`qwen2.5vl:7b` が通常フォント・ピクセルフォントの総合で最良だった。
+- `minicpm-v` は `test_image1.png` の類似度を改善したが、説明・補完が混ざるため採用しない。
 - `gemma3:12b` はVRAM 10GB枠で動作し通常フォントに強いが、ピクセルフォントではTesseract以下。
 - 翻訳は、現時点ではArgosがCTranslate2より明確に安定している。CTranslate2の `opus-mt-en-jap` は今回の用途では候補から下げる。
 - LLM翻訳は、OCRほど優先度は高くない。まずピクセルフォントOCRを改善する方が効果が大きい。
 - LLM/VLM実測時は、同じCLIで `seconds`、`cpu_seconds`、`memory_bytes`、`memory_delta_bytes` を比較する。
 
 ## 次の検証手順
-1. ローカルVLMサーバーをOpenAI互換 `/v1/chat/completions` で起動する。
-2. `LLM_BASE_URL` と `LLM_MODEL` を指定してOCR評価を実行する。
-3. `test_image1.png` の類似度がTesseractの0.2392を大きく上回るか確認する。
-4. 改善がある場合のみ、速度とメモリ負荷をTesseractと比較して採用可否を判断する。
+1. `ocr_backend: tesseract_llm_fallback` で実画面動作を確認する。
+2. Tesseractの平均信頼度が低い場面だけ `qwen2.5vl:7b` が動くことを確認する。
+3. 遅延が気になる場合はフォールバック条件を `ocr_fallback_min_confidence` で調整する。
