@@ -14,6 +14,10 @@ from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTra
 
 
 GLOSSARY_EXAMPLES = (("New Game", "ニューゲーム"),)
+START_BUTTON_TEXT = "開始"
+STOP_BUTTON_TEXT = "停止"
+RESELECT_REGION_BUTTON_TEXT = "範囲再選択"
+EXIT_BUTTON_TEXT = "終了"
 
 
 class DesktopApplication:
@@ -122,30 +126,66 @@ class DesktopApplication:
 
         ttk.Label(frame, text="実行").grid(row=7, column=0, sticky=tk.W, pady=(28, 0))
 
-        def start_translation() -> None:
-            try:
-                self._config = self._current_config(ocr_fps, overlay_opacity)
-                selection = select_translation_region(root)
-                self._config = self._config_with_region(self._config, selection)
-                pipeline = self._build_pipeline_for_region(root, selection)
-                self._runner = PipelineRunner(pipeline, on_error=on_pipeline_error)
-                self._runner.start()
-                is_running.set(True)
-                update_run_buttons()
-                status.set(_target_status("翻訳中。選択範囲を右下の翻訳パネルへ表示しています。", selection))
-            except Exception as error:
-                status.set(f"開始できません: {error}")
-
-        def stop_translation() -> None:
+        def stop_active_translation() -> None:
             if self._runner is not None:
                 self._runner.stop()
                 self._runner = None
             if self._overlay is not None:
                 self._overlay.close()
                 self._overlay = None
+
+        def start_translation_for_region(selection: Rect, message: str) -> None:
+            self._config = self._config_with_region(self._config, selection)
+            pipeline = self._build_pipeline_for_region(root, selection)
+            self._runner = PipelineRunner(pipeline, on_error=on_pipeline_error)
+            self._runner.start()
+            is_running.set(True)
+            update_run_buttons()
+            status.set(_target_status(message, selection))
+
+        def start_translation() -> None:
+            try:
+                self._config = self._current_config(ocr_fps, overlay_opacity)
+                selection = select_translation_region(root)
+                start_translation_for_region(selection, "翻訳中。選択範囲を右下の翻訳パネルへ表示しています。")
+            except Exception as error:
+                status.set(f"開始できません: {error}")
+
+        def stop_translation() -> None:
+            stop_active_translation()
             is_running.set(False)
             update_run_buttons()
             status.set("停止中。")
+
+        def reselect_translation_region() -> None:
+            previous_region = self._config.target_region
+            try:
+                self._config = self._current_config(ocr_fps, overlay_opacity)
+                stop_active_translation()
+                status.set("翻訳範囲を再選択しています。")
+                selection = select_translation_region(root)
+                start_translation_for_region(
+                    selection,
+                    "翻訳範囲を再選択しました。選択範囲を右下の翻訳パネルへ表示しています。",
+                )
+            except Exception as error:
+                if previous_region is None:
+                    is_running.set(False)
+                    update_run_buttons()
+                    status.set(f"翻訳範囲を再選択できませんでした: {error}")
+                    return
+                try:
+                    start_translation_for_region(
+                        previous_region,
+                        f"翻訳範囲を再選択できなかったため、前回の範囲で翻訳を再開しました: {error}",
+                    )
+                except Exception as restart_error:
+                    is_running.set(False)
+                    update_run_buttons()
+                    status.set(
+                        f"翻訳範囲を再選択できず、翻訳も再開できませんでした: {error}; "
+                        f"再開エラー: {restart_error}"
+                    )
 
         def on_pipeline_error(error: Exception) -> None:
             def update_status() -> None:
@@ -167,17 +207,20 @@ class DesktopApplication:
             instance_lock.release()
             root.destroy()
 
-        start_button = ttk.Button(frame, text="開始", command=start_translation)
-        stop_button = ttk.Button(frame, text="停止", command=stop_translation)
-        exit_button = ttk.Button(frame, text="終了", command=on_close)
+        start_button = ttk.Button(frame, text=START_BUTTON_TEXT, command=start_translation)
+        stop_button = ttk.Button(frame, text=STOP_BUTTON_TEXT, command=stop_translation)
+        reselect_button = ttk.Button(frame, text=RESELECT_REGION_BUTTON_TEXT, command=reselect_translation_region)
+        exit_button = ttk.Button(frame, text=EXIT_BUTTON_TEXT, command=on_close)
 
         def update_run_buttons() -> None:
             if is_running.get():
                 start_button.grid_remove()
                 stop_button.grid(row=8, column=0, sticky=tk.EW)
-                exit_button.grid(row=8, column=1, sticky=tk.EW, padx=(12, 0))
+                reselect_button.grid(row=8, column=1, sticky=tk.EW, padx=(12, 0))
+                exit_button.grid(row=8, column=2, sticky=tk.EW, padx=(12, 0))
             else:
                 stop_button.grid_remove()
+                reselect_button.grid_remove()
                 exit_button.grid_remove()
                 start_button.grid(row=8, column=0, sticky=tk.EW)
 
@@ -359,6 +402,12 @@ def selected_screen_rect(start_x: int, start_y: int, end_x: int, end_y: int) -> 
     if width < 20 or height < 20:
         return None
     return Rect(x=left, y=top, width=width, height=height)
+
+
+def run_button_texts(is_running: bool) -> tuple[str, ...]:
+    if is_running:
+        return (STOP_BUTTON_TEXT, RESELECT_REGION_BUTTON_TEXT, EXIT_BUTTON_TEXT)
+    return (START_BUTTON_TEXT,)
 
 
 def canvas_rect_coords(screen: Rect, start_x: int, start_y: int, end_x: int, end_y: int) -> tuple[int, int, int, int]:

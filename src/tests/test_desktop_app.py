@@ -8,6 +8,7 @@ from app.desktop_app import (
     DesktopApplication,
     canvas_rect_coords,
     enable_process_dpi_awareness,
+    run_button_texts,
     selected_screen_rect,
     virtual_screen_geometry,
 )
@@ -67,6 +68,12 @@ class DesktopApplicationTest(unittest.TestCase):
         rect = selected_screen_rect(100, 100, 110, 110)
 
         self.assertIsNone(rect)
+
+    def test_running_buttons_include_region_reselect(self) -> None:
+        self.assertEqual(run_button_texts(is_running=True), ("停止", "範囲再選択", "終了"))
+
+    def test_stopped_buttons_only_include_start(self) -> None:
+        self.assertEqual(run_button_texts(is_running=False), ("開始",))
 
     def test_canvas_rect_coords_converts_screen_coordinates_to_canvas_coordinates(self) -> None:
         screen = Rect(x=-1920, y=0, width=3840, height=1080)
