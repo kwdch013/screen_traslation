@@ -31,6 +31,9 @@ class PipelineConfig:
     translator_backend: str = "argos"
     translator_model_path: str | None = None
     translator_tokenizer_name: str = "Helsinki-NLP/opus-mt-en-jap"
+    llm_base_url: str = "http://127.0.0.1:8000/v1"
+    llm_model: str = ""
+    llm_timeout_seconds: float = 120.0
     overlay_backend: str = "tk"
     source_language: str = "en"
     target_language: str = "ja"
@@ -50,6 +53,8 @@ class PipelineConfig:
             raise ValueError("初期実装のsource_languageはenのみ対応です。")
         if self.target_language != "ja":
             raise ValueError("初期実装のtarget_languageはjaのみ対応です。")
+        if self.llm_timeout_seconds <= 0:
+            raise ValueError("llm_timeout_secondsは0より大きくしてください。")
 
 
 def load_config(path: Path) -> PipelineConfig:
@@ -85,6 +90,9 @@ def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
             str(data["translator_model_path"]) if data.get("translator_model_path") is not None else None
         ),
         translator_tokenizer_name=str(data.get("translator_tokenizer_name", "Helsinki-NLP/opus-mt-en-jap")),
+        llm_base_url=str(data.get("llm_base_url", "http://127.0.0.1:8000/v1")),
+        llm_model=str(data.get("llm_model", "")),
+        llm_timeout_seconds=float(data.get("llm_timeout_seconds", 120.0)),
         overlay_backend=str(data.get("overlay_backend", "tk")),
         source_language=str(data.get("source_language", "en")),
         target_language=str(data.get("target_language", "ja")),

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .glossary import Glossary
 from .errors import DependencyUnavailableError
+from .llm_client import OpenAICompatibleClient
 
 
 class PassthroughTranslator:
@@ -90,6 +91,29 @@ class CTranslate2MarianTranslator:
         self._translator = ctranslate2.Translator(str(self._model_path), device=self._device)
         self._tokenizer = AutoTokenizer.from_pretrained(self._tokenizer_name)
         return self._translator, self._tokenizer
+
+
+class LlmTranslator:
+    def __init__(
+        self,
+        model: str,
+        base_url: str = "http://127.0.0.1:8000/v1",
+        api_key: str | None = None,
+        timeout_seconds: float = 120.0,
+        client: OpenAICompatibleClient | None = None,
+    ) -> None:
+        self._client = client or OpenAICompatibleClient(
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def translate(self, text: str) -> str:
+        return self._client.complete_text(
+            "You translate English game and application UI text into natural Japanese. Return only Japanese.",
+            text,
+        )
 
 
 def _find_language(languages: list[object], code: str):

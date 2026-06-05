@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 
 from app.evaluate_test_images import build_engine, load_cases, normalize_text, similarity
-from app.ocr import TesseractOcrEngine, WindowsOcrEngine
+from app.ocr import LlmOcrEngine, TesseractOcrEngine, WindowsOcrEngine
 
 
 class EvaluateTestImagesTest(unittest.TestCase):
@@ -38,6 +38,9 @@ class EvaluateTestImagesTest(unittest.TestCase):
 
     def test_build_engine_supports_windows_ocr(self) -> None:
         self.assertIsInstance(build_engine("windows", "eng", 0.0, True), WindowsOcrEngine)
+
+    def test_build_engine_supports_llm_ocr(self) -> None:
+        self.assertIsInstance(build_engine("llm", "eng", 0.0, True, llm_model="local-model"), LlmOcrEngine)
 
 
 if __name__ == "__main__":

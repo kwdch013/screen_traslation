@@ -63,6 +63,28 @@ class FactoryTest(unittest.TestCase):
 
         self.assertIsNotNone(build_ocr_engine(config))
 
+    def test_llm_ocr_requires_model(self) -> None:
+        config = PipelineConfig(
+            capture_backend="blank",
+            ocr_backend="llm",
+            translator_backend="passthrough",
+            overlay_backend="memory",
+        )
+
+        with self.assertRaises(ValueError):
+            build_ocr_engine(config)
+
+    def test_build_llm_translator(self) -> None:
+        config = PipelineConfig(
+            capture_backend="blank",
+            ocr_backend="static",
+            translator_backend="llm",
+            overlay_backend="memory",
+            llm_model="local-model",
+        )
+
+        self.assertIsNotNone(build_translator(config, Glossary()))
+
 
 if __name__ == "__main__":
     unittest.main()

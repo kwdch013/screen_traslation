@@ -4,10 +4,10 @@ from .capture import BlankCaptureSource, MssCaptureSource
 from .config import PipelineConfig
 from .contracts import CaptureSource, OcrEngine, OverlayRenderer, Translator
 from .glossary import Glossary
-from .ocr import EasyOcrEngine, StaticOcrEngine, TesseractOcrEngine, WindowsOcrEngine
+from .ocr import EasyOcrEngine, LlmOcrEngine, StaticOcrEngine, TesseractOcrEngine, WindowsOcrEngine
 from .overlay import ConsoleOverlayRenderer, InMemoryOverlayRenderer
 from .pipeline import TranslationPipeline
-from .translator import ArgosTranslator, CTranslate2MarianTranslator, GlossaryAwareTranslator, PassthroughTranslator
+from .translator import ArgosTranslator, CTranslate2MarianTranslator, GlossaryAwareTranslator, LlmTranslator, PassthroughTranslator
 
 
 def build_capture_source(config: PipelineConfig) -> CaptureSource:
@@ -31,6 +31,14 @@ def build_ocr_engine(config: PipelineConfig, static_text: str | None = None) -> 
         return EasyOcrEngine(languages=("en",), gpu=config.ocr_gpu, min_confidence=config.min_confidence)
     if config.ocr_backend == "windows":
         return WindowsOcrEngine(language="en", min_confidence=config.min_confidence)
+    if config.ocr_backend == "llm":
+        if not config.llm_model:
+            raise ValueError("llm OCRにはllm_modelを指定してください。")
+        return LlmOcrEngine(
+            model=config.llm_model,
+            base_url=config.llm_base_url,
+            timeout_seconds=config.llm_timeout_seconds,
+        )
     raise ValueError(f"未対応のocr_backendです: {config.ocr_backend}")
 
 
@@ -45,6 +53,14 @@ def build_translator(config: PipelineConfig, glossary: Glossary) -> Translator:
         base_translator = CTranslate2MarianTranslator(
             model_path=config.translator_model_path,
             tokenizer_name=config.translator_tokenizer_name,
+        )
+    elif config.translator_backend == "llm":
+        if not config.llm_model:
+            raise ValueError("llm翻訳にはllm_modelを指定してください。")
+        base_translator = LlmTranslator(
+            model=config.llm_model,
+            base_url=config.llm_base_url,
+            timeout_seconds=config.llm_timeout_seconds,
         )
     else:
         raise ValueError(f"未対応のtranslator_backendです: {config.translator_backend}")

@@ -8,6 +8,7 @@ import shutil
 
 from .contracts import Frame, Rect, TextRegion
 from .errors import DependencyUnavailableError
+from .llm_client import OpenAICompatibleClient
 
 
 DEFAULT_TESSERACT_PATHS = (
@@ -121,6 +122,38 @@ class WindowsOcrEngine:
             for region in (_windows_ocr_region(line) for line in result.get("lines", []))
             if region.text.strip() and region.confidence >= self._min_confidence
         ]
+
+
+class LlmOcrEngine:
+    def __init__(
+        self,
+        model: str,
+        base_url: str = "http://127.0.0.1:8000/v1",
+        api_key: str | None = None,
+        timeout_seconds: float = 120.0,
+        client: OpenAICompatibleClient | None = None,
+    ) -> None:
+        self._client = client or OpenAICompatibleClient(
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def validate(self) -> None:
+        self._client.validate()
+
+    def recognize(self, frame: Frame) -> Sequence[TextRegion]:
+        if frame.image is None:
+            return []
+        text = self._client.complete_image(
+            "You are an OCR engine. Return only visible English text. Preserve line breaks. Do not translate.",
+            frame.image,
+            "Read all visible English UI text in this image.",
+        )
+        if not text:
+            return []
+        return [text_to_region(text)]
 
 
 def regions_from_tesseract_data(data: dict[str, list[object]], min_confidence: float) -> list[TextRegion]:
