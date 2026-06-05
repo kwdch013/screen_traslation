@@ -131,7 +131,11 @@ class TranslationPipeline:
         raw_text_regions = [
             region
             for region in self._ocr_engine.recognize(frame)
-            if region.text.strip() and region.confidence >= self._config.min_confidence
+            if (
+                region.text.strip()
+                and region.confidence >= self._config.min_confidence
+                and should_translate_source_text(region.text)
+            )
         ]
         text_regions = [
             region for region in raw_text_regions if not _looks_like_overlay_feedback(region.text, self._last_overlay_texts)
@@ -166,6 +170,25 @@ class TranslationPipeline:
 
 def _normalize_cache_key(text: str) -> str:
     return " ".join(text.casefold().split())
+
+
+def should_translate_source_text(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    english_letters = sum(1 for character in stripped if "A" <= character <= "Z" or "a" <= character <= "z")
+    japanese_characters = sum(
+        1
+        for character in stripped
+        if (
+            "\u3040" <= character <= "\u309f"
+            or "\u30a0" <= character <= "\u30ff"
+            or "\u4e00" <= character <= "\u9fff"
+        )
+    )
+    if english_letters == 0:
+        return False
+    return english_letters >= japanese_characters
 
 
 def _looks_like_overlay_feedback(text: str, overlay_texts: set[str]) -> bool:

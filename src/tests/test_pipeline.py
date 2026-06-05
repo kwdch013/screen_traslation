@@ -8,7 +8,13 @@ from app.config import PipelineConfig
 from app.contracts import Rect, TextRegion
 from app.ocr import StaticOcrEngine
 from app.overlay import InMemoryOverlayRenderer
-from app.pipeline import FrameLimiter, JsonlTranslationLogger, OcrStabilizer, TranslationPipeline
+from app.pipeline import (
+    FrameLimiter,
+    JsonlTranslationLogger,
+    OcrStabilizer,
+    TranslationPipeline,
+    should_translate_source_text,
+)
 
 
 class CountingTranslator:
@@ -89,6 +95,36 @@ class PipelineTest(unittest.TestCase):
 
         self.assertEqual(translator.calls, 0)
         self.assertEqual(renderer.last_regions, [])
+
+    def test_pipeline_filters_japanese_text_before_translation(self) -> None:
+        translator = CountingTranslator()
+        renderer = InMemoryOverlayRenderer()
+        pipeline = TranslationPipeline(
+            capture_source=BlankCaptureSource(),
+            ocr_engine=StaticOcrEngine(
+                [
+                    TextRegion(
+                        text="完了しました。コミットしてoriginへプッシュ済みです。",
+                        bounds=Rect(x=0, y=0, width=300, height=20),
+                        confidence=0.9,
+                    )
+                ]
+            ),
+            translator=translator,
+            overlay_renderer=renderer,
+            config=PipelineConfig(),
+            stabilizer=OcrStabilizer(required_repeats=1),
+        )
+
+        pipeline.tick(now=0.0)
+
+        self.assertEqual(translator.calls, 0)
+        self.assertEqual(renderer.last_regions, [])
+
+    def test_should_translate_source_text_requires_english_letters(self) -> None:
+        self.assertTrue(should_translate_source_text("Press E to open inventory."))
+        self.assertFalse(should_translate_source_text("完了しました。コミットしてoriginへプッシュ済みです。"))
+        self.assertFalse(should_translate_source_text("2026-06-05"))
 
     def test_pipeline_waits_for_stable_ocr_before_rendering(self) -> None:
         translator = CountingTranslator()
