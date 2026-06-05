@@ -47,7 +47,7 @@ class DesktopApplicationTest(unittest.TestCase):
         self.assertGreaterEqual(geometry.width, 1)
         self.assertGreaterEqual(geometry.height, 1)
 
-    def test_current_config_keeps_backend_options(self) -> None:
+    def test_current_config_keeps_llm_fallback_options(self) -> None:
         class Value:
             def __init__(self, value: float) -> None:
                 self._value = value
@@ -60,42 +60,42 @@ class DesktopApplicationTest(unittest.TestCase):
             glossary_path=Path(tempfile.gettempdir()) / "missing-screen-translation-glossary.json",
         )
         app._config = PipelineConfig(
-            ocr_backend="easyocr",
-            ocr_gpu=False,
-            translator_backend="ctranslate2",
-            translator_model_path="models/test",
-            translator_tokenizer_name="tokenizer/test",
+            ocr_backend="tesseract_llm_fallback",
+            ocr_fallback_min_confidence=0.72,
+            llm_base_url="http://127.0.0.1:11434/v1",
+            llm_model="qwen2.5vl:7b",
+            llm_timeout_seconds=90.0,
         )
 
         config = app._current_config(Value(8.0), Value(0.5))
 
-        self.assertEqual(config.ocr_backend, "easyocr")
-        self.assertFalse(config.ocr_gpu)
-        self.assertEqual(config.translator_backend, "ctranslate2")
-        self.assertEqual(config.translator_model_path, "models/test")
-        self.assertEqual(config.translator_tokenizer_name, "tokenizer/test")
+        self.assertEqual(config.ocr_backend, "tesseract_llm_fallback")
+        self.assertEqual(config.ocr_fallback_min_confidence, 0.72)
+        self.assertEqual(config.llm_base_url, "http://127.0.0.1:11434/v1")
+        self.assertEqual(config.llm_model, "qwen2.5vl:7b")
+        self.assertEqual(config.llm_timeout_seconds, 90.0)
 
-    def test_config_with_region_keeps_backend_options(self) -> None:
+    def test_config_with_region_keeps_llm_fallback_options(self) -> None:
         app = DesktopApplication(
             config_path=Path(tempfile.gettempdir()) / "missing-screen-translation-config.json",
             glossary_path=Path(tempfile.gettempdir()) / "missing-screen-translation-glossary.json",
         )
         config = PipelineConfig(
-            ocr_backend="easyocr",
-            ocr_gpu=False,
-            translator_backend="ctranslate2",
-            translator_model_path="models/test",
-            translator_tokenizer_name="tokenizer/test",
+            ocr_backend="tesseract_llm_fallback",
+            ocr_fallback_min_confidence=0.72,
+            llm_base_url="http://127.0.0.1:11434/v1",
+            llm_model="qwen2.5vl:7b",
+            llm_timeout_seconds=90.0,
         )
 
         updated = app._config_with_region(config, Rect(x=1, y=2, width=3, height=4))
 
         self.assertEqual(updated.target_region, Rect(x=1, y=2, width=3, height=4))
-        self.assertEqual(updated.ocr_backend, "easyocr")
-        self.assertFalse(updated.ocr_gpu)
-        self.assertEqual(updated.translator_backend, "ctranslate2")
-        self.assertEqual(updated.translator_model_path, "models/test")
-        self.assertEqual(updated.translator_tokenizer_name, "tokenizer/test")
+        self.assertEqual(updated.ocr_backend, "tesseract_llm_fallback")
+        self.assertEqual(updated.ocr_fallback_min_confidence, 0.72)
+        self.assertEqual(updated.llm_base_url, "http://127.0.0.1:11434/v1")
+        self.assertEqual(updated.llm_model, "qwen2.5vl:7b")
+        self.assertEqual(updated.llm_timeout_seconds, 90.0)
 
 
 if __name__ == "__main__":

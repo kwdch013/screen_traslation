@@ -1,9 +1,9 @@
+import tempfile
 import unittest
 from pathlib import Path
-import tempfile
 
 from app.evaluate_test_images import build_engine, load_cases, normalize_text, similarity
-from app.ocr import TesseractOcrEngine, WindowsOcrEngine
+from app.ocr import LlmOcrEngine, TesseractOcrEngine
 
 
 class EvaluateTestImagesTest(unittest.TestCase):
@@ -17,7 +17,7 @@ class EvaluateTestImagesTest(unittest.TestCase):
         self.assertGreater(similarity(actual, expected), 0.7)
 
     def test_normalize_text_unifies_width_and_quotes(self) -> None:
-        self.assertEqual(normalize_text("Ｈｅｌｌｏ ’World’"), "hello 'world'")
+        self.assertEqual(normalize_text("Ｈｅｌｌｏ “world”"), 'hello "world"')
 
     def test_load_cases_resolves_images_relative_to_expected_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -34,10 +34,10 @@ class EvaluateTestImagesTest(unittest.TestCase):
         self.assertEqual(cases[0].expected_text, "Text")
 
     def test_build_engine_defaults_to_tesseract(self) -> None:
-        self.assertIsInstance(build_engine("tesseract", "eng", 0.0, True), TesseractOcrEngine)
+        self.assertIsInstance(build_engine("tesseract", "eng", 0.0), TesseractOcrEngine)
 
-    def test_build_engine_supports_windows_ocr(self) -> None:
-        self.assertIsInstance(build_engine("windows", "eng", 0.0, True), WindowsOcrEngine)
+    def test_build_engine_supports_llm_ocr(self) -> None:
+        self.assertIsInstance(build_engine("llm", "eng", 0.0, llm_model="local-model"), LlmOcrEngine)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import unittest
 from app.config import PipelineConfig
 from app.factory import build_capture_source, build_ocr_engine, build_overlay_renderer, build_translator
 from app.glossary import Glossary
+from app.ocr import FallbackOcrEngine
 
 
 class FactoryTest(unittest.TestCase):
@@ -32,36 +33,27 @@ class FactoryTest(unittest.TestCase):
 
         self.assertTrue(pipeline.tick(now=0.0))
 
-    def test_ctranslate2_backend_requires_model_path(self) -> None:
+    def test_llm_ocr_requires_model(self) -> None:
         config = PipelineConfig(
             capture_backend="blank",
-            ocr_backend="static",
-            translator_backend="ctranslate2",
+            ocr_backend="llm",
+            translator_backend="passthrough",
             overlay_backend="memory",
         )
 
         with self.assertRaises(ValueError):
-            build_translator(config, Glossary())
+            build_ocr_engine(config)
 
-    def test_build_easyocr_backend(self) -> None:
+    def test_build_tesseract_llm_fallback_backend(self) -> None:
         config = PipelineConfig(
             capture_backend="blank",
-            ocr_backend="easyocr",
+            ocr_backend="tesseract_llm_fallback",
             translator_backend="passthrough",
             overlay_backend="memory",
+            llm_model="qwen2.5vl:7b",
         )
 
-        self.assertIsNotNone(build_ocr_engine(config))
-
-    def test_build_windows_ocr_backend(self) -> None:
-        config = PipelineConfig(
-            capture_backend="blank",
-            ocr_backend="windows",
-            translator_backend="passthrough",
-            overlay_backend="memory",
-        )
-
-        self.assertIsNotNone(build_ocr_engine(config))
+        self.assertIsInstance(build_ocr_engine(config), FallbackOcrEngine)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 
 from app.contracts import Rect, TextRegion
-from app.ocr import group_text_lines, preprocess_image_for_ocr, regions_from_tesseract_data, resolve_tesseract_command
+from app.ocr import FallbackOcrEngine, clean_llm_ocr_text, group_text_lines, preprocess_image_for_ocr, regions_from_tesseract_data, resolve_tesseract_command
 
 
 class OcrTest(unittest.TestCase):
@@ -85,6 +85,37 @@ class OcrTest(unittest.TestCase):
 
         self.assertIsNotNone(resolved)
         self.assertTrue(str(resolved).lower().endswith("tesseract.exe"))
+
+    def test_clean_llm_ocr_text_removes_labels_and_notes(self) -> None:
+        text = "Title: Start\n\nBody Text:\nNew Game\n\n(Note: inferred text)"
+
+        self.assertEqual(clean_llm_ocr_text(text), "Start\n\nNew Game")
+
+    def test_fallback_ocr_uses_fallback_for_low_confidence_primary(self) -> None:
+        primary = _StaticEngine([TextRegion("CCAn", Rect(0, 0, 100, 20), 0.4)])
+        fallback = _StaticEngine([TextRegion("[Can]\nnotebook faintly", Rect(0, 0, 100, 20), 1.0)])
+        engine = FallbackOcrEngine(primary, fallback, min_primary_confidence=0.65)
+
+        regions = list(engine.recognize(object()))
+
+        self.assertEqual(regions[0].text, "[Can]\nnotebook faintly")
+
+    def test_fallback_ocr_keeps_primary_for_high_confidence_primary(self) -> None:
+        primary = _StaticEngine([TextRegion("Important Security Update", Rect(0, 0, 100, 20), 0.9)])
+        fallback = _StaticEngine([TextRegion("Fallback", Rect(0, 0, 100, 20), 1.0)])
+        engine = FallbackOcrEngine(primary, fallback, min_primary_confidence=0.65)
+
+        regions = list(engine.recognize(object()))
+
+        self.assertEqual(regions[0].text, "Important Security Update")
+
+
+class _StaticEngine:
+    def __init__(self, regions):
+        self._regions = regions
+
+    def recognize(self, frame):
+        return list(self._regions)
 
 
 if __name__ == "__main__":

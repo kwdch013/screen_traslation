@@ -74,9 +74,17 @@ OCR評価:
 $env:PYTHONPATH = "src"
 python -m app.evaluate_test_images --engine tesseract
 python -m app.evaluate_test_images --engine windows
+python -m app.evaluate_test_images --engine llm --llm-base-url http://127.0.0.1:8000/v1 --llm-model your-vlm-model
+python -m app.evaluate_translations --engine llm --llm-base-url http://127.0.0.1:8000/v1 --llm-model your-llm-model
 ```
 
-GPU EasyOCRを試す場合は、Python 3.13などの別venvに `requirements-ocr.txt` を入れて実行する。
+評価結果は1ケース1行のJSONで出力され、`similarity` が正解テキスト類似度、`seconds` が処理時間、
+`cpu_seconds` がCPU時間、`memory_bytes` / `memory_delta_bytes` がプロセスのメモリ負荷です。
+LLM系はOpenAI互換の `/v1/chat/completions` を持つローカルAPIを想定します。
+
+実運用候補は `ocr_backend: tesseract_llm_fallback`、`translator_backend: argos` です。
+Tesseractの平均信頼度が低い場合のみ、Ollama上の `qwen2.5vl:7b` を補助OCRとして呼び出します。
+
 
 ## テスト
 
