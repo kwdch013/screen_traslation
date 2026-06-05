@@ -14,7 +14,7 @@ import unicodedata
 from PIL import Image
 
 from .contracts import Frame, Rect, TextRegion
-from .ocr import EasyOcrEngine, LlmOcrEngine, TesseractOcrEngine, WindowsOcrEngine
+from .ocr import LlmOcrEngine, TesseractOcrEngine
 
 
 @dataclass(frozen=True)
@@ -27,12 +27,11 @@ class EvaluationCase:
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    parser = argparse.ArgumentParser(description="テスト画像のOCR速度と正解テキスト一致率を測定する。")
+    parser = argparse.ArgumentParser(description="テスト画像のOCR速度と正解テキスト一致率を測定します。")
     parser.add_argument("--expected", type=Path, default=Path("src/tests/test_images/expected_ocr.json"))
-    parser.add_argument("--engine", choices=("tesseract", "easyocr", "windows", "llm"), default="tesseract")
+    parser.add_argument("--engine", choices=("tesseract", "llm"), default="tesseract")
     parser.add_argument("--language", default="eng")
     parser.add_argument("--min-confidence", type=float, default=0.0)
-    parser.add_argument("--cpu", action="store_true", help="EasyOCRをCPUで実行する。")
     parser.add_argument("--llm-base-url", default=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8000/v1"))
     parser.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", ""))
     parser.add_argument("--llm-timeout", type=float, default=120.0)
@@ -42,7 +41,6 @@ def main() -> int:
         args.engine,
         args.language,
         args.min_confidence,
-        not args.cpu,
         llm_base_url=args.llm_base_url,
         llm_model=args.llm_model,
         llm_timeout=args.llm_timeout,
@@ -66,18 +64,15 @@ def build_engine(
     engine: str,
     language: str,
     min_confidence: float,
-    gpu: bool,
     llm_base_url: str = "http://127.0.0.1:8000/v1",
     llm_model: str = "",
     llm_timeout: float = 120.0,
 ) -> object:
     if engine == "tesseract":
         return TesseractOcrEngine(language=language, min_confidence=min_confidence)
-    if engine == "windows":
-        return WindowsOcrEngine(language="en", min_confidence=min_confidence)
     if engine == "llm":
         return LlmOcrEngine(model=llm_model, base_url=llm_base_url, timeout_seconds=llm_timeout)
-    return EasyOcrEngine(languages=("en",), gpu=gpu, min_confidence=min_confidence)
+    raise ValueError(f"未対応のOCR評価エンジンです: {engine}")
 
 
 def load_cases(path: Path) -> list[EvaluationCase]:
@@ -97,7 +92,7 @@ def load_cases(path: Path) -> list[EvaluationCase]:
     return cases
 
 
-def recognize_case(engine: TesseractOcrEngine, case: EvaluationCase) -> list[TextRegion]:
+def recognize_case(engine: object, case: EvaluationCase) -> list[TextRegion]:
     image = Image.open(case.image)
     if case.crop is not None:
         image = image.crop((case.crop.x, case.crop.y, case.crop.x + case.crop.width, case.crop.y + case.crop.height))

@@ -33,37 +33,6 @@ class FactoryTest(unittest.TestCase):
 
         self.assertTrue(pipeline.tick(now=0.0))
 
-    def test_ctranslate2_backend_requires_model_path(self) -> None:
-        config = PipelineConfig(
-            capture_backend="blank",
-            ocr_backend="static",
-            translator_backend="ctranslate2",
-            overlay_backend="memory",
-        )
-
-        with self.assertRaises(ValueError):
-            build_translator(config, Glossary())
-
-    def test_build_easyocr_backend(self) -> None:
-        config = PipelineConfig(
-            capture_backend="blank",
-            ocr_backend="easyocr",
-            translator_backend="passthrough",
-            overlay_backend="memory",
-        )
-
-        self.assertIsNotNone(build_ocr_engine(config))
-
-    def test_build_windows_ocr_backend(self) -> None:
-        config = PipelineConfig(
-            capture_backend="blank",
-            ocr_backend="windows",
-            translator_backend="passthrough",
-            overlay_backend="memory",
-        )
-
-        self.assertIsNotNone(build_ocr_engine(config))
-
     def test_llm_ocr_requires_model(self) -> None:
         config = PipelineConfig(
             capture_backend="blank",
@@ -85,17 +54,6 @@ class FactoryTest(unittest.TestCase):
         )
 
         self.assertIsInstance(build_ocr_engine(config), FallbackOcrEngine)
-
-    def test_build_llm_translator(self) -> None:
-        config = PipelineConfig(
-            capture_backend="blank",
-            ocr_backend="static",
-            translator_backend="llm",
-            overlay_backend="memory",
-            llm_model="local-model",
-        )
-
-        self.assertIsNotNone(build_translator(config, Glossary()))
 
 
 if __name__ == "__main__":

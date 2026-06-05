@@ -6,7 +6,6 @@ $env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m compileall -q src/app
 .\.venv\Scripts\python.exe -m app.evaluate_test_images --engine tesseract
 .\.venv\Scripts\python.exe -m app.evaluate_translations --engine argos
-.\.venv\Scripts\python.exe -m app.evaluate_translations --engine ctranslate2 --model-path models/opus-mt-en-jap-ct2
 ```
 
 Ollama VLM計測時:
@@ -32,5 +31,4 @@ C:\Windows\System32\nvidia-smi.exe --query-gpu=memory.total,memory.used,memory.f
 & "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" rm gemma3:4b
 & "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" rm gemma3:12b
 & "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" rm minicpm-v
-Remove-Item -LiteralPath .\models\opus-mt-en-jap-ct2 -Recurse -Force
 ```

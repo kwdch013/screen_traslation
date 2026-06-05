@@ -13,7 +13,6 @@ $env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m compileall -q src/app
 .\.venv\Scripts\python.exe -m app.evaluate_test_images --engine tesseract
 .\.venv\Scripts\python.exe -m app.evaluate_translations --engine argos
-.\.venv\Scripts\python.exe -m app.evaluate_translations --engine ctranslate2 --model-path models/opus-mt-en-jap-ct2
 ```
 
 Dockerはこの環境で `docker` コマンドが見つからなかったため未実行。
@@ -58,9 +57,6 @@ Ollama VLMの詳細比較は `ollama_vlm_comparison.md` に記載した。総合
 | Argos | `New Game` | 1.0000 | 22.171 | 4.562 | 531,525,632 | `新しいゲーム` | 初回ロードは重いが品質は良い |
 | Argos | `Important Security Update Available` | 0.7143 | 0.023 | 0.109 | 3,469,312 | `利用可能な重要なセキュリティアップデート` | 語順差はあるが意味は近い |
 | Argos | `Game Options` | 0.4615 | 0.014 | 0.109 | 2,973,696 | `ゲームオプション` | 期待値を「ゲームオプション」に寄せる余地あり |
-| CTranslate2 | `New Game` | 0.0000 | 8.270 | 3.625 | 736,628,736 | `キ` | 不採用 |
-| CTranslate2 | `Important Security Update Available` | 0.0000 | 0.046 | 0.047 | 49,152 | `わたし は モナ ・  return に 目 を とめ る .` | 不採用 |
-| CTranslate2 | `Game Options` | 0.0000 | 0.041 | 0.031 | 20,480 | `光 を 得 さ せ なさ い .` | 不採用 |
 | LLM翻訳 | 未計測 | - | - | - | - | - | ローカルOpenAI互換LLM API未接続のため未計測 |
 
 Argos平均:
@@ -68,17 +64,11 @@ Argos平均:
 - 初回ロード込み平均秒: 7.403
 - ロード後平均秒: 0.019
 
-CTranslate2平均:
-- 類似度: 0.0000
-- 初回ロード込み平均秒: 2.786
-- ロード後平均秒: 0.044
-
 ## 結論
 - OCRは、通常フォントではTesseractが十分高精度。低精度の主因は `test_image1.png` のピクセルフォントであり、LLM/VLM OCRの検証優先度は高い。
 - Ollama VLM比較では、`qwen2.5vl:7b` が通常フォント・ピクセルフォントの総合で最良だった。
 - `minicpm-v` は `test_image1.png` の類似度を改善したが、説明・補完が混ざるため採用しない。
 - `gemma3:12b` はVRAM 10GB枠で動作し通常フォントに強いが、ピクセルフォントではTesseract以下。
-- 翻訳は、現時点ではArgosがCTranslate2より明確に安定している。CTranslate2の `opus-mt-en-jap` は今回の用途では候補から下げる。
 - LLM翻訳は、OCRほど優先度は高くない。まずピクセルフォントOCRを改善する方が効果が大きい。
 - LLM/VLM実測時は、同じCLIで `seconds`、`cpu_seconds`、`memory_bytes`、`memory_delta_bytes` を比較する。
 

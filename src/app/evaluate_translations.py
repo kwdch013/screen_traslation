@@ -4,14 +4,13 @@ import argparse
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 import json
-import os
 from pathlib import Path
 import sys
 from time import perf_counter, process_time
 import unicodedata
 
 from .evaluate_test_images import current_memory_bytes
-from .translator import ArgosTranslator, CTranslate2MarianTranslator, LlmTranslator, PassthroughTranslator
+from .translator import ArgosTranslator, PassthroughTranslator
 
 
 @dataclass(frozen=True)
@@ -23,24 +22,12 @@ class TranslationCase:
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    parser = argparse.ArgumentParser(description="翻訳バックエンドの速度、負荷、正解テキスト類似度を測定する。")
+    parser = argparse.ArgumentParser(description="翻訳バックエンドの速度、負荷、正解テキスト類似度を測定します。")
     parser.add_argument("--expected", type=Path, default=Path("src/tests/test_images/expected_translation.json"))
-    parser.add_argument("--engine", choices=("passthrough", "argos", "ctranslate2", "llm"), default="argos")
-    parser.add_argument("--model-path", default="")
-    parser.add_argument("--tokenizer-name", default="Helsinki-NLP/opus-mt-en-jap")
-    parser.add_argument("--llm-base-url", default=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8000/v1"))
-    parser.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", ""))
-    parser.add_argument("--llm-timeout", type=float, default=120.0)
+    parser.add_argument("--engine", choices=("passthrough", "argos"), default="argos")
     args = parser.parse_args()
 
-    translator = build_translator(
-        args.engine,
-        model_path=args.model_path,
-        tokenizer_name=args.tokenizer_name,
-        llm_base_url=args.llm_base_url,
-        llm_model=args.llm_model,
-        llm_timeout=args.llm_timeout,
-    )
+    translator = build_translator(args.engine)
     for case in load_cases(args.expected):
         start_memory = current_memory_bytes()
         start_cpu = process_time()
@@ -66,23 +53,12 @@ def main() -> int:
     return 0
 
 
-def build_translator(
-    engine: str,
-    model_path: str = "",
-    tokenizer_name: str = "Helsinki-NLP/opus-mt-en-jap",
-    llm_base_url: str = "http://127.0.0.1:8000/v1",
-    llm_model: str = "",
-    llm_timeout: float = 120.0,
-) -> object:
+def build_translator(engine: str) -> object:
     if engine == "passthrough":
         return PassthroughTranslator()
     if engine == "argos":
         return ArgosTranslator()
-    if engine == "ctranslate2":
-        if not model_path:
-            raise ValueError("ctranslate2には--model-pathを指定してください。")
-        return CTranslate2MarianTranslator(model_path=model_path, tokenizer_name=tokenizer_name)
-    return LlmTranslator(model=llm_model, base_url=llm_base_url, timeout_seconds=llm_timeout)
+    raise ValueError(f"未対応の翻訳評価エンジンです: {engine}")
 
 
 def load_cases(path: Path) -> list[TranslationCase]:

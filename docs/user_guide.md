@@ -62,7 +62,6 @@ tesseract --version
 Windows標準OCRを使う場合は追加依存を入れる。
 
 ```powershell
-python -m pip install -r requirements-windows-ocr.txt
 ```
 
 設定ファイルの `ocr_backend` を `windows` にするとWindows OCRを使う。通常のUIフォントではTesseractより高速な場合がある。
@@ -75,14 +74,12 @@ GPU EasyOCRを試す場合は、Python 3.13などの別仮想環境を作って�
 py -3.13 -m venv .venv_ocr
 .\.venv_ocr\Scripts\Activate.ps1
 python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-python -m pip install -r requirements-ocr.txt
 ```
 
 評価コマンド例:
 
 ```powershell
 $env:PYTHONPATH = "src"
-.\.venv_ocr\Scripts\python.exe -m app.evaluate_test_images --engine easyocr
 ```
 
 ### 5. 英日翻訳モデル
@@ -160,7 +157,6 @@ python -m app.main --run-once --text "New Game"
 ```powershell
 $env:PYTHONPATH = "src"
 python -m app.evaluate_test_images --engine tesseract
-python -m app.evaluate_test_images --engine windows
 ```
 
 ## Docker

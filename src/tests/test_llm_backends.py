@@ -5,7 +5,6 @@ from PIL import Image
 from app.contracts import Frame
 from app.llm_client import OpenAICompatibleClient
 from app.ocr import LlmOcrEngine
-from app.translator import LlmTranslator
 
 
 class LlmBackendsTest(unittest.TestCase):
@@ -20,12 +19,6 @@ class LlmBackendsTest(unittest.TestCase):
         self.assertEqual(regions[0].confidence, 1.0)
         self.assertIn("Do not translate", requests[0]["messages"][0]["content"])
         self.assertIn("add labels", requests[0]["messages"][0]["content"])
-
-    def test_llm_translator_returns_model_content(self) -> None:
-        client = OpenAICompatibleClient("local-model", transport=_transport("新しいゲーム"))
-        translator = LlmTranslator(model="local-model", client=client)
-
-        self.assertEqual(translator.translate("New Game"), "新しいゲーム")
 
 
 def _transport(content, requests=None):

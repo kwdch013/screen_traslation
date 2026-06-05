@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from app.evaluate_translations import build_translator, load_cases, similarity
-from app.translator import LlmTranslator, PassthroughTranslator
+from app.translator import PassthroughTranslator
 
 
 class EvaluateTranslationsTest(unittest.TestCase):
@@ -22,9 +22,8 @@ class EvaluateTranslationsTest(unittest.TestCase):
     def test_similarity_ignores_spacing(self) -> None:
         self.assertEqual(similarity("新しい  ゲーム", "新しい ゲーム"), 1.0)
 
-    def test_build_translator_supports_passthrough_and_llm(self) -> None:
+    def test_build_translator_supports_passthrough(self) -> None:
         self.assertIsInstance(build_translator("passthrough"), PassthroughTranslator)
-        self.assertIsInstance(build_translator("llm", llm_model="local-model"), LlmTranslator)
 
 
 if __name__ == "__main__":
