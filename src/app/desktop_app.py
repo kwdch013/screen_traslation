@@ -30,6 +30,8 @@ class DesktopApplication:
         self._overlay: TkOverlayRenderer | None = None
 
     def run(self) -> None:
+        enable_process_dpi_awareness()
+
         import tkinter as tk
         from tkinter import messagebox, ttk
 
@@ -281,7 +283,7 @@ def select_translation_region(root: object) -> Rect:
     import tkinter as tk
 
     selection: dict[str, Rect | None] = {"value": None}
-    start: dict[str, int] = {"x": 0, "y": 0}
+    start: dict[str, int] = {"x_root": 0, "y_root": 0}
     screen = virtual_screen_geometry(root)
     overlay = tk.Toplevel(root)
     overlay.title("翻訳範囲を選択")
@@ -295,15 +297,22 @@ def select_translation_region(root: object) -> Rect:
     rect_id: list[int | None] = [None]
 
     def on_press(event: object) -> None:
-        start["x"] = int(event.x)
-        start["y"] = int(event.y)
+        start["x_root"] = int(event.x_root)
+        start["y_root"] = int(event.y_root)
         if rect_id[0] is not None:
             canvas.delete(rect_id[0])
+        left, top, right, bottom = canvas_rect_coords(
+            screen,
+            start["x_root"],
+            start["y_root"],
+            start["x_root"],
+            start["y_root"],
+        )
         rect_id[0] = canvas.create_rectangle(
-            start["x"],
-            start["y"],
-            start["x"],
-            start["y"],
+            left,
+            top,
+            right,
+            bottom,
             outline="#00d1ff",
             width=3,
             fill="#00d1ff",
@@ -313,17 +322,18 @@ def select_translation_region(root: object) -> Rect:
     def on_drag(event: object) -> None:
         if rect_id[0] is None:
             return
-        canvas.coords(rect_id[0], start["x"], start["y"], int(event.x), int(event.y))
+        canvas.coords(
+            rect_id[0],
+            *canvas_rect_coords(screen, start["x_root"], start["y_root"], int(event.x_root), int(event.y_root)),
+        )
 
     def on_release(event: object) -> None:
-        end_x = int(event.x)
-        end_y = int(event.y)
-        left = min(start["x"], end_x)
-        top = min(start["y"], end_y)
-        width = abs(end_x - start["x"])
-        height = abs(end_y - start["y"])
-        if width >= 20 and height >= 20:
-            selection["value"] = Rect(x=screen.x + left, y=screen.y + top, width=width, height=height)
+        selection["value"] = selected_screen_rect(
+            start["x_root"],
+            start["y_root"],
+            int(event.x_root),
+            int(event.y_root),
+        )
         overlay.destroy()
 
     def on_cancel(event: object | None = None) -> None:
@@ -339,6 +349,43 @@ def select_translation_region(root: object) -> Rect:
     if selection["value"] is None:
         raise ValueError("翻訳範囲が選択されませんでした。")
     return selection["value"]
+
+
+def selected_screen_rect(start_x: int, start_y: int, end_x: int, end_y: int) -> Rect | None:
+    left = min(start_x, end_x)
+    top = min(start_y, end_y)
+    width = abs(end_x - start_x)
+    height = abs(end_y - start_y)
+    if width < 20 or height < 20:
+        return None
+    return Rect(x=left, y=top, width=width, height=height)
+
+
+def canvas_rect_coords(screen: Rect, start_x: int, start_y: int, end_x: int, end_y: int) -> tuple[int, int, int, int]:
+    left = min(start_x, end_x) - screen.x
+    top = min(start_y, end_y) - screen.y
+    right = max(start_x, end_x) - screen.x
+    bottom = max(start_y, end_y) - screen.y
+    return (left, top, right, bottom)
+
+
+def enable_process_dpi_awareness(windll: object | None = None) -> bool:
+    if windll is None:
+        try:
+            import ctypes
+        except ImportError:
+            return False
+        if not hasattr(ctypes, "windll"):
+            return False
+        windll = ctypes.windll
+    try:
+        result = windll.shcore.SetProcessDpiAwareness(2)
+        return int(result) == 0
+    except Exception:
+        try:
+            return bool(windll.user32.SetProcessDPIAware())
+        except Exception:
+            return False
 
 
 def virtual_screen_geometry(root: object) -> Rect:

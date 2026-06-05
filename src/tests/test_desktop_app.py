@@ -4,7 +4,13 @@ from pathlib import Path
 
 from app.config import PipelineConfig
 from app.contracts import Rect
-from app.desktop_app import DesktopApplication, virtual_screen_geometry
+from app.desktop_app import (
+    DesktopApplication,
+    canvas_rect_coords,
+    enable_process_dpi_awareness,
+    selected_screen_rect,
+    virtual_screen_geometry,
+)
 from app.glossary import Glossary
 
 
@@ -46,6 +52,69 @@ class DesktopApplicationTest(unittest.TestCase):
 
         self.assertGreaterEqual(geometry.width, 1)
         self.assertGreaterEqual(geometry.height, 1)
+
+    def test_selected_screen_rect_uses_absolute_mouse_coordinates(self) -> None:
+        rect = selected_screen_rect(3300, 240, 4100, 920)
+
+        self.assertEqual(rect, Rect(x=3300, y=240, width=800, height=680))
+
+    def test_selected_screen_rect_normalizes_reverse_drag(self) -> None:
+        rect = selected_screen_rect(4100, 920, 3300, 240)
+
+        self.assertEqual(rect, Rect(x=3300, y=240, width=800, height=680))
+
+    def test_selected_screen_rect_rejects_tiny_selection(self) -> None:
+        rect = selected_screen_rect(100, 100, 110, 110)
+
+        self.assertIsNone(rect)
+
+    def test_canvas_rect_coords_converts_screen_coordinates_to_canvas_coordinates(self) -> None:
+        screen = Rect(x=-1920, y=0, width=3840, height=1080)
+
+        coords = canvas_rect_coords(screen, -1800, 100, -1200, 500)
+
+        self.assertEqual(coords, (120, 100, 720, 500))
+
+    def test_enable_process_dpi_awareness_uses_per_monitor_mode(self) -> None:
+        class FakeShcore:
+            def __init__(self) -> None:
+                self.mode: int | None = None
+
+            def SetProcessDpiAwareness(self, mode: int) -> int:
+                self.mode = mode
+                return 0
+
+        class FakeWindll:
+            def __init__(self) -> None:
+                self.shcore = FakeShcore()
+
+        windll = FakeWindll()
+
+        self.assertTrue(enable_process_dpi_awareness(windll))
+        self.assertEqual(windll.shcore.mode, 2)
+
+    def test_enable_process_dpi_awareness_falls_back_to_user32(self) -> None:
+        class FakeShcore:
+            def SetProcessDpiAwareness(self, mode: int) -> int:
+                raise OSError("unsupported")
+
+        class FakeUser32:
+            def __init__(self) -> None:
+                self.called = False
+
+            def SetProcessDPIAware(self) -> int:
+                self.called = True
+                return 1
+
+        class FakeWindll:
+            def __init__(self) -> None:
+                self.shcore = FakeShcore()
+                self.user32 = FakeUser32()
+
+        windll = FakeWindll()
+
+        self.assertTrue(enable_process_dpi_awareness(windll))
+        self.assertTrue(windll.user32.called)
 
     def test_current_config_keeps_llm_fallback_options(self) -> None:
         class Value:
