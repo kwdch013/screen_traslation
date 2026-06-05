@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .capture import MssCaptureSource
 from .config import PipelineConfig, load_config, save_config
 from .contracts import Rect
+from .factory import build_capture_source, build_ocr_engine, build_translator
 from .glossary import Glossary
-from .ocr import TesseractOcrEngine
 from .pipeline import TranslationPipeline
 from .runtime import PipelineRunner
 from .single_instance import SingleInstanceLock
@@ -126,19 +125,7 @@ class DesktopApplication:
                 self._config = self._current_config(ocr_fps, overlay_opacity)
                 selection = select_translation_region(root)
                 self._config = self._config_with_region(self._config, selection)
-                self._overlay = TkOverlayRenderer(self._config.overlay_style, master=root)
-                ocr_engine = TesseractOcrEngine(language="eng", min_confidence=self._config.min_confidence)
-                ocr_engine.validate()
-                pipeline = TranslationPipeline(
-                    capture_source=MssCaptureSource(selection),
-                    ocr_engine=ocr_engine,
-                    translator=GlossaryAwareTranslator(
-                        ArgosTranslator(self._config.source_language, self._config.target_language),
-                        self._glossary,
-                    ),
-                    overlay_renderer=self._overlay,
-                    config=self._config,
-                )
+                pipeline = self._build_pipeline_for_region(root, selection)
                 self._runner = PipelineRunner(pipeline, on_error=on_pipeline_error)
                 self._runner.start()
                 is_running.set(True)
@@ -221,7 +208,10 @@ class DesktopApplication:
             min_confidence=self._config.min_confidence,
             capture_backend=self._config.capture_backend,
             ocr_backend=self._config.ocr_backend,
+            ocr_gpu=self._config.ocr_gpu,
             translator_backend=self._config.translator_backend,
+            translator_model_path=self._config.translator_model_path,
+            translator_tokenizer_name=self._config.translator_tokenizer_name,
             overlay_backend=self._config.overlay_backend,
             source_language=self._config.source_language,
             target_language=self._config.target_language,
@@ -244,7 +234,10 @@ class DesktopApplication:
             min_confidence=config.min_confidence,
             capture_backend=config.capture_backend,
             ocr_backend=config.ocr_backend,
+            ocr_gpu=config.ocr_gpu,
             translator_backend=config.translator_backend,
+            translator_model_path=config.translator_model_path,
+            translator_tokenizer_name=config.translator_tokenizer_name,
             overlay_backend=config.overlay_backend,
             source_language=config.source_language,
             target_language=config.target_language,
@@ -254,6 +247,19 @@ class DesktopApplication:
             priority_order=config.priority_order,
             target_region=region,
             overlay_style=config.overlay_style,
+        )
+
+    def _build_pipeline_for_region(self, root: object, region: Rect) -> TranslationPipeline:
+        config = self._config_with_region(self._config, region)
+        self._overlay = TkOverlayRenderer(config.overlay_style, master=root)
+        ocr_engine = build_ocr_engine(config)
+        ocr_engine.validate()
+        return TranslationPipeline(
+            capture_source=build_capture_source(config),
+            ocr_engine=ocr_engine,
+            translator=build_translator(config, self._glossary),
+            overlay_renderer=self._overlay,
+            config=config,
         )
 
 
