@@ -10,6 +10,12 @@ class EvaluateTestImagesTest(unittest.TestCase):
     def test_similarity_ignores_case_and_spacing(self) -> None:
         self.assertEqual(similarity("New   Game", "new game"), 1.0)
 
+    def test_similarity_handles_long_repeated_ocr_text(self) -> None:
+        expected = " ".join("alpha beta gamma delta epsilon zeta eta theta iota kappa".split() * 80)
+        actual = expected.replace("gamma ", "", 20)
+
+        self.assertGreater(similarity(actual, expected), 0.7)
+
     def test_normalize_text_unifies_width_and_quotes(self) -> None:
         self.assertEqual(normalize_text("Ｈｅｌｌｏ ’World’"), "hello 'world'")
 

@@ -19,6 +19,16 @@
         "height": 300
       },
       "expected_text": "Important Security Update Available Your safety while playing our games is our top priority. We’ve been informed of a recent security vulnerability affecting Unity. Although no malicious activity has been detected in connection with this issue, we’re taking immediate action to keep our players protected. A new update is now live on Nocturnal and includes the necessary security fixes. We strongly encourage all players to update the game as soon as possible to ensure the best and most secure gameplay experience. You can find additional details on Unity’s official website here: https://unity.com/security/sept-2025-01"
+    },
+    {
+      "image": "test_image3.jpg",
+      "crop": {
+        "x": 680,
+        "y": 86,
+        "width": 315,
+        "height": 430
+      },
+      "expected_text": "ERMION Most druids in Skellige differ from the deeply-rooted Continental stereotype of a graybearded old man in white robes bowing before sacred oaks, taming wyverns and pestering local lords with petitions to add yet another species to the list of protected beasts. Ermion, Geralt's old acquaintance, was no exception in this regard. This stiff-bearded, spindly man was the leader of the Druids' Circle in Skellige. He was also Jarl Crach an Craite's advisor on matters of magic and the mystical, as well as on any and all issues requiring more refinement than a well-timed uppercut or a hard-swung axe. Ermion was known to be obstinate and to have a tendency, quite rare in Skellige, to consider all possible consequences of a particular course of action before it was undertaken. All this meant that conversing with him demanded a considerable amount of time and patience. Given all this, one can hardly be surprised that Yennefer and Geralt's \"rash\" and \"highly irresponsible\" actions regarding the magic anomaly - stealing a priceless artifact from a private chamber being first among them - put Ermion quite out of sorts. However, despite his difficult character and his somewhat testy relationship with Geralt, Ermion agreed at once to travel to Kaer Morhen and help defend Ciri from the Wild Hunt's"
     }
   ]
 }

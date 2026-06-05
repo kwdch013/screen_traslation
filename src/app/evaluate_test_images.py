@@ -83,7 +83,7 @@ def regions_text(regions: list[TextRegion]) -> str:
 
 
 def similarity(actual: str, expected: str) -> float:
-    return SequenceMatcher(a=normalize_text(actual), b=normalize_text(expected)).ratio()
+    return SequenceMatcher(a=normalize_text(actual), b=normalize_text(expected), autojunk=False).ratio()
 
 
 def normalize_text(text: str) -> str:
