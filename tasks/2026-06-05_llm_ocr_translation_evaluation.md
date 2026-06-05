@@ -36,3 +36,11 @@ python -m app.evaluate_translations --engine llm --llm-base-url http://127.0.0.1
 - `verification/2026-06-05_llm_ocr_translation/` にOCR・翻訳の再実測結果、前回コミットとの比較、次のLLM/VLM検証手順を整理した。
 - Tesseract OCRは `test_image1.png` のみ低精度で、VLM OCRの検証対象として優先度が高い。
 - 翻訳はArgosがCTranslate2より安定しており、LLM翻訳より先にVLM OCRを実測する方針とした。
+
+## Ollama VLM追加検証
+- wingetでOllamaを導入し、OpenAI互換API `http://127.0.0.1:11434/v1` から評価した。
+- `gemma3:4b`、`minicpm-v`、`gemma3:12b` を取得してOCR評価を実施した。
+- `gemma3:12b` はロードサイズ約8.0GBで、VRAM 10GB枠内で動作した。
+- `qwen2.5vl:7b` は `ollama pull` が2分で完了せず、モデル一覧にも追加されなかったため今回の実測対象から外した。
+- `minicpm-v` は `test_image1.png` の類似度を0.4187まで改善したが、ラベル・説明・補完が混ざるためOCR本線には不適。
+- `gemma3:12b` は通常フォントでは高精度だが、ピクセルフォントではTesseract以下だった。

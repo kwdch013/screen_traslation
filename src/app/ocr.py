@@ -147,9 +147,13 @@ class LlmOcrEngine:
         if frame.image is None:
             return []
         text = self._client.complete_image(
-            "You are an OCR engine. Return only visible English text. Preserve line breaks. Do not translate.",
+            (
+                "You are an OCR engine. Transcribe only text that is visibly present in the image. "
+                "Return exact English text only. Preserve line breaks. Do not translate, summarize, correct, "
+                "add labels, add explanations, or infer missing text."
+            ),
             frame.image,
-            "Read all visible English UI text in this image.",
+            "Transcribe the visible English text exactly as OCR output.",
         )
         if not text:
             return []

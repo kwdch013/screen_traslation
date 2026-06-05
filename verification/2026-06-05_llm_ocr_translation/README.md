@@ -30,7 +30,15 @@ Dockerはこの環境で `docker` コマンドが見つからなかったため�
 | Tesseract | `test_image1.png` | 0.2392 | 0.5663 | 0.195 | 0.062 | 3,141,632 | Minecraft系ピクセルフォントは低精度 |
 | Tesseract | `test_image2.png` | 0.9952 | 0.9094 | 0.399 | 0.047 | -643,072 | 通常フォントは高精度 |
 | Tesseract | `test_image3.jpg` | 0.9969 | 0.9309 | 0.585 | 0.031 | 729,088 | ゲーム本文も高精度 |
-| LLM/VLM OCR | 未計測 | - | - | - | - | - | ローカルOpenAI互換VLM API未接続のため未計測 |
+| `gemma3:4b` | `test_image1.png` | 0.2092 | 1.0000 | 15.539 | 0.047 | 4,882,432 | 改善なし |
+| `gemma3:4b` | `test_image2.png` | 0.9861 | 1.0000 | 11.274 | 0.031 | -475,136 | 高精度だが遅い |
+| `gemma3:4b` | `test_image3.jpg` | 0.9969 | 1.0000 | 13.187 | 0.000 | 49,152 | 高精度だが遅い |
+| `minicpm-v` | `test_image1.png` | 0.4187 | 1.0000 | 15.127 | 0.062 | 4,956,160 | ピクセルフォントは改善 |
+| `minicpm-v` | `test_image2.png` | 0.9749 | 1.0000 | 8.606 | 0.031 | -462,848 | 説明ラベルが混ざる |
+| `minicpm-v` | `test_image3.jpg` | 0.6507 | 1.0000 | 4.274 | 0.016 | 167,936 | 内容補完が多く不安定 |
+| `gemma3:12b` | `test_image1.png` | 0.2020 | 1.0000 | 4.151 | 0.062 | 4,997,120 | 改善なし |
+| `gemma3:12b` | `test_image2.png` | 0.9984 | 1.0000 | 3.682 | 0.031 | -462,848 | 高精度 |
+| `gemma3:12b` | `test_image3.jpg` | 0.9981 | 1.0000 | 6.801 | 0.016 | 172,032 | 高精度 |
 
 Tesseract平均:
 - 類似度: 0.7438
@@ -38,6 +46,8 @@ Tesseract平均:
 - 秒: 0.393
 
 比較元コミットの記録では、`test_image1.png` は類似度0.2392、`test_image2.png` は0.9952、`test_image3.jpg` は0.9969だった。現在の再実測でも精度は同一で、LLM OCRを試す価値が高い対象は主に `test_image1.png`。
+
+Ollama VLMの詳細比較は `ollama_vlm_comparison.md` に記載した。VRAM 10GB枠では `gemma3:12b` まで実行可能だったが、ピクセルフォント改善は見られなかった。
 
 ## 翻訳スコア
 | エンジン | 入力 | 類似度 | 秒 | CPU秒 | メモリ差分 | 出力 | 判断 |
@@ -62,8 +72,10 @@ CTranslate2平均:
 
 ## 結論
 - OCRは、通常フォントではTesseractが十分高精度。低精度の主因は `test_image1.png` のピクセルフォントであり、LLM/VLM OCRの検証優先度は高い。
+- Ollama VLM比較では、`minicpm-v` のみ `test_image1.png` の類似度を改善したが、説明・補完が混ざるためそのまま採用しない。
+- `gemma3:12b` はVRAM 10GB枠で動作し通常フォントに強いが、ピクセルフォントではTesseract以下。
 - 翻訳は、現時点ではArgosがCTranslate2より明確に安定している。CTranslate2の `opus-mt-en-jap` は今回の用途では候補から下げる。
-- LLM翻訳は、OCRほど優先度は高くない。まずVLM OCRで `test_image1.png` の類似度が改善するかを検証するのが妥当。
+- LLM翻訳は、OCRほど優先度は高くない。まずピクセルフォントOCRを改善する方が効果が大きい。
 - LLM/VLM実測時は、同じCLIで `seconds`、`cpu_seconds`、`memory_bytes`、`memory_delta_bytes` を比較する。
 
 ## 次の検証手順
