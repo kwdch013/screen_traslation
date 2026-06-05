@@ -32,6 +32,7 @@ class PipelineConfig:
     llm_base_url: str = "http://127.0.0.1:8000/v1"
     llm_model: str = ""
     llm_timeout_seconds: float = 120.0
+    translation_log_path: str = "verification/translation_log.jsonl"
     overlay_backend: str = "tk"
     source_language: str = "en"
     target_language: str = "ja"
@@ -88,6 +89,7 @@ def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
         llm_base_url=str(data.get("llm_base_url", "http://127.0.0.1:8000/v1")),
         llm_model=str(data.get("llm_model", "")),
         llm_timeout_seconds=float(data.get("llm_timeout_seconds", 120.0)),
+        translation_log_path=str(data.get("translation_log_path", "verification/translation_log.jsonl")),
         overlay_backend=str(data.get("overlay_backend", "tk")),
         source_language=str(data.get("source_language", "en")),
         target_language=str(data.get("target_language", "ja")),

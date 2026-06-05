@@ -22,6 +22,7 @@ class ConfigTest(unittest.TestCase):
             llm_base_url="http://127.0.0.1:8000/v1",
             llm_model="local-model",
             llm_timeout_seconds=30.0,
+            translation_log_path="verification/test_translation_log.jsonl",
             overlay_backend="tk",
             source_language="en",
             target_language="ja",

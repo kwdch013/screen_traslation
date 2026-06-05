@@ -6,7 +6,7 @@ from .config import PipelineConfig, load_config, save_config
 from .contracts import Rect
 from .factory import build_capture_source, build_ocr_engine, build_translator
 from .glossary import Glossary
-from .pipeline import TranslationPipeline
+from .pipeline import JsonlTranslationLogger, TranslationPipeline
 from .runtime import PipelineRunner
 from .single_instance import SingleInstanceLock
 from .tk_overlay import TkOverlayRenderer
@@ -213,6 +213,7 @@ class DesktopApplication:
             llm_base_url=self._config.llm_base_url,
             llm_model=self._config.llm_model,
             llm_timeout_seconds=self._config.llm_timeout_seconds,
+            translation_log_path=self._config.translation_log_path,
             overlay_backend=self._config.overlay_backend,
             source_language=self._config.source_language,
             target_language=self._config.target_language,
@@ -240,6 +241,7 @@ class DesktopApplication:
             llm_base_url=config.llm_base_url,
             llm_model=config.llm_model,
             llm_timeout_seconds=config.llm_timeout_seconds,
+            translation_log_path=config.translation_log_path,
             overlay_backend=config.overlay_backend,
             source_language=config.source_language,
             target_language=config.target_language,
@@ -262,6 +264,7 @@ class DesktopApplication:
             translator=build_translator(config, self._glossary),
             overlay_renderer=self._overlay,
             config=config,
+            translation_logger=JsonlTranslationLogger(config.translation_log_path),
         )
 
 

@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+import tempfile
 import unittest
 
 from app.capture import BlankCaptureSource
@@ -5,7 +8,7 @@ from app.config import PipelineConfig
 from app.contracts import Rect, TextRegion
 from app.ocr import StaticOcrEngine
 from app.overlay import InMemoryOverlayRenderer
-from app.pipeline import FrameLimiter, OcrStabilizer, TranslationPipeline
+from app.pipeline import FrameLimiter, JsonlTranslationLogger, OcrStabilizer, TranslationPipeline
 
 
 class CountingTranslator:
@@ -164,6 +167,42 @@ class PipelineTest(unittest.TestCase):
         pipeline.tick(now=0.6)
 
         self.assertEqual(renderer.last_regions, [])
+
+    def test_pipeline_writes_jsonl_translation_log_when_translations_change(self) -> None:
+        translator = CountingTranslator()
+        renderer = InMemoryOverlayRenderer()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "translations.jsonl"
+            pipeline = TranslationPipeline(
+                capture_source=BlankCaptureSource(),
+                ocr_engine=StaticOcrEngine(
+                    [
+                        TextRegion(
+                            text="New Game",
+                            bounds=Rect(x=10, y=20, width=120, height=30),
+                            confidence=0.9,
+                        )
+                    ]
+                ),
+                translator=translator,
+                overlay_renderer=renderer,
+                config=PipelineConfig(ocr_fps=10.0),
+                stabilizer=OcrStabilizer(required_repeats=1),
+                translation_logger=JsonlTranslationLogger(log_path),
+            )
+
+            pipeline.tick(now=0.0)
+            pipeline.tick(now=0.2)
+
+            lines = log_path.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(len(lines), 1)
+        entry = json.loads(lines[0])
+        self.assertEqual(entry["source_language"], "en")
+        self.assertEqual(entry["target_language"], "ja")
+        self.assertEqual(entry["source_text"], "New Game")
+        self.assertEqual(entry["translated_text"], renderer.last_regions[0].translated)
+        self.assertEqual(entry["bounds"], {"x": 10, "y": 20, "width": 120, "height": 30})
 
 
 if __name__ == "__main__":

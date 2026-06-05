@@ -109,13 +109,7 @@ class TkOverlayRenderer:
 def translation_panel_lines(regions: Sequence[TranslationRegion]) -> list[str]:
     if not regions:
         return ["翻訳待機中"]
-    lines: list[str] = []
-    for region in regions[:8]:
-        if region.source.strip() == region.translated.strip():
-            lines.append(region.translated.strip())
-        else:
-            lines.append(f"{region.source.strip()} -> {region.translated.strip()}")
-    return lines
+    return [region.translated.strip() for region in regions[:8]]
 
 
 def normalize_overlay_opacity(opacity: float) -> float:

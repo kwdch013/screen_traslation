@@ -10,7 +10,7 @@ from .factory import build_pipeline
 from .glossary import Glossary
 from .ocr import StaticOcrEngine, text_to_region
 from .overlay import ConsoleOverlayRenderer
-from .pipeline import TranslationPipeline
+from .pipeline import JsonlTranslationLogger, TranslationPipeline
 from .translator import GlossaryAwareTranslator, PassthroughTranslator
 
 
@@ -72,6 +72,7 @@ def main() -> int:
         translator=translator,
         overlay_renderer=ConsoleOverlayRenderer(),
         config=config,
+        translation_logger=JsonlTranslationLogger(config.translation_log_path),
     )
     pipeline.tick()
     save_config(config, args.config)

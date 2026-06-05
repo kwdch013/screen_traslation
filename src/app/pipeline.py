@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
+import json
+from pathlib import Path
 from time import monotonic
+from typing import Protocol
 
 from .config import PipelineConfig
 from .contracts import CaptureSource, OcrEngine, OverlayRenderer, TextRegion, TranslationRegion, Translator
@@ -45,6 +49,39 @@ class OcrStabilizer:
         self._stable_regions = []
 
 
+class TranslationLogger(Protocol):
+    def log(self, regions: list[TranslationRegion], config: PipelineConfig) -> None:
+        """翻訳結果を後から参照できる形で記録する。"""
+
+
+class JsonlTranslationLogger:
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+
+    def log(self, regions: list[TranslationRegion], config: PipelineConfig) -> None:
+        if not regions:
+            return
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        recorded_at = datetime.now(UTC).isoformat()
+        with self._path.open("a", encoding="utf-8") as log_file:
+            for region in regions:
+                entry = {
+                    "recorded_at": recorded_at,
+                    "source_language": config.source_language,
+                    "target_language": config.target_language,
+                    "source_text": region.source,
+                    "translated_text": region.translated,
+                    "confidence": region.confidence,
+                    "bounds": {
+                        "x": region.bounds.x,
+                        "y": region.bounds.y,
+                        "width": region.bounds.width,
+                        "height": region.bounds.height,
+                    },
+                }
+                log_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
 @dataclass
 class FrameLimiter:
     fps: float
@@ -71,6 +108,7 @@ class TranslationPipeline:
         cache: TranslationCache | None = None,
         frame_limiter: FrameLimiter | None = None,
         stabilizer: OcrStabilizer | None = None,
+        translation_logger: TranslationLogger | None = None,
     ) -> None:
         self._capture_source = capture_source
         self._ocr_engine = ocr_engine
@@ -80,7 +118,9 @@ class TranslationPipeline:
         self._cache = cache or TranslationCache()
         self._frame_limiter = frame_limiter or FrameLimiter(config.ocr_fps)
         self._stabilizer = stabilizer or OcrStabilizer()
+        self._translation_logger = translation_logger
         self._last_overlay_texts: set[str] = set()
+        self._last_logged_signature: tuple[tuple[str, str], ...] = ()
 
     def tick(self, now: float | None = None) -> bool:
         current_time = monotonic() if now is None else now
@@ -112,7 +152,16 @@ class TranslationPipeline:
         ]
         self._last_overlay_texts = _overlay_feedback_texts(translations)
         self._overlay_renderer.render(translations)
+        self._log_translations_if_changed(translations)
         return True
+
+    def _log_translations_if_changed(self, translations: list[TranslationRegion]) -> None:
+        signature = tuple((region.source, region.translated) for region in translations)
+        if signature == self._last_logged_signature:
+            return
+        self._last_logged_signature = signature
+        if translations and self._translation_logger is not None:
+            self._translation_logger.log(translations, self._config)
 
 
 def _normalize_cache_key(text: str) -> str:

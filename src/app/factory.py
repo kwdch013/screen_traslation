@@ -6,7 +6,7 @@ from .contracts import CaptureSource, OcrEngine, OverlayRenderer, Translator
 from .glossary import Glossary
 from .ocr import FallbackOcrEngine, LlmOcrEngine, StaticOcrEngine, TesseractOcrEngine
 from .overlay import ConsoleOverlayRenderer, InMemoryOverlayRenderer
-from .pipeline import TranslationPipeline
+from .pipeline import JsonlTranslationLogger, TranslationPipeline
 from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTranslator
 
 
@@ -79,4 +79,5 @@ def build_pipeline(config: PipelineConfig, glossary: Glossary, static_text: str 
         translator=build_translator(config, glossary),
         overlay_renderer=build_overlay_renderer(config),
         config=config,
+        translation_logger=JsonlTranslationLogger(config.translation_log_path),
     )

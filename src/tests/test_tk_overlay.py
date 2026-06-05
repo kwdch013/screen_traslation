@@ -8,7 +8,7 @@ class TkOverlayTest(unittest.TestCase):
     def test_translation_panel_lines_show_waiting_message(self) -> None:
         self.assertEqual(translation_panel_lines([]), ["翻訳待機中"])
 
-    def test_translation_panel_lines_include_source_and_translation(self) -> None:
+    def test_translation_panel_lines_include_only_translation(self) -> None:
         lines = translation_panel_lines(
             [
                 TranslationRegion(
@@ -20,4 +20,4 @@ class TkOverlayTest(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(lines, ["New Game -> ニューゲーム"])
+        self.assertEqual(lines, ["ニューゲーム"])
