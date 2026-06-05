@@ -1,0 +1,3 @@
+{"source_text": "New Game", "seconds": 22.171, "cpu_seconds": 4.562, "memory_bytes": 560324608, "memory_delta_bytes": 531525632, "similarity": 1.0, "actual_text": "新しいゲーム"}
+{"source_text": "Important Security Update Available", "seconds": 0.023, "cpu_seconds": 0.109, "memory_bytes": 563806208, "memory_delta_bytes": 3469312, "similarity": 0.7143, "actual_text": "利用可能な重要なセキュリティアップデート"}
+{"source_text": "Game Options", "seconds": 0.014, "cpu_seconds": 0.109, "memory_bytes": 566779904, "memory_delta_bytes": 2973696, "similarity": 0.4615, "actual_text": "ゲームオプション"}

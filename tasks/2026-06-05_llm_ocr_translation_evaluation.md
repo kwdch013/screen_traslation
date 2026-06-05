@@ -31,3 +31,8 @@ python -m app.evaluate_translations --engine llm --llm-base-url http://127.0.0.1
 - `.venv` で `python -m compileall -q src/app` を実行し、成功。
 - `.venv` で `python -m app.evaluate_test_images --engine tesseract` を実行し、精度・速度・負荷指標のJSON出力を確認。
 - `.venv` で `python -m app.evaluate_translations --engine passthrough` を実行し、精度・速度・負荷指標のJSON出力を確認。
+
+## 追加整理
+- `verification/2026-06-05_llm_ocr_translation/` にOCR・翻訳の再実測結果、前回コミットとの比較、次のLLM/VLM検証手順を整理した。
+- Tesseract OCRは `test_image1.png` のみ低精度で、VLM OCRの検証対象として優先度が高い。
+- 翻訳はArgosがCTranslate2より安定しており、LLM翻訳より先にVLM OCRを実測する方針とした。
