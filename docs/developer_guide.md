@@ -59,7 +59,8 @@ PYTHONPATH=src python3 -m py_compile src/app/*.py
 
 ## 現在の実装済み範囲
 
-- 対象ウィンドウ選択
+- ブラウザ経由の画面/ウィンドウ/タブ選択キャプチャ(`web_capture`、既定のcapture_backend)
+- 対象ウィンドウ選択(レガシーの`mss`キャプチャ用)
 - 領域キャプチャ
 - Tesseract OCRアダプタ
 - Windows OCRアダプタ

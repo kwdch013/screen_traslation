@@ -70,7 +70,7 @@ class DesktopApplicationTest(unittest.TestCase):
         self.assertIsNone(rect)
 
     def test_running_buttons_include_region_reselect(self) -> None:
-        self.assertEqual(run_button_texts(is_running=True), ("停止", "範囲再選択", "終了"))
+        self.assertEqual(run_button_texts(is_running=True), ("停止", "画面再選択", "終了"))
 
     def test_stopped_buttons_only_include_start(self) -> None:
         self.assertEqual(run_button_texts(is_running=False), ("開始",))

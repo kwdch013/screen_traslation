@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import webbrowser
 
 from .config import PipelineConfig, load_config, save_config
 from .contracts import Rect
@@ -11,12 +12,13 @@ from .runtime import PipelineRunner
 from .single_instance import SingleInstanceLock
 from .tk_overlay import TkOverlayRenderer
 from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTranslator
+from .web_capture import WebCaptureServer
 
 
 GLOSSARY_EXAMPLES = (("New Game", "ニューゲーム"),)
 START_BUTTON_TEXT = "開始"
 STOP_BUTTON_TEXT = "停止"
-RESELECT_REGION_BUTTON_TEXT = "範囲再選択"
+RESELECT_REGION_BUTTON_TEXT = "画面再選択"
 EXIT_BUTTON_TEXT = "終了"
 
 
@@ -32,6 +34,7 @@ class DesktopApplication:
         self._glossary = Glossary.load(glossary_path)
         self._runner: PipelineRunner | None = None
         self._overlay: TkOverlayRenderer | None = None
+        self._web_capture_server: WebCaptureServer | None = None
 
     def run(self) -> None:
         enable_process_dpi_awareness()
@@ -143,11 +146,24 @@ class DesktopApplication:
             update_run_buttons()
             status.set(_target_status(message, selection))
 
+        def start_translation_for_web(message: str) -> None:
+            self._config = self._config_with_region(self._config, None)
+            pipeline = self._build_pipeline_for_web(root)
+            self._runner = PipelineRunner(pipeline, on_error=on_pipeline_error)
+            self._runner.start()
+            is_running.set(True)
+            update_run_buttons()
+            server_url = self._web_capture_server.url if self._web_capture_server is not None else ""
+            status.set(f"{message} ブラウザ({server_url})で共有する画面、ウィンドウ、またはタブを選択してください。")
+
         def start_translation() -> None:
             try:
                 self._config = self._current_config(ocr_fps, overlay_opacity)
-                selection = select_translation_region(root)
-                start_translation_for_region(selection, "翻訳中。選択範囲を右下の翻訳パネルへ表示しています。")
+                if self._config.capture_backend == "web":
+                    start_translation_for_web("翻訳を開始しました。")
+                else:
+                    selection = select_translation_region(root)
+                    start_translation_for_region(selection, "翻訳中。選択範囲を右下の翻訳パネルへ表示しています。")
             except Exception as error:
                 status.set(f"開始できません: {error}")
 
@@ -158,6 +174,16 @@ class DesktopApplication:
             status.set("停止中。")
 
         def reselect_translation_region() -> None:
+            if self._config.capture_backend == "web":
+                try:
+                    self._config = self._current_config(ocr_fps, overlay_opacity)
+                    stop_active_translation()
+                    start_translation_for_web("画面を選択し直してください。")
+                except Exception as error:
+                    is_running.set(False)
+                    update_run_buttons()
+                    status.set(f"画面を選択し直せませんでした: {error}")
+                return
             previous_region = self._config.target_region
             try:
                 self._config = self._current_config(ocr_fps, overlay_opacity)
@@ -201,6 +227,9 @@ class DesktopApplication:
 
         def on_close() -> None:
             stop_translation()
+            if self._web_capture_server is not None:
+                self._web_capture_server.stop()
+                self._web_capture_server = None
             updated = self._current_config(ocr_fps, overlay_opacity)
             save_config(updated, self._config_path)
             self._glossary.save(self._glossary_path)
@@ -305,6 +334,24 @@ class DesktopApplication:
         ocr_engine.validate()
         return TranslationPipeline(
             capture_source=build_capture_source(config),
+            ocr_engine=ocr_engine,
+            translator=build_translator(config, self._glossary),
+            overlay_renderer=self._overlay,
+            config=config,
+            translation_logger=JsonlTranslationLogger(config.translation_log_path),
+        )
+
+    def _build_pipeline_for_web(self, root: object) -> TranslationPipeline:
+        config = self._config_with_region(self._config, None)
+        if self._web_capture_server is None:
+            self._web_capture_server = WebCaptureServer()
+        self._web_capture_server.start()
+        webbrowser.open(self._web_capture_server.url)
+        self._overlay = TkOverlayRenderer(config.overlay_style, master=root)
+        ocr_engine = build_ocr_engine(config)
+        ocr_engine.validate()
+        return TranslationPipeline(
+            capture_source=build_capture_source(config, self._web_capture_server.store),
             ocr_engine=ocr_engine,
             translator=build_translator(config, self._glossary),
             overlay_renderer=self._overlay,
