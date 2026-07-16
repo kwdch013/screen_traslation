@@ -8,13 +8,22 @@ from .ocr import FallbackOcrEngine, LlmOcrEngine, StaticOcrEngine, TesseractOcrE
 from .overlay import ConsoleOverlayRenderer, InMemoryOverlayRenderer
 from .pipeline import JsonlTranslationLogger, TranslationPipeline
 from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTranslator
+from .web_capture import WebCaptureFrameStore, WebCaptureSource
 
 
-def build_capture_source(config: PipelineConfig) -> CaptureSource:
+def build_capture_source(config: PipelineConfig, web_capture_store: WebCaptureFrameStore | None = None) -> CaptureSource:
     if config.capture_backend == "blank":
         return BlankCaptureSource(config.target_region)
     if config.capture_backend == "mss":
         return MssCaptureSource(config.target_region)
+    if config.capture_backend == "web":
+        if web_capture_store is None:
+            raise ValueError(
+                "capture_backend='web' はブラウザ画面共有(WebCaptureServer)経由でのみ利用できます。"
+                "デスクトップアプリから起動するか、build_pipeline に web_capture_store を渡してください。"
+                "CLIの--run-onceなど非対話経路では capture_backend を 'mss' か 'blank' に設定してください。"
+            )
+        return WebCaptureSource(web_capture_store)
     raise ValueError(f"未対応のcapture_backendです: {config.capture_backend}")
 
 
@@ -72,9 +81,14 @@ def build_overlay_renderer(config: PipelineConfig) -> OverlayRenderer:
     raise ValueError(f"未対応のoverlay_backendです: {config.overlay_backend}")
 
 
-def build_pipeline(config: PipelineConfig, glossary: Glossary, static_text: str | None = None) -> TranslationPipeline:
+def build_pipeline(
+    config: PipelineConfig,
+    glossary: Glossary,
+    static_text: str | None = None,
+    web_capture_store: WebCaptureFrameStore | None = None,
+) -> TranslationPipeline:
     return TranslationPipeline(
-        capture_source=build_capture_source(config),
+        capture_source=build_capture_source(config, web_capture_store),
         ocr_engine=build_ocr_engine(config, static_text),
         translator=build_translator(config, glossary),
         overlay_renderer=build_overlay_renderer(config),

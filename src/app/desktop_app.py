@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import webbrowser
 
 from .config import PipelineConfig, load_config, save_config
 from .contracts import Rect
@@ -11,12 +12,13 @@ from .runtime import PipelineRunner
 from .single_instance import SingleInstanceLock
 from .tk_overlay import TkOverlayRenderer
 from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTranslator
+from .web_capture import WebCaptureServer
 
 
 GLOSSARY_EXAMPLES = (("New Game", "ニューゲーム"),)
 START_BUTTON_TEXT = "開始"
 STOP_BUTTON_TEXT = "停止"
-RESELECT_REGION_BUTTON_TEXT = "範囲再選択"
+RESELECT_REGION_BUTTON_TEXT = "画面再選択"
 EXIT_BUTTON_TEXT = "終了"
 
 
@@ -32,6 +34,7 @@ class DesktopApplication:
         self._glossary = Glossary.load(glossary_path)
         self._runner: PipelineRunner | None = None
         self._overlay: TkOverlayRenderer | None = None
+        self._web_capture_server: WebCaptureServer | None = None
 
     def run(self) -> None:
         enable_process_dpi_awareness()
@@ -78,6 +81,8 @@ class DesktopApplication:
 
         status = tk.StringVar(value="停止中。ローカル処理モードです。")
         is_running = tk.BooleanVar(value=False)
+        # Runnerの世代。停止・開始のたびに繰り上げ、旧Runnerの遅延通知を無視する。
+        run_generation = {"value": 0}
 
         ttk.Label(frame, text="辞書登録").grid(row=1, column=0, sticky=tk.W, pady=(24, 0))
         ttk.Label(frame, text="英語").grid(row=2, column=0, sticky=tk.W)
@@ -126,7 +131,14 @@ class DesktopApplication:
 
         ttk.Label(frame, text="実行").grid(row=7, column=0, sticky=tk.W, pady=(28, 0))
 
+        def invalidate_web_session() -> None:
+            # webバックエンドでセッションを更新し、旧タブからのフレーム送信を無効化する。
+            if self._web_capture_server is not None and self._web_capture_server.is_running:
+                self._web_capture_server.new_session()
+
         def stop_active_translation() -> None:
+            # 世代を繰り上げ、停止済みRunnerからの遅延通知を無効化する。
+            run_generation["value"] += 1
             if self._runner is not None:
                 self._runner.stop()
                 self._runner = None
@@ -134,30 +146,90 @@ class DesktopApplication:
                 self._overlay.close()
                 self._overlay = None
 
+        def cleanup_failed_start() -> None:
+            # 開始・再選択の途中で失敗したときの後始末(オーバーレイ破棄とセッション失効)。
+            if self._overlay is not None:
+                self._overlay.close()
+                self._overlay = None
+            invalidate_web_session()
+
+        def make_on_pipeline_error(generation: int):
+            def on_pipeline_error(error: Exception) -> None:
+                def update_status() -> None:
+                    # 旧Runnerの遅延通知は無視し、現在のセッションを壊さない。
+                    if generation != run_generation["value"]:
+                        return
+                    self._runner = None
+                    if self._overlay is not None:
+                        self._overlay.close()
+                        self._overlay = None
+                    # 異常終了時もセッションを失効させ、ブラウザからの送信を無効化する。
+                    invalidate_web_session()
+                    is_running.set(False)
+                    update_run_buttons()
+                    status.set(f"翻訳処理を停止しました: {error}")
+
+                root.after(0, update_status)
+
+            return on_pipeline_error
+
         def start_translation_for_region(selection: Rect, message: str) -> None:
             self._config = self._config_with_region(self._config, selection)
+            run_generation["value"] += 1
+            generation = run_generation["value"]
             pipeline = self._build_pipeline_for_region(root, selection)
-            self._runner = PipelineRunner(pipeline, on_error=on_pipeline_error)
+            self._runner = PipelineRunner(pipeline, on_error=make_on_pipeline_error(generation))
             self._runner.start()
             is_running.set(True)
             update_run_buttons()
             status.set(_target_status(message, selection))
 
+        def start_translation_for_web(message: str) -> None:
+            self._config = self._config_with_region(self._config, None)
+            run_generation["value"] += 1
+            generation = run_generation["value"]
+            pipeline = self._build_pipeline_for_web(root)
+            self._runner = PipelineRunner(pipeline, on_error=make_on_pipeline_error(generation))
+            self._runner.start()
+            is_running.set(True)
+            update_run_buttons()
+            server_url = self._web_capture_server.url if self._web_capture_server is not None else ""
+            status.set(f"{message} ブラウザ({server_url})で共有する画面、ウィンドウ、またはタブを選択してください。")
+
         def start_translation() -> None:
             try:
                 self._config = self._current_config(ocr_fps, overlay_opacity)
-                selection = select_translation_region(root)
-                start_translation_for_region(selection, "翻訳中。選択範囲を右下の翻訳パネルへ表示しています。")
+                if self._config.capture_backend == "web":
+                    start_translation_for_web("翻訳を開始しました。")
+                else:
+                    selection = select_translation_region(root)
+                    start_translation_for_region(selection, "翻訳中。選択範囲を右下の翻訳パネルへ表示しています。")
             except Exception as error:
+                cleanup_failed_start()
+                is_running.set(False)
+                update_run_buttons()
                 status.set(f"開始できません: {error}")
 
         def stop_translation() -> None:
             stop_active_translation()
+            # 停止時にセッションを更新し、開いたままのブラウザタブからの送信を無効化する。
+            invalidate_web_session()
             is_running.set(False)
             update_run_buttons()
             status.set("停止中。")
 
         def reselect_translation_region() -> None:
+            if self._config.capture_backend == "web":
+                try:
+                    self._config = self._current_config(ocr_fps, overlay_opacity)
+                    stop_active_translation()
+                    start_translation_for_web("画面を選択し直してください。")
+                except Exception as error:
+                    cleanup_failed_start()
+                    is_running.set(False)
+                    update_run_buttons()
+                    status.set(f"画面を選択し直せませんでした: {error}")
+                return
             previous_region = self._config.target_region
             try:
                 self._config = self._current_config(ocr_fps, overlay_opacity)
@@ -170,6 +242,7 @@ class DesktopApplication:
                 )
             except Exception as error:
                 if previous_region is None:
+                    cleanup_failed_start()
                     is_running.set(False)
                     update_run_buttons()
                     status.set(f"翻訳範囲を再選択できませんでした: {error}")
@@ -180,6 +253,7 @@ class DesktopApplication:
                         f"翻訳範囲を再選択できなかったため、前回の範囲で翻訳を再開しました: {error}",
                     )
                 except Exception as restart_error:
+                    cleanup_failed_start()
                     is_running.set(False)
                     update_run_buttons()
                     status.set(
@@ -187,20 +261,11 @@ class DesktopApplication:
                         f"再開エラー: {restart_error}"
                     )
 
-        def on_pipeline_error(error: Exception) -> None:
-            def update_status() -> None:
-                self._runner = None
-                if self._overlay is not None:
-                    self._overlay.close()
-                    self._overlay = None
-                is_running.set(False)
-                update_run_buttons()
-                status.set(f"翻訳処理を停止しました: {error}")
-
-            root.after(0, update_status)
-
         def on_close() -> None:
             stop_translation()
+            if self._web_capture_server is not None:
+                self._web_capture_server.stop()
+                self._web_capture_server = None
             updated = self._current_config(ocr_fps, overlay_opacity)
             save_config(updated, self._config_path)
             self._glossary.save(self._glossary_path)
@@ -305,6 +370,26 @@ class DesktopApplication:
         ocr_engine.validate()
         return TranslationPipeline(
             capture_source=build_capture_source(config),
+            ocr_engine=ocr_engine,
+            translator=build_translator(config, self._glossary),
+            overlay_renderer=self._overlay,
+            config=config,
+            translation_logger=JsonlTranslationLogger(config.translation_log_path),
+        )
+
+    def _build_pipeline_for_web(self, root: object) -> TranslationPipeline:
+        config = self._config_with_region(self._config, None)
+        if self._web_capture_server is None:
+            self._web_capture_server = WebCaptureServer()
+        self._web_capture_server.start()
+        # 新しいセッションを開始し、以前のタブから届くフレームを無効化してから開く。
+        self._web_capture_server.new_session()
+        webbrowser.open(self._web_capture_server.url)
+        self._overlay = TkOverlayRenderer(config.overlay_style, master=root)
+        ocr_engine = build_ocr_engine(config)
+        ocr_engine.validate()
+        return TranslationPipeline(
+            capture_source=build_capture_source(config, self._web_capture_server.store),
             ocr_engine=ocr_engine,
             translator=build_translator(config, self._glossary),
             overlay_renderer=self._overlay,

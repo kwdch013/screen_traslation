@@ -16,8 +16,8 @@
 ## 実行方式
 
 ```text
-対象ウィンドウ選択
-  -> 画面キャプチャ
+ブラウザで画面/ウィンドウ/タブを選択
+  -> ローカルHTTPサーバーがフレームを受信
   -> OCR
   -> 辞書補正付き翻訳
   -> 翻訳キャッシュ
@@ -27,6 +27,7 @@
 ## モジュール構成
 
 - `capture`: 画面取得を担当する。
+- `web_capture`: ブラウザのScreen Capture APIから届く画面フレームの受信を担当する。
 - `ocr`: OCRを担当する。
 - `translator`: 翻訳を担当する。
 - `glossary`: 用語辞書を担当する。
@@ -34,17 +35,22 @@
 - `pipeline`: 各モジュールを接続する。
 - `runtime`: パイプラインの開始、停止を担当する。
 - `desktop_app`: デスクトップUIを担当する。
-- `window`: 起動中ウィンドウ一覧の取得を担当する。
+- `window`: 起動中ウィンドウ一覧の取得を担当する(レガシーの`mss`キャプチャ用)。
 - `factory`: 設定から各モジュールを組み立てる。
 
 ## バックエンド
 
 ### キャプチャ
 
-- 既定値: `mss`
+- 既定値: `web`
+- レガシー: `mss`
 - テスト用: `blank`
 
-`mss` は対象ウィンドウまたは指定領域を画像として取得する。
+`web` はローカルWebページ(`web_capture.WebCaptureServer`)をブラウザで開き、`navigator.mediaDevices.getDisplayMedia` によるブラウザ標準の「画面、ウィンドウ、またはタブを選択」ダイアログでキャプチャ対象を選ぶ。選択後はブラウザがJPEGフレームを定期的にローカルサーバーへ送信し、`WebCaptureSource` が最新フレームを取得する。Windowsのウィンドウ一覧取得(`pygetwindow`)に依存しないため、対象アプリの種類やOS権限の影響を受けにくい。`getDisplayMedia` に対応したブラウザ(Chrome / Edge など)が必要となる。
+
+`web` の受信サーバーは `127.0.0.1` のみで待ち受け、`POST /frame` をセッショントークン(`X-Capture-Token`)、`Host` ヘッダ検証、`Content-Type` 制限、`Content-Length` 上限、画像寸法上限、読み取りタイムアウトで保護する。開始・停止・再選択のたびにセッショントークンを更新し(`WebCaptureServer.new_session`)、古いブラウザタブから届くフレームは拒否される。CLIの `--run-once` など `web_capture_store` を伴わない非対話経路では `web` を利用できず、明示的なエラーで `mss` / `blank` への設定を促す。
+
+`mss` は対象ウィンドウまたは指定領域を画像として取得するレガシー方式で、Tkinterの矩形ドラッグ選択と組み合わせて利用する。
 
 ### OCR
 

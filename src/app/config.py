@@ -25,7 +25,7 @@ class OverlayStyle:
 class PipelineConfig:
     ocr_fps: float = 5.0
     min_confidence: float = 0.45
-    capture_backend: str = "mss"
+    capture_backend: str = "web"
     ocr_backend: str = "tesseract"
     ocr_fallback_min_confidence: float = 0.65
     translator_backend: str = "argos"
@@ -82,7 +82,7 @@ def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
     return PipelineConfig(
         ocr_fps=float(data.get("ocr_fps", 5.0)),
         min_confidence=float(data.get("min_confidence", 0.45)),
-        capture_backend=str(data.get("capture_backend", "mss")),
+        capture_backend=str(data.get("capture_backend", "web")),
         ocr_backend=str(data.get("ocr_backend", "tesseract")),
         ocr_fallback_min_confidence=float(data.get("ocr_fallback_min_confidence", 0.65)),
         translator_backend=str(data.get("translator_backend", "argos")),
