@@ -7,6 +7,7 @@ from PIL import Image
 
 from app.web_capture import (
     MAX_FRAME_BYTES,
+    MAX_IMAGE_DIMENSION,
     TOKEN_HEADER,
     WebCaptureFrameStore,
     WebCaptureServer,
@@ -66,11 +67,36 @@ class DecodeFrameBytesTest(unittest.TestCase):
         self.assertEqual(decoded.mode, "RGB")
         self.assertEqual(decoded.size, (12, 9))
 
+    def test_decode_rejects_oversized_dimension_before_load(self) -> None:
+        # 1辺が上限を超える画像は load() 前に拒否されること。
+        oversized = Image.new("RGB", (MAX_IMAGE_DIMENSION + 1, 1), color="white")
+        buffer = BytesIO()
+        oversized.save(buffer, format="PNG")
+
+        with self.assertRaises(ValueError):
+            decode_frame_bytes(buffer.getvalue())
+
+    def test_decode_rejects_content_type_format_mismatch(self) -> None:
+        # 実体はPNGなのにContent-Typeがjpegと偽装された場合は拒否すること。
+        image = Image.new("RGB", (8, 8), color="white")
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+
+        with self.assertRaises(ValueError):
+            decode_frame_bytes(buffer.getvalue(), expected_content_type="image/jpeg")
+
 
 def _jpeg_bytes(size: tuple[int, int] = (16, 10), color: str = "white") -> bytes:
     image = Image.new("RGB", size, color=color)
     buffer = BytesIO()
     image.save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+def _png_bytes(size: tuple[int, int] = (16, 10), color: str = "white") -> bytes:
+    image = Image.new("RGB", size, color=color)
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
     return buffer.getvalue()
 
 
@@ -81,6 +107,7 @@ def _post_frame(
     token: str | None,
     content_type: str | None = "image/jpeg",
     host: str | None = None,
+    origin: str | None = None,
     content_length: int | None = None,
 ) -> int:
     """/frame へPOSTし、HTTPステータスコードを返す(エラー応答も例外にせず取得)。"""
@@ -92,6 +119,8 @@ def _post_frame(
         request.add_header(TOKEN_HEADER, token)
     if host is not None:
         request.add_header("Host", host)
+    if origin is not None:
+        request.add_header("Origin", origin)
     if content_length is not None:
         request.add_header("Content-Length", str(content_length))
     try:
@@ -158,6 +187,45 @@ class WebCaptureServerTest(unittest.TestCase):
         status = _post_frame(server, _jpeg_bytes(), token=server.session_token, host="evil.example.com")
 
         self.assertEqual(status, 403)
+
+    def test_foreign_origin_is_rejected(self) -> None:
+        server = self._server()
+
+        status = _post_frame(
+            server,
+            _jpeg_bytes(),
+            token=server.session_token,
+            origin="http://evil.example.com",
+        )
+
+        self.assertEqual(status, 403)
+
+    def test_content_type_format_spoof_is_rejected(self) -> None:
+        server = self._server()
+
+        # 実体PNGをContent-Type: image/jpegとして送ると400で拒否される。
+        status = _post_frame(
+            server,
+            _png_bytes(),
+            token=server.session_token,
+            content_type="image/jpeg",
+        )
+
+        self.assertEqual(status, 400)
+        self.assertFalse(server.store.has_frame())
+
+    def test_accept_frame_rejects_stale_token_atomically(self) -> None:
+        # 読取・デコード完了後に new_session() が走っても古いフレームは保存されない。
+        server = WebCaptureServer(host="127.0.0.1", port=_free_port())
+        old_token = server.session_token
+        image = Image.new("RGB", (4, 4), color="white")
+
+        server.new_session()
+
+        self.assertFalse(server.accept_frame(old_token, image))
+        self.assertFalse(server.store.has_frame())
+        self.assertTrue(server.accept_frame(server.session_token, image))
+        self.assertTrue(server.store.has_frame())
 
     def test_oversized_content_length_is_rejected(self) -> None:
         server = self._server()

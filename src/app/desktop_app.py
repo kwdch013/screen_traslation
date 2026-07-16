@@ -223,6 +223,9 @@ class DesktopApplication:
                 if self._overlay is not None:
                     self._overlay.close()
                     self._overlay = None
+                # 異常終了時もセッションを失効させ、ブラウザからの送信を無効化する。
+                if self._web_capture_server is not None and self._web_capture_server.is_running:
+                    self._web_capture_server.new_session()
                 is_running.set(False)
                 update_run_buttons()
                 status.set(f"翻訳処理を停止しました: {error}")
