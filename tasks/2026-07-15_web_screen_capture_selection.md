@@ -32,6 +32,6 @@ PR #1 を codex(gpt-5.6-sol)に段階的にレビューさせ、以下を修正�
 - レガシーの`mss`バックエンド、および対象ウィンドウ選択(`window.py`)はコードとテストを維持したまま残しており、削除していない。
 
 ## 確認
-- Pillow・pytesseract を導入し、`PYTHONPATH=src python -m unittest discover -s src/tests` を実行し、88件成功(元77件 + 受信防御・セッション関連13件を追加)。
+- Pillow・pytesseract を導入し、`PYTHONPATH=src python -m unittest discover -s src/tests` を実行し、89件成功(元77件 + 受信防御・セッション関連の追加12件)。
 - `PYTHONPATH=src python -m py_compile src/app/*.py src/tests/*.py` でエラーなし。
 - 本環境には `docker` コマンドが無いため `docker compose` は未実行。Python 3.14 で単体テストを実行して代替確認とした。
