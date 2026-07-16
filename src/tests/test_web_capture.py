@@ -2,6 +2,7 @@ from io import BytesIO
 import unittest
 import urllib.error
 import urllib.request
+from unittest import mock
 
 from PIL import Image
 
@@ -75,6 +76,16 @@ class DecodeFrameBytesTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             decode_frame_bytes(buffer.getvalue())
+
+    def test_decode_rejects_excessive_total_pixels(self) -> None:
+        # 各辺は上限内でも、総画素数が上限を超える画像は拒否されること。
+        image = Image.new("RGB", (50, 50), color="white")
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+
+        with mock.patch("app.web_capture.MAX_IMAGE_PIXELS", 100):
+            with self.assertRaises(ValueError):
+                decode_frame_bytes(buffer.getvalue())
 
     def test_decode_rejects_content_type_format_mismatch(self) -> None:
         # 実体はPNGなのにContent-Typeがjpegと偽装された場合は拒否すること。

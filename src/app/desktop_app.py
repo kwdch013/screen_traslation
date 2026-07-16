@@ -81,6 +81,8 @@ class DesktopApplication:
 
         status = tk.StringVar(value="停止中。ローカル処理モードです。")
         is_running = tk.BooleanVar(value=False)
+        # Runnerの世代。停止・開始のたびに繰り上げ、旧Runnerの遅延通知を無視する。
+        run_generation = {"value": 0}
 
         ttk.Label(frame, text="辞書登録").grid(row=1, column=0, sticky=tk.W, pady=(24, 0))
         ttk.Label(frame, text="英語").grid(row=2, column=0, sticky=tk.W)
@@ -129,7 +131,14 @@ class DesktopApplication:
 
         ttk.Label(frame, text="実行").grid(row=7, column=0, sticky=tk.W, pady=(28, 0))
 
+        def invalidate_web_session() -> None:
+            # webバックエンドでセッションを更新し、旧タブからのフレーム送信を無効化する。
+            if self._web_capture_server is not None and self._web_capture_server.is_running:
+                self._web_capture_server.new_session()
+
         def stop_active_translation() -> None:
+            # 世代を繰り上げ、停止済みRunnerからの遅延通知を無効化する。
+            run_generation["value"] += 1
             if self._runner is not None:
                 self._runner.stop()
                 self._runner = None
@@ -137,10 +146,39 @@ class DesktopApplication:
                 self._overlay.close()
                 self._overlay = None
 
+        def cleanup_failed_start() -> None:
+            # 開始・再選択の途中で失敗したときの後始末(オーバーレイ破棄とセッション失効)。
+            if self._overlay is not None:
+                self._overlay.close()
+                self._overlay = None
+            invalidate_web_session()
+
+        def make_on_pipeline_error(generation: int):
+            def on_pipeline_error(error: Exception) -> None:
+                def update_status() -> None:
+                    # 旧Runnerの遅延通知は無視し、現在のセッションを壊さない。
+                    if generation != run_generation["value"]:
+                        return
+                    self._runner = None
+                    if self._overlay is not None:
+                        self._overlay.close()
+                        self._overlay = None
+                    # 異常終了時もセッションを失効させ、ブラウザからの送信を無効化する。
+                    invalidate_web_session()
+                    is_running.set(False)
+                    update_run_buttons()
+                    status.set(f"翻訳処理を停止しました: {error}")
+
+                root.after(0, update_status)
+
+            return on_pipeline_error
+
         def start_translation_for_region(selection: Rect, message: str) -> None:
             self._config = self._config_with_region(self._config, selection)
+            run_generation["value"] += 1
+            generation = run_generation["value"]
             pipeline = self._build_pipeline_for_region(root, selection)
-            self._runner = PipelineRunner(pipeline, on_error=on_pipeline_error)
+            self._runner = PipelineRunner(pipeline, on_error=make_on_pipeline_error(generation))
             self._runner.start()
             is_running.set(True)
             update_run_buttons()
@@ -148,8 +186,10 @@ class DesktopApplication:
 
         def start_translation_for_web(message: str) -> None:
             self._config = self._config_with_region(self._config, None)
+            run_generation["value"] += 1
+            generation = run_generation["value"]
             pipeline = self._build_pipeline_for_web(root)
-            self._runner = PipelineRunner(pipeline, on_error=on_pipeline_error)
+            self._runner = PipelineRunner(pipeline, on_error=make_on_pipeline_error(generation))
             self._runner.start()
             is_running.set(True)
             update_run_buttons()
@@ -165,14 +205,15 @@ class DesktopApplication:
                     selection = select_translation_region(root)
                     start_translation_for_region(selection, "翻訳中。選択範囲を右下の翻訳パネルへ表示しています。")
             except Exception as error:
+                cleanup_failed_start()
+                is_running.set(False)
+                update_run_buttons()
                 status.set(f"開始できません: {error}")
 
         def stop_translation() -> None:
             stop_active_translation()
-            # webバックエンドでは、停止時にセッションを更新して
-            # 開いたままのブラウザタブからのフレーム送信を無効化する。
-            if self._web_capture_server is not None and self._web_capture_server.is_running:
-                self._web_capture_server.new_session()
+            # 停止時にセッションを更新し、開いたままのブラウザタブからの送信を無効化する。
+            invalidate_web_session()
             is_running.set(False)
             update_run_buttons()
             status.set("停止中。")
@@ -184,6 +225,7 @@ class DesktopApplication:
                     stop_active_translation()
                     start_translation_for_web("画面を選択し直してください。")
                 except Exception as error:
+                    cleanup_failed_start()
                     is_running.set(False)
                     update_run_buttons()
                     status.set(f"画面を選択し直せませんでした: {error}")
@@ -200,6 +242,7 @@ class DesktopApplication:
                 )
             except Exception as error:
                 if previous_region is None:
+                    cleanup_failed_start()
                     is_running.set(False)
                     update_run_buttons()
                     status.set(f"翻訳範囲を再選択できませんでした: {error}")
@@ -210,27 +253,13 @@ class DesktopApplication:
                         f"翻訳範囲を再選択できなかったため、前回の範囲で翻訳を再開しました: {error}",
                     )
                 except Exception as restart_error:
+                    cleanup_failed_start()
                     is_running.set(False)
                     update_run_buttons()
                     status.set(
                         f"翻訳範囲を再選択できず、翻訳も再開できませんでした: {error}; "
                         f"再開エラー: {restart_error}"
                     )
-
-        def on_pipeline_error(error: Exception) -> None:
-            def update_status() -> None:
-                self._runner = None
-                if self._overlay is not None:
-                    self._overlay.close()
-                    self._overlay = None
-                # 異常終了時もセッションを失効させ、ブラウザからの送信を無効化する。
-                if self._web_capture_server is not None and self._web_capture_server.is_running:
-                    self._web_capture_server.new_session()
-                is_running.set(False)
-                update_run_buttons()
-                status.set(f"翻訳処理を停止しました: {error}")
-
-            root.after(0, update_status)
 
         def on_close() -> None:
             stop_translation()
