@@ -18,7 +18,11 @@ def build_capture_source(config: PipelineConfig, web_capture_store: WebCaptureFr
         return MssCaptureSource(config.target_region)
     if config.capture_backend == "web":
         if web_capture_store is None:
-            raise ValueError("web capture_backendにはweb_capture_storeを指定してください。")
+            raise ValueError(
+                "capture_backend='web' はブラウザ画面共有(WebCaptureServer)経由でのみ利用できます。"
+                "デスクトップアプリから起動するか、build_pipeline に web_capture_store を渡してください。"
+                "CLIの--run-onceなど非対話経路では capture_backend を 'mss' か 'blank' に設定してください。"
+            )
         return WebCaptureSource(web_capture_store)
     raise ValueError(f"未対応のcapture_backendです: {config.capture_backend}")
 

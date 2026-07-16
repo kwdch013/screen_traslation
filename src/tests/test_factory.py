@@ -48,8 +48,13 @@ class FactoryTest(unittest.TestCase):
     def test_build_web_capture_source_requires_store(self) -> None:
         config = PipelineConfig(capture_backend="web")
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as context:
             build_capture_source(config)
+
+        # 非対話経路でも対処法が分かる、実用的なエラーであること。
+        message = str(context.exception)
+        self.assertIn("mss", message)
+        self.assertIn("blank", message)
 
     def test_build_web_capture_source_uses_given_store(self) -> None:
         config = PipelineConfig(capture_backend="web")

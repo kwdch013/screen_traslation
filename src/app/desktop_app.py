@@ -169,6 +169,10 @@ class DesktopApplication:
 
         def stop_translation() -> None:
             stop_active_translation()
+            # webバックエンドでは、停止時にセッションを更新して
+            # 開いたままのブラウザタブからのフレーム送信を無効化する。
+            if self._web_capture_server is not None and self._web_capture_server.is_running:
+                self._web_capture_server.new_session()
             is_running.set(False)
             update_run_buttons()
             status.set("停止中。")
@@ -346,6 +350,8 @@ class DesktopApplication:
         if self._web_capture_server is None:
             self._web_capture_server = WebCaptureServer()
         self._web_capture_server.start()
+        # 新しいセッションを開始し、以前のタブから届くフレームを無効化してから開く。
+        self._web_capture_server.new_session()
         webbrowser.open(self._web_capture_server.url)
         self._overlay = TkOverlayRenderer(config.overlay_style, master=root)
         ocr_engine = build_ocr_engine(config)

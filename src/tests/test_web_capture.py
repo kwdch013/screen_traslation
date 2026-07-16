@@ -6,6 +6,8 @@ import urllib.request
 from PIL import Image
 
 from app.web_capture import (
+    MAX_FRAME_BYTES,
+    TOKEN_HEADER,
     WebCaptureFrameStore,
     WebCaptureServer,
     WebCaptureSource,
@@ -65,42 +67,117 @@ class DecodeFrameBytesTest(unittest.TestCase):
         self.assertEqual(decoded.size, (12, 9))
 
 
+def _jpeg_bytes(size: tuple[int, int] = (16, 10), color: str = "white") -> bytes:
+    image = Image.new("RGB", size, color=color)
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+def _post_frame(
+    server: WebCaptureServer,
+    data: bytes,
+    *,
+    token: str | None,
+    content_type: str | None = "image/jpeg",
+    host: str | None = None,
+    content_length: int | None = None,
+) -> int:
+    """/frame へPOSTし、HTTPステータスコードを返す(エラー応答も例外にせず取得)。"""
+    request = urllib.request.Request(server.url + "frame", data=data, method="POST")
+    request.remove_header("Content-type")
+    if content_type is not None:
+        request.add_header("Content-Type", content_type)
+    if token is not None:
+        request.add_header(TOKEN_HEADER, token)
+    if host is not None:
+        request.add_header("Host", host)
+    if content_length is not None:
+        request.add_header("Content-Length", str(content_length))
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        error.close()
+        return error.code
+
+
 class WebCaptureServerTest(unittest.TestCase):
-    def test_server_serves_capture_page_and_receives_frame(self) -> None:
+    def _server(self) -> WebCaptureServer:
         server = WebCaptureServer(host="127.0.0.1", port=_free_port())
         server.start()
-        try:
-            with urllib.request.urlopen(server.url, timeout=5) as response:
-                body = response.read().decode("utf-8")
-            self.assertIn("getDisplayMedia", body)
-            self.assertFalse(server.store.has_frame())
+        self.addCleanup(server.stop)
+        return server
 
-            image = Image.new("RGB", (16, 10), color="white")
-            buffer = BytesIO()
-            image.save(buffer, format="JPEG")
-            request = urllib.request.Request(
-                server.url + "frame",
-                data=buffer.getvalue(),
-                method="POST",
-            )
-            with urllib.request.urlopen(request, timeout=5) as response:
-                self.assertEqual(response.status, 204)
+    def test_server_serves_capture_page_with_session_token(self) -> None:
+        server = self._server()
 
-            self.assertTrue(server.store.has_frame())
-            frame = server.store.latest()
-            self.assertEqual(frame.image.size, (16, 10))
-        finally:
-            server.stop()
+        with urllib.request.urlopen(server.url, timeout=5) as response:
+            body = response.read().decode("utf-8")
+
+        self.assertIn("getDisplayMedia", body)
+        self.assertIn(server.session_token, body)
+
+    def test_valid_frame_with_token_is_accepted(self) -> None:
+        server = self._server()
+
+        status = _post_frame(server, _jpeg_bytes(), token=server.session_token)
+
+        self.assertEqual(status, 204)
+        self.assertTrue(server.store.has_frame())
+        self.assertEqual(server.store.latest().image.size, (16, 10))
+
+    def test_frame_without_token_is_rejected(self) -> None:
+        server = self._server()
+
+        status = _post_frame(server, _jpeg_bytes(), token=None)
+
+        self.assertEqual(status, 403)
+        self.assertFalse(server.store.has_frame())
+
+    def test_new_session_rejects_frames_from_old_token(self) -> None:
+        server = self._server()
+        old_token = server.session_token
+
+        new_token = server.new_session()
+
+        self.assertNotEqual(old_token, new_token)
+        self.assertEqual(_post_frame(server, _jpeg_bytes(), token=old_token), 403)
+        self.assertEqual(_post_frame(server, _jpeg_bytes(), token=new_token), 204)
+
+    def test_unsupported_content_type_is_rejected(self) -> None:
+        server = self._server()
+
+        status = _post_frame(server, _jpeg_bytes(), token=server.session_token, content_type="text/plain")
+
+        self.assertEqual(status, 415)
+
+    def test_foreign_host_is_rejected(self) -> None:
+        server = self._server()
+
+        status = _post_frame(server, _jpeg_bytes(), token=server.session_token, host="evil.example.com")
+
+        self.assertEqual(status, 403)
+
+    def test_oversized_content_length_is_rejected(self) -> None:
+        server = self._server()
+
+        status = _post_frame(
+            server,
+            _jpeg_bytes(),
+            token=server.session_token,
+            content_length=MAX_FRAME_BYTES + 1,
+        )
+
+        self.assertEqual(status, 413)
 
     def test_unknown_path_returns_404(self) -> None:
-        server = WebCaptureServer(host="127.0.0.1", port=_free_port())
-        server.start()
-        try:
-            with self.assertRaises(urllib.error.HTTPError) as context:
-                urllib.request.urlopen(server.url + "missing", timeout=5)
-            self.assertEqual(context.exception.code, 404)
-        finally:
-            server.stop()
+        server = self._server()
+
+        with self.assertRaises(urllib.error.HTTPError) as context:
+            urllib.request.urlopen(server.url + "missing", timeout=5)
+
+        self.assertEqual(context.exception.code, 404)
 
 
 def _free_port() -> int:
