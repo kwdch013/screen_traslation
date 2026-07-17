@@ -48,7 +48,7 @@
 
 `web` はローカルWebページ(`web_capture.WebCaptureServer`)をブラウザで開き、`navigator.mediaDevices.getDisplayMedia` によるブラウザ標準の「画面、ウィンドウ、またはタブを選択」ダイアログでキャプチャ対象を選ぶ。選択後はブラウザがJPEGフレームを定期的にローカルサーバーへ送信し、`WebCaptureSource` が最新フレームを取得する。Windowsのウィンドウ一覧取得(`pygetwindow`)に依存しないため、対象アプリの種類やOS権限の影響を受けにくい。`getDisplayMedia` に対応したブラウザ(Chrome / Edge など)が必要となる。
 
-`web` の受信サーバーは FastAPI + uvicorn で動作し、`127.0.0.1` のみで待ち受ける。`POST /frame` はセッショントークン(`X-Capture-Token`)、`Host` / `Origin` ヘッダ検証、`Content-Type` 制限、`Content-Length` 上限、画像の辺長・総画素数上限、画像形式照合、読み取りタイムアウトで保護する。開始・停止・再選択のたびにセッショントークンを更新し(`WebCaptureServer.new_session`)、古いブラウザタブから届くフレームは拒否される。CLIの `--run-once` など `web_capture_store` を伴わない非対話経路では `web` を利用できず、明示的なエラーで `mss` / `blank` への設定を促す。
+`web` の受信サーバーは FastAPI + uvicorn で動作し、`127.0.0.1` のみで待ち受ける。接続受理から15秒以内に初回リクエストの行・ヘッダを受信できない接続は、h11プロトコル層の絶対期限で閉じる。`POST /frame` はセッショントークン(`X-Capture-Token`)、`Host` / `Origin` ヘッダ検証、`Content-Type` 制限、`Content-Length` 上限、画像の辺長・総画素数上限、画像形式照合、本文読み取りタイムアウトで保護する。開始・停止・再選択のたびにセッショントークンを更新し(`WebCaptureServer.new_session`)、古いブラウザタブから届くフレームは拒否される。CLIの `--run-once` など `web_capture_store` を伴わない非対話経路では `web` を利用できず、明示的なエラーで `mss` / `blank` への設定を促す。
 
 `mss` は対象ウィンドウまたは指定領域を画像として取得するレガシー方式で、Tkinterの矩形ドラッグ選択と組み合わせて利用する。
 

@@ -39,3 +39,10 @@
 ## 対象外
 
 - パイプライン実行制御API、SSE、WebOverlayRenderer、React + Vite、設定・辞書API、Tkinterデスクトップアプリ撤去。
+
+## PR #3 レビュー指摘の修正 (2026-07-18)
+
+- `web_capture_protocol.py`を追加し、TCP接続受理時に初回リクエストの行・ヘッダ受信期限を開始するh11プロトコルを実装した。小刻みなデータ受信では期限を延長せず、h11が完全なRequestへ変換した時だけ解除する。
+- `WebCaptureServer`の`start()` / `stop()`を専用ロックで直列化した。起動待ちはローカルのserver/threadを参照し、停止後もスレッドが生存していれば参照を保持して`RuntimeError`にする。
+- Host / Originの明示ポートをASCII数字かつ0〜65535に制限し、空ポートを拒否するようにした。
+- raw socketによる不完全ヘッダの実サーバーテスト、同時start・起動待ち中stop・joinタイムアウトの競合テスト、Host / Origin異常値の表形式テストを追加した。テストメソッド総数は115件から121件になった。

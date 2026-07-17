@@ -50,6 +50,8 @@ def origin_allowed(origin_header: str | None) -> bool:
             return False
         if origin.path or origin.query or origin.fragment:
             return False
+        if not _origin_port_allowed(origin.netloc):
+            return False
         _ = origin.port
     except ValueError:
         return False
@@ -120,14 +122,35 @@ def _host_from_header(host_header: str | None) -> str | None:
             return None
         host = value[1:closing]
         remainder = value[closing + 1 :]
-        if remainder and (not remainder.startswith(":") or not remainder[1:].isdigit()):
+        if remainder and (not remainder.startswith(":") or not _port_allowed(remainder[1:])):
             return None
         return host.lower()
     if value.count(":") == 1:
         host, port = value.rsplit(":", 1)
-        if not port.isdigit():
+        if not _port_allowed(port):
             return None
         return host.lower()
     if value.count(":") > 1:
         return value.lower()
     return value.lower()
+
+
+def _origin_port_allowed(authority: str) -> bool:
+    if authority.startswith("["):
+        closing = authority.find("]")
+        if closing < 0:
+            return False
+        remainder = authority[closing + 1 :]
+        return not remainder or (remainder.startswith(":") and _port_allowed(remainder[1:]))
+    if ":" not in authority:
+        return True
+    return _port_allowed(authority.rsplit(":", 1)[1])
+
+
+def _port_allowed(port: str) -> bool:
+    if not port or not port.isascii() or not port.isdigit():
+        return False
+    significant_digits = port.lstrip("0") or "0"
+    return len(significant_digits) < 5 or (
+        len(significant_digits) == 5 and significant_digits <= "65535"
+    )
