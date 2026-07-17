@@ -1,4 +1,6 @@
 from io import BytesIO
+import socket
+from time import monotonic
 import unittest
 import urllib.error
 import urllib.request
@@ -83,7 +85,7 @@ class DecodeFrameBytesTest(unittest.TestCase):
         buffer = BytesIO()
         image.save(buffer, format="PNG")
 
-        with mock.patch("app.web_capture.MAX_IMAGE_PIXELS", 100):
+        with mock.patch("app.web_capture_security.MAX_IMAGE_PIXELS", 100):
             with self.assertRaises(ValueError):
                 decode_frame_bytes(buffer.getvalue())
 
@@ -257,11 +259,29 @@ class WebCaptureServerTest(unittest.TestCase):
             urllib.request.urlopen(server.url + "missing", timeout=5)
 
         self.assertEqual(context.exception.code, 404)
+        context.exception.close()
+
+    def test_partial_headers_are_closed_at_connection_deadline(self) -> None:
+        read_timeout = 0.2
+        port = _free_port()
+        server = WebCaptureServer(port=port, read_timeout_seconds=read_timeout)
+        server.start()
+        self.addCleanup(server.stop)
+
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
+            started_at = monotonic()
+            connection.sendall(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Slow: ")
+            connection.settimeout(read_timeout + 1.0)
+
+            received = connection.recv(1)
+            elapsed = monotonic() - started_at
+
+        self.assertEqual(received, b"")
+        self.assertGreaterEqual(elapsed, read_timeout * 0.5)
+        self.assertLess(elapsed, read_timeout + 0.8)
 
 
 def _free_port() -> int:
-    import socket
-
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
