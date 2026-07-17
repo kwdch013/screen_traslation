@@ -83,7 +83,7 @@ class DecodeFrameBytesTest(unittest.TestCase):
         buffer = BytesIO()
         image.save(buffer, format="PNG")
 
-        with mock.patch("app.web_capture.MAX_IMAGE_PIXELS", 100):
+        with mock.patch("app.web_capture_security.MAX_IMAGE_PIXELS", 100):
             with self.assertRaises(ValueError):
                 decode_frame_bytes(buffer.getvalue())
 
@@ -257,6 +257,7 @@ class WebCaptureServerTest(unittest.TestCase):
             urllib.request.urlopen(server.url + "missing", timeout=5)
 
         self.assertEqual(context.exception.code, 404)
+        context.exception.close()
 
 
 def _free_port() -> int:
