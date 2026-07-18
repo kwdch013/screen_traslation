@@ -77,6 +77,44 @@ describe('翻訳表示UI', () => {
 		expect(screen.getByRole('list')).toHaveTextContent('New Gameニューゲーム')
 	})
 
+	it('字幕タブへ切り替えた後の新しい翻訳結果を履歴の先頭へ追加する', async () => {
+		render(<App />)
+		const events = currentEventSource()
+		act(() => events.emitJson('translation_result', resultEvent(1, [availableRegion])))
+		await userEvent.click(screen.getByRole('tab', { name: '字幕リスト' }))
+
+		act(() => events.emitJson('translation_result', resultEvent(2, [{
+			...availableRegion,
+			source: 'Continue',
+			translated: '続ける',
+		}])))
+
+		const items = screen.getAllByRole('listitem')
+		expect(items).toHaveLength(2)
+		expect(items[0]).toHaveTextContent('Continue続ける')
+		expect(items[1]).toHaveTextContent('New Gameニューゲーム')
+	})
+
+	it('原文と訳文のHTMLらしい文字列を要素化せずテキストとして表示する', async () => {
+		const source = '<img src=x onerror=window.__sourceXss=true>'
+		const translated = '<img src=x onerror=window.__translatedXss=true>'
+		render(<App />)
+		const events = currentEventSource()
+		act(() => events.emitJson('translation_result', resultEvent(1, [{
+			...availableRegion,
+			source,
+			translated,
+		}])))
+
+		expect(screen.getByTestId('translation-overlay')).toHaveTextContent(translated)
+		await userEvent.click(screen.getByRole('tab', { name: '字幕リスト' }))
+		const list = screen.getByRole('list')
+		expect(within(list).getByText(source)).toBeInTheDocument()
+		expect(within(list).getByText(translated)).toBeInTheDocument()
+		expect(document.querySelector('img')).not.toBeInTheDocument()
+		expect(document.querySelector('[onerror]')).not.toBeInTheDocument()
+	})
+
 	it('空regionsでは現在表示だけを消去し、字幕履歴は維持する', async () => {
 		render(<App />)
 		const events = currentEventSource()
@@ -117,6 +155,18 @@ describe('翻訳表示UI', () => {
 		expect(screen.getByTestId('translation-overlay')).toHaveStyle({ left: '96px', top: '54px' })
 	})
 
+	it('videoの境界線を内寸へ含めて重畳レイヤーと座標変換の寸法基準を揃える', () => {
+		render(<App />)
+		const video = screen.getByLabelText('共有画面のプレビュー')
+		const overlayLayer = document.querySelector<HTMLElement>('.translation-overlay-layer')
+		if (!overlayLayer) throw new Error('重畳レイヤーが見つかりません')
+		const videoStyle = getComputedStyle(video)
+		const overlayStyle = getComputedStyle(overlayLayer)
+
+		expect(videoStyle.boxSizing).toBe('border-box')
+		expect(overlayStyle.inset).toBe(videoStyle.borderTopWidth)
+	})
+
 	it('TTL経過後は古い現在表示を消し、字幕履歴は維持する', async () => {
 		vi.useFakeTimers()
 		render(<App />)
@@ -141,6 +191,41 @@ describe('翻訳表示UI', () => {
 		act(() => vi.advanceTimersByTime(RESULT_TTL_MS / 2))
 
 		expect(screen.queryByTestId('translation-overlay')).not.toBeInTheDocument()
+	})
+
+	it('再接続後の旧世代イベントを無視し、現行結果の履歴とTTLを維持する', () => {
+		vi.useFakeTimers()
+		render(<App />)
+		const events = currentEventSource()
+		act(() => {
+			events.emitJson('state', { generation: 1, state: 'running', error_message: null })
+			events.emitJson('translation_result', resultEvent(1, [availableRegion], 1))
+			events.emitError()
+			events.emitOpen()
+			events.emitJson('state', { generation: 2, state: 'running', error_message: null })
+			events.emitJson('translation_result', resultEvent(1, [{
+				...availableRegion,
+				source: 'Current generation',
+				translated: '現行世代の訳文',
+			}], 2))
+		})
+		act(() => vi.advanceTimersByTime(RESULT_TTL_MS / 2))
+
+		act(() => {
+			events.emitJson('state', { generation: 1, state: 'running', error_message: null })
+			events.emitJson('translation_result', resultEvent(99, [{
+				...availableRegion,
+				source: 'Stale generation',
+				translated: '旧世代の訳文',
+			}], 1))
+		})
+		act(() => vi.advanceTimersByTime(RESULT_TTL_MS / 2))
+
+		expect(screen.queryByTestId('translation-overlay')).not.toBeInTheDocument()
+		fireEvent.click(screen.getByRole('tab', { name: '字幕リスト' }))
+		const list = screen.getByRole('list')
+		expect(within(list).getByText('現行世代の訳文')).toBeInTheDocument()
+		expect(within(list).queryByText('旧世代の訳文')).not.toBeInTheDocument()
 	})
 
 	it('世代変更と停止・再選択操作で旧世代の重畳と字幕履歴を消去する', async () => {
@@ -168,11 +253,14 @@ describe('翻訳表示UI', () => {
 			})))
 		render(<App />)
 		const events = currentEventSource()
-		act(() => events.emitJson('translation_result', resultEvent(1, [availableRegion])))
+		act(() => events.emitJson('translation_result', resultEvent(1, [availableRegion], 2)))
 		await act(async () => {})
 
 		fireEvent.click(screen.getByRole('button', { name: label }))
-		act(() => events.emitJson('translation_result', resultEvent(2, [availableRegion])))
+		act(() => {
+			events.emitJson('state', { generation: 1, state: 'running', error_message: null })
+			events.emitJson('translation_result', resultEvent(2, [availableRegion], 1))
+		})
 
 		expect(screen.queryByTestId('translation-overlay')).not.toBeInTheDocument()
 		fireEvent.click(screen.getByRole('tab', { name: '字幕リスト' }))

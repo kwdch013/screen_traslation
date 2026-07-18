@@ -104,7 +104,7 @@ function eventReducer(state: EventState, action: EventAction): EventState {
 				blockedUntilGenerationChange: true,
 			}
 		case 'state':
-			if (state.generation === action.generation) return state
+			if (state.generation !== null && action.generation <= state.generation) return state
 			return resetGeneration(state, action.generation)
 		case 'result':
 			return applyResult(state, action.result)
@@ -129,6 +129,7 @@ function resetGeneration(state: EventState, generation: number): EventState {
 }
 
 function applyResult(state: EventState, result: TranslationResult): EventState {
+	if (state.generation !== null && result.generation < state.generation) return state
 	const generationState = state.generation === result.generation
 		? state
 		: resetGeneration(state, result.generation)

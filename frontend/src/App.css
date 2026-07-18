@@ -114,6 +114,7 @@ button:disabled {
 
 video {
   display: block;
+  box-sizing: border-box;
   width: 100%;
   min-height: 280px;
   max-height: 62vh;
