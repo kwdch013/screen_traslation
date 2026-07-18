@@ -49,6 +49,22 @@ class RecordingPublisher:
         self.results.append(result)
 
 
+class RecordingRenderer:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def render(self, regions) -> None:
+        self.calls.append(list(regions))
+
+
+class RecordingLogger:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def log(self, regions, config) -> None:
+        self.calls.append(list(regions))
+
+
 class ObservableTranslationCache(TranslationCache):
     def __init__(self, clear_started: threading.Event) -> None:
         super().__init__()
@@ -72,26 +88,47 @@ class GlossaryRevisionTest(unittest.TestCase):
         revision = MonotonicRevision()
         translation_started = threading.Event()
         release_translation = threading.Event()
+        invalidation_started = threading.Event()
         publisher = RecordingPublisher()
+        renderer = RecordingRenderer()
+        logger = RecordingLogger()
+        cache = ObservableTranslationCache(invalidation_started)
         pipeline = TranslationPipeline(
             capture_source=FixedCaptureSource(),
             ocr_engine=FixedOcrEngine(),
             translator=BlockingTranslator(translation_started, release_translation),
-            overlay_renderer=type("Renderer", (), {"render": lambda self, regions: None})(),
+            overlay_renderer=renderer,
             config=PipelineConfig(),
+            cache=cache,
             stabilizer=OcrStabilizer(required_repeats=1),
+            translation_logger=logger,
             result_publisher=publisher,
             glossary_revision=revision,
         )
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            tick = executor.submit(pipeline.tick)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            tick = executor.submit(pipeline.tick, 0.0)
             self.assertTrue(translation_started.wait(timeout=2))
 
-            revision.advance_after(lambda: None)
+            revision_update = executor.submit(
+                revision.advance_after,
+                pipeline.invalidate_translation_cache,
+            )
+            self.assertTrue(invalidation_started.wait(timeout=2))
             release_translation.set()
             tick.result(timeout=2)
+            revision_update.result(timeout=2)
 
         self.assertEqual(publisher.results, [])
+        self.assertEqual(renderer.calls, [])
+        self.assertEqual(logger.calls, [])
+        self.assertIsNone(pipeline._last_frame_id)
+
+        self.assertTrue(pipeline.tick(now=1.0))
+
+        self.assertEqual(len(publisher.results), 1)
+        self.assertEqual(len(renderer.calls), 1)
+        self.assertEqual(len(logger.calls), 1)
+        self.assertEqual(pipeline._last_frame_id, 1)
 
     def test_cache_invalidation_does_not_hold_service_lock(self) -> None:
         invalidation_started = threading.Event()

@@ -201,6 +201,49 @@ class WebSettingsApiTest(unittest.TestCase):
         self.assertEqual(self.config_path.read_bytes(), before)
         self.assertEqual(self.client.get("/api/config", headers=self._headers()).json()["ocr_fps"], 5.0)
 
+    def test_llm_ocr_backend_requires_model_without_changing_config(self) -> None:
+        invalid_changes = [
+            {"ocr_backend": "llm", "llm_model": ""},
+            {"ocr_backend": "tesseract_llm_fallback"},
+        ]
+
+        for changes in invalid_changes:
+            with self.subTest(changes=changes):
+                before = self.config_path.read_bytes()
+                config_before = self.service._settings.public_config()
+
+                response = self.client.put(
+                    "/api/config",
+                    json=changes,
+                    headers=self._headers(),
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("llm_model", response.json()["detail"])
+                self.assertEqual(self.config_path.read_bytes(), before)
+                self.assertEqual(self.service._settings.public_config(), config_before)
+
+    def test_llm_model_cannot_be_cleared_while_llm_backend_is_selected(self) -> None:
+        selected = self.client.put(
+            "/api/config",
+            json={"ocr_backend": "llm", "llm_model": "local-model"},
+            headers=self._headers(),
+        )
+        self.assertEqual(selected.status_code, 200)
+        before = self.config_path.read_bytes()
+        config_before = self.service._settings.public_config()
+
+        response = self.client.put(
+            "/api/config",
+            json={"llm_model": ""},
+            headers=self._headers(),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("llm_model", response.json()["detail"])
+        self.assertEqual(self.config_path.read_bytes(), before)
+        self.assertEqual(self.service._settings.public_config(), config_before)
+
     def test_internal_config_field_cannot_be_changed(self) -> None:
         response = self.client.put(
             "/api/config",

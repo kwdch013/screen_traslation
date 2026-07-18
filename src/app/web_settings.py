@@ -112,6 +112,7 @@ class WebSettings:
         _validate_public_changes(changes)
         with self._lock:
             updated = _updated_config(self._config, changes)
+            _validate_config_consistency(updated)
             save_config(updated, self._config_path)
             self._config = updated
             public_config = self.public_config()
@@ -154,6 +155,11 @@ def _updated_overlay_style(style: OverlayStyle, changes: object) -> OverlayStyle
         return replace(style, **changes)
     except (TypeError, ValueError) as error:
         raise ValueError(str(error)) from error
+
+
+def _validate_config_consistency(config: PipelineConfig) -> None:
+    if config.ocr_backend in {"llm", "tesseract_llm_fallback"} and not config.llm_model:
+        raise ValueError(f"{config.ocr_backend}には空でないllm_modelを指定してください。")
 
 
 def _validate_public_changes(changes: Mapping[str, object]) -> None:
