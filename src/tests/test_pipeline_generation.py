@@ -4,15 +4,18 @@ import unittest
 
 from app.config import PipelineConfig
 from app.contracts import Frame, Rect, TextRegion
-from app.pipeline import TranslationPipeline
+from app.pipeline import OcrStabilizer, TranslationPipeline
 
 
 class CountingTranslator:
-    def __init__(self) -> None:
+    def __init__(self, on_translate=None) -> None:
         self.calls = 0
+        self._on_translate = on_translate
 
     def translate(self, text: str) -> str:
         self.calls += 1
+        if self._on_translate is not None:
+            self._on_translate()
         return f"訳:{text}"
 
 
@@ -150,6 +153,41 @@ class PipelineGenerationTest(unittest.TestCase):
 
         self.assertEqual(publisher.results[0].regions, ())
         self.assertEqual(publisher.results[1].regions[0].source, "New Text")
+        self.assertEqual(logger.calls[0][0].source, "New Text")
+
+    def test_generation_change_during_translation_discards_all_old_generation_effects(self) -> None:
+        generation = {"value": 1}
+        bounds = Rect(10, 20, 100, 20)
+        publisher = RecordingPublisher()
+        renderer = RecordingRenderer()
+        logger = RecordingLogger()
+        translator = CountingTranslator(
+            on_translate=lambda: generation.update(value=2),
+        )
+        pipeline = TranslationPipeline(
+            capture_source=CaptureSource(frame_ids=[1, 1]),
+            ocr_engine=SequenceOcrEngine([[_region("New Text", bounds)]]),
+            translator=translator,
+            overlay_renderer=renderer,
+            config=PipelineConfig(ocr_fps=10.0),
+            stabilizer=OcrStabilizer(required_repeats=1),
+            translation_logger=logger,
+            result_publisher=publisher,
+            generation_provider=lambda: generation["value"],
+        )
+
+        pipeline.tick(now=0.0)
+
+        self.assertEqual(translator.calls, 1)
+        self.assertEqual(publisher.results, [])
+        self.assertEqual(renderer.calls, [])
+        self.assertEqual(logger.calls, [])
+        self.assertIsNone(pipeline._last_frame_id)
+
+        pipeline.tick(now=0.2)
+
+        self.assertEqual([result.generation for result in publisher.results], [2])
+        self.assertEqual(renderer.calls[0][0].source, "New Text")
         self.assertEqual(logger.calls[0][0].source, "New Text")
 
 

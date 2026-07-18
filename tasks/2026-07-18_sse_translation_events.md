@@ -74,6 +74,20 @@
 - `PYTHONPATH=src .venv/bin/python -m py_compile src/app/*.py src/tests/*.py`: 成功。
 - `git diff --check`: 成功。
 
+## 再レビュー指摘の修正
+
+### 修正内容
+
+- 翻訳完了後かつ結果配信前にセッション世代を再確認し、不一致の場合は結果配信、描画、ログ、処理済みフレームIDの更新を行わず終了するようにした。
+- `TranslationEventPublisher`のロック引数を、`threading.RLock()`から取得した実型の型別名で注釈し、遅延評価された型ヒントを実行時に解決できるようにした。
+
+### Red→Green
+
+- Red: 翻訳中に世代を変更する回帰テストを追加し、旧世代結果が配信されるため1件失敗することを確認した。
+- Green: 世代変更時に旧世代の結果配信、描画、ログ、処理済みフレームID更新がなく、同じフレームを新世代で処理できることを確認した。関連テスト3件はすべて成功した。
+- `.venv`で`PYTHONPATH=src`を設定し、実ソケット使用3モジュールとFastAPI `TestClient`使用2モジュールを除く116件を実行して、すべて成功した。
+- `typing.get_type_hints()`で`TranslationEventPublisher.__init__`の型ヒントを正常に解決できることを確認した。
+
 ## 対象外
 
 - ReactフロントエンドでのSSE購読、プレビュー重畳、字幕リスト表示。

@@ -179,6 +179,8 @@ class TranslationPipeline:
             )
             for region in text_regions
         ]
+        if generation != self._generation_provider():
+            return True
         self._publish_result(generation, frame, translations)
         self._last_overlay_texts = _overlay_feedback_texts(translations)
         self._overlay_renderer.render(translations)

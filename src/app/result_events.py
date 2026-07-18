@@ -8,6 +8,7 @@ from .contracts import TranslationResult
 
 
 DEFAULT_QUEUE_SIZE = 16
+_RLockType = type(threading.RLock())
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,7 @@ class TranslationEventPublisher:
         self,
         queue_size: int = DEFAULT_QUEUE_SIZE,
         *,
-        lock: threading.RLock | None = None,
+        lock: _RLockType | None = None,
     ) -> None:
         if queue_size <= 0:
             raise ValueError("queue_sizeは1以上である必要があります")
