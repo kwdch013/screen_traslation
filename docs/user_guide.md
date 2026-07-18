@@ -116,6 +116,15 @@ $env:PYTHONPATH = "src"
 python -m app.main --desktop
 ```
 
+### Webアプリとして起動する
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m app.main --web
+```
+
+ブラウザで `画面を選択して開始` を押す。共有対象を変更する場合は `画面を選び直す`、翻訳処理を終了する場合は `共有を停止` を押す。Webサーバー自体はPowerShellで `Ctrl+C` を押して終了する。
+
 ## 基本操作
 
 1. 必要に応じてOCR FPSとオーバーレイ透明度を調整する。

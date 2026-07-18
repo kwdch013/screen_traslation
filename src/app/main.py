@@ -18,6 +18,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="リアルタイム画面翻訳アプリの最小実行コマンド")
     parser.add_argument("--text", help="OCRの代わりに処理するテキスト。初期検証用。")
     parser.add_argument("--desktop", action="store_true", help="デスクトップアプリを起動する。")
+    parser.add_argument("--web", action="store_true", help="Webアプリを起動する。")
     parser.add_argument("--run-once", action="store_true", help="設定された実バックエンドで1回だけ翻訳処理する。")
     parser.add_argument("--install-argos-en-ja", action="store_true", help="Argos Translateの英日モデルを導入する。")
     parser.add_argument("--config", type=Path, default=Path("config/app.json"))
@@ -40,6 +41,16 @@ def main() -> int:
 
     config = load_config(args.config) if args.config.exists() else PipelineConfig()
     glossary = Glossary.load(args.glossary)
+
+    if args.web:
+        from .web_app_service import WebAppService
+
+        service = WebAppService(config, glossary)
+        try:
+            service.server.run_forever()
+        finally:
+            service.stop()
+        return 0
 
     if args.add_term:
         glossary.register(args.add_term[0], args.add_term[1])

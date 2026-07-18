@@ -25,7 +25,8 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
 </head>
 <body>
 <h1>Screen Translation: 翻訳する画面を選択してください</h1>
-<button id="start">画面を選択して開始</button>
+<button id="start" disabled>画面を選択して開始</button>
+<button id="reselect" disabled>画面を選び直す</button>
 <button id="stop" disabled>共有を停止</button>
 <div id="status">画面、ウィンドウ、またはタブを選択してください。</div>
 <video id="preview" autoplay muted playsinline hidden></video>
@@ -33,18 +34,58 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
 (function () {{
   // このタブに割り当てられたセッショントークン。再選択のたびに更新され、
   // 古いトークンからの送信はサーバー側で拒否される。
-  const SESSION_TOKEN = {token_json};
+  let sessionToken = {token_json};
   const SEND_INTERVAL_MS = {send_interval_ms};
+  const STATUS_POLL_INTERVAL_MS = 200;
   const startButton = document.getElementById("start");
+  const reselectButton = document.getElementById("reselect");
   const stopButton = document.getElementById("stop");
   const statusEl = document.getElementById("status");
   const video = document.getElementById("preview");
   const canvas = document.createElement("canvas");
   let stream = null;
   let sendTimer = null;
+  let serviceState = "loading";
+  let operationInProgress = false;
+  let statusSyncTimer = null;
 
   function setStatus(text) {{
     statusEl.textContent = text;
+  }}
+
+  function updateButtons() {{
+    if (operationInProgress || serviceState === "loading" ||
+        serviceState === "starting" || serviceState === "stopping") {{
+      startButton.disabled = true;
+      reselectButton.disabled = true;
+      stopButton.disabled = true;
+      return;
+    }}
+    const active = serviceState === "running" || serviceState === "awaiting_frame";
+    startButton.disabled = active || serviceState === "error";
+    reselectButton.disabled = !active;
+    stopButton.disabled = !active && serviceState !== "error";
+  }}
+
+  function applyServiceStatus(body) {{
+    if (body.state) {{
+      serviceState = body.state;
+    }}
+    updateButtons();
+  }}
+
+  function beginOperation() {{
+    if (operationInProgress) {{
+      return false;
+    }}
+    operationInProgress = true;
+    updateButtons();
+    return true;
+  }}
+
+  function endOperation() {{
+    operationInProgress = false;
+    updateButtons();
   }}
 
   function sendFrame() {{
@@ -64,7 +105,7 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
           method: "POST",
           headers: {{
             "Content-Type": "image/jpeg",
-            "X-Capture-Token": SESSION_TOKEN,
+            "X-Capture-Token": sessionToken,
           }},
           body: blob,
         }})
@@ -88,22 +129,46 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
       sendTimer = null;
     }}
     if (stream !== null) {{
-      stream.getTracks().forEach(function (track) {{
+      const stoppedStream = stream;
+      stream = null;
+      stoppedStream.getTracks().forEach(function (track) {{
         track.stop();
       }});
-      stream = null;
     }}
+    video.srcObject = null;
     video.hidden = true;
-    startButton.disabled = false;
-    stopButton.disabled = true;
+    updateButtons();
   }}
 
-  function stopByUser() {{
+  async function control(path) {{
+    const response = await fetch(path, {{ method: "POST" }});
+    const body = await response.json();
+    applyServiceStatus(body);
+    if (!response.ok || body.state === "error") {{
+      throw new Error(body.detail || body.error_message || "制御APIの呼び出しに失敗しました。");
+    }}
+    if (body.session_token) {{
+      sessionToken = body.session_token;
+    }}
+    return body;
+  }}
+
+  async function stopByUser() {{
+    if (!beginOperation()) {{
+      return;
+    }}
     stopSharing();
-    setStatus("共有を終了しました。もう一度「画面を選択して開始」を押すと選び直せます。");
+    try {{
+      await control("/api/control/stop");
+      setStatus("共有を終了しました。もう一度「画面を選択して開始」を押すと再開できます。");
+    }} catch (error) {{
+      setStatus("共有は停止しましたが、翻訳処理を停止できませんでした: " + error);
+    }} finally {{
+      endOperation();
+    }}
   }}
 
-  async function startSharing() {{
+  async function selectAndShare() {{
     try {{
       stream = await navigator.mediaDevices.getDisplayMedia({{
         video: {{ frameRate: 5 }},
@@ -111,20 +176,85 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
       }});
     }} catch (error) {{
       setStatus("画面の選択がキャンセルされたか、失敗しました: " + error);
-      return;
+      await control("/api/control/stop").catch(function () {{}});
+      return false;
     }}
     video.srcObject = stream;
     video.hidden = false;
-    startButton.disabled = true;
-    stopButton.disabled = false;
     setStatus("送信中です。このタブは翻訳中も開いたままにしてください。");
     stream.getVideoTracks()[0].addEventListener("ended", stopByUser);
     sendTimer = setInterval(sendFrame, SEND_INTERVAL_MS);
+    return true;
+  }}
+
+  async function startSharing() {{
+    if (!beginOperation()) {{
+      return;
+    }}
+    try {{
+      await control("/api/control/start");
+      await selectAndShare();
+    }} catch (error) {{
+      setStatus("翻訳を開始できませんでした: " + error);
+    }} finally {{
+      endOperation();
+    }}
+  }}
+
+  async function reselectSharing() {{
+    if (!beginOperation()) {{
+      return;
+    }}
+    try {{
+      await control("/api/control/reselect");
+      stopSharing();
+      await selectAndShare();
+    }} catch (error) {{
+      setStatus("画面を選び直せませんでした: " + error);
+    }} finally {{
+      endOperation();
+    }}
+  }}
+
+  async function syncStatus() {{
+    if (statusSyncTimer !== null) {{
+      clearTimeout(statusSyncTimer);
+      statusSyncTimer = null;
+    }}
+    try {{
+      const response = await fetch("/api/status");
+      const body = await response.json();
+      if (!response.ok) {{
+        throw new Error(body.detail || "状態を取得できませんでした。");
+      }}
+      applyServiceStatus(body);
+      if (serviceState === "starting" || serviceState === "stopping") {{
+        statusSyncTimer = setTimeout(syncStatus, STATUS_POLL_INTERVAL_MS);
+      }} else if (serviceState === "running" || serviceState === "awaiting_frame") {{
+        setStatus("翻訳処理は実行中です。「画面を選び直す」から共有を再開できます。");
+      }} else if (serviceState === "error") {{
+        setStatus(body.error_message || "翻訳処理でエラーが発生しました。");
+      }}
+    }} catch (error) {{
+      serviceState = "error";
+      updateButtons();
+      setStatus("翻訳処理の状態を取得できませんでした: " + error);
+    }}
   }}
 
   startButton.addEventListener("click", startSharing);
+  reselectButton.addEventListener("click", reselectSharing);
   stopButton.addEventListener("click", stopByUser);
-  window.addEventListener("pagehide", stopSharing);
+  window.addEventListener("pageshow", syncStatus);
+  window.addEventListener("pagehide", function () {{
+    stopSharing();
+    fetch("/api/control/stop", {{
+      method: "POST",
+      headers: {{ "X-Capture-Token": sessionToken }},
+      keepalive: true,
+    }}).catch(function () {{}});
+  }});
+  syncStatus();
 }})();
 </script>
 </body>

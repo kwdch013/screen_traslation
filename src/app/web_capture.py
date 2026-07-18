@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 import threading
+from collections.abc import Callable
 from time import monotonic
 
 import uvicorn
@@ -103,6 +104,7 @@ class WebCaptureServer:
         self._uvicorn_server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
         self._startup_error: BaseException | None = None
+        self._frame_accepted_callback: Callable[[str], None] | None = None
 
     @property
     def app(self) -> FastAPI:
@@ -143,7 +145,15 @@ class WebCaptureServer:
             if not token or not secrets.compare_digest(token, self._session_token):
                 return False
             self.store.update(image)
-            return True
+            callback = self._frame_accepted_callback
+        # サービスロックとの順序逆転を避けるため、セッションロックの外で通知する。
+        if callback is not None:
+            callback(token)
+        return True
+
+    def set_frame_accepted_callback(self, callback: Callable[[str], None] | None) -> None:
+        with self._session_lock:
+            self._frame_accepted_callback = callback
 
     def start(self) -> None:
         with self._lifecycle_lock:
@@ -151,16 +161,7 @@ class WebCaptureServer:
                 return
             if self._thread is not None and self._thread.is_alive():
                 raise RuntimeError("前回のローカルサーバースレッドが終了していないため再起動できません")
-            config = uvicorn.Config(
-                self._app,
-                host=DEFAULT_HOST,
-                port=self._port,
-                http=create_header_timeout_protocol(self._read_timeout_seconds),
-                log_level="warning",
-                access_log=False,
-                timeout_keep_alive=self._read_timeout_seconds,
-                timeout_graceful_shutdown=2,
-            )
+            config = self._uvicorn_config()
             server = uvicorn.Server(config)
             thread = threading.Thread(
                 target=self._run_server,
@@ -206,6 +207,24 @@ class WebCaptureServer:
                     raise RuntimeError("ローカルサーバースレッドを停止できません")
             self._uvicorn_server = None
             self._thread = None
+
+    def run_forever(self) -> None:
+        """現在のスレッドでWebサーバーを実行する。"""
+        uvicorn.Server(self._uvicorn_config()).run()
+
+    def _uvicorn_config(self) -> uvicorn.Config:
+        return uvicorn.Config(
+            self._app,
+            host=DEFAULT_HOST,
+            port=self._port,
+            http=create_header_timeout_protocol(self._read_timeout_seconds),
+            log_level="warning",
+            access_log=False,
+            timeout_keep_alive=self._read_timeout_seconds,
+            timeout_graceful_shutdown=2,
+            # 状態をメモリ内で一元管理するため、複数ワーカーでは起動しない。
+            workers=1,
+        )
 
     def _run_server(self, server: uvicorn.Server) -> None:
         try:

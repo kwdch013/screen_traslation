@@ -70,6 +70,14 @@ PYTHONPATH=src python3 -m app.main --add-term "New Game" "ニューゲーム"
 PYTHONPATH=src python3 -m app.main --desktop
 ```
 
+Webアプリ起動:
+
+```bash
+PYTHONPATH=src python -m app.main --web
+```
+
+ブラウザで `画面を選択して開始` を押す。対象を変更する場合は `画面を選び直す`、終了する場合は `共有を停止` を押す。ターミナル側は `Ctrl+C` で終了する。
+
 Argos Translateの英日モデル導入:
 
 ```bash

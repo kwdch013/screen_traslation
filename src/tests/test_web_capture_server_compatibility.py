@@ -31,6 +31,30 @@ class WebCaptureServerCompatibilityTest(unittest.TestCase):
 
         self.assertFalse(server.is_running)
 
+    def test_run_forever_uses_same_secure_single_worker_config(self) -> None:
+        server = WebCaptureServer(port=8765)
+        config_values: dict[str, object] = {}
+
+        class FakeUvicornServer:
+            def __init__(self, config: object) -> None:
+                self.config = config
+
+            def run(self) -> None:
+                return None
+
+        def capture_config(*args: object, **kwargs: object) -> object:
+            config_values.update(kwargs)
+            return object()
+
+        with mock.patch("app.web_capture.uvicorn.Config", side_effect=capture_config), mock.patch(
+            "app.web_capture.uvicorn.Server", FakeUvicornServer
+        ):
+            server.run_forever()
+
+        self.assertEqual(config_values["host"], "127.0.0.1")
+        self.assertEqual(config_values["workers"], 1)
+        self.assertTrue(callable(config_values["http"]))
+
     def test_new_session_clears_stored_frame(self) -> None:
         server = WebCaptureServer(port=_free_port())
         self.assertTrue(server.accept_frame(server.session_token, Image.new("RGB", (2, 2))))
