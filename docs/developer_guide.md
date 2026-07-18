@@ -23,6 +23,31 @@ PYTHONPATH=src python3 -m unittest discover -s src/tests
 PYTHONPATH=src python3 -m py_compile src/app/*.py
 ```
 
+## フロントエンド開発
+
+フロントエンドは `frontend/` の React + Vite + TypeScript プロジェクトで管理する。FastAPI は `frontend/dist` を配信するため、通常起動の前にビルドする。
+
+```bash
+cd frontend
+npm ci
+npm run lint
+npm test
+npm run build
+```
+
+画面を確認しながら開発する場合は、1つ目のターミナルで FastAPI、2つ目で Vite を起動する。
+
+```bash
+# ターミナル1: リポジトリ直下
+PYTHONPATH=src python -m app.main --web
+
+# ターミナル2
+cd frontend
+npm run dev
+```
+
+Vite は `/api` と `/frame` を `http://127.0.0.1:8765` へプロキシする。Docker イメージは Node ステージでフロントエンドをビルドし、最終 Python イメージには `dist` だけを同梱する。
+
 ## 新しいOCRを追加する
 
 1. `src/app/ocr.py` または新規モジュールに `recognize(frame)` を持つクラスを追加する。

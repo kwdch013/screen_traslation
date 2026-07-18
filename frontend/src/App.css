@@ -1,0 +1,137 @@
+.app-shell {
+  width: min(1040px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 48px 0;
+}
+
+.app-header {
+  margin-bottom: 32px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #68a9ff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  letter-spacing: -0.04em;
+}
+
+.lead {
+  margin: 12px 0 0;
+  color: #9ba7b8;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid #293444;
+  border-radius: 14px 14px 0 0;
+  background: #111923;
+}
+
+.tabs button {
+  flex: 1;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 9px;
+  color: #9ba7b8;
+  background: transparent;
+}
+
+.tabs button[aria-selected='true'] {
+  color: #f7f9fc;
+  background: #243247;
+}
+
+.panel {
+  min-height: 420px;
+  padding: 28px;
+  border: 1px solid #293444;
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  background: #111923;
+  box-sizing: border-box;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.controls button {
+  padding: 11px 18px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #07111f;
+  background: #68a9ff;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.controls .secondary {
+  color: #e8edf5;
+  border-color: #3a4a60;
+  background: #202c3c;
+}
+
+.controls .danger {
+  color: #ffd9dc;
+  border-color: #74373e;
+  background: #402329;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.status {
+  min-height: 1.5em;
+  margin: 24px 0;
+  color: #c4cedb;
+}
+
+video {
+  display: block;
+  width: 100%;
+  min-height: 280px;
+  max-height: 62vh;
+  border: 1px solid #293444;
+  border-radius: 10px;
+  background: #070b10;
+  object-fit: contain;
+}
+
+.placeholder {
+  color: #9ba7b8;
+}
+
+.placeholder h2 {
+  color: #f7f9fc;
+}
+
+@media (max-width: 600px) {
+  .app-shell {
+    width: min(100% - 20px, 1040px);
+    padding: 24px 0;
+  }
+
+  .tabs button,
+  .controls button {
+    padding-inline: 10px;
+    font-size: 0.86rem;
+  }
+
+  .panel {
+    padding: 18px;
+  }
+}

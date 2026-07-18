@@ -16,6 +16,13 @@ updates:
     open-pull-requests-limit: 5
     target-branch: dev
 
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    target-branch: dev
+
   # Dockerfile のベースイメージ
   - package-ecosystem: docker
     directory: /

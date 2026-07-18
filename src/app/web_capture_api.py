@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import secrets
+from pathlib import Path
 from typing import Protocol
 
 from fastapi import FastAPI, Request, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
 
-from .web_capture_page import render_capture_page
 from .web_capture_security import (
     MAX_FRAME_BYTES,
     TOKEN_HEADER,
@@ -19,6 +19,7 @@ from .web_capture_security import (
     origin_allowed,
     read_request_body,
 )
+from .web_frontend import DEFAULT_FRONTEND_DIST, install_frontend_route
 
 
 class CaptureSession(Protocol):
@@ -28,7 +29,10 @@ class CaptureSession(Protocol):
     def accept_frame(self, token: str, image: object) -> bool: ...
 
 
-def create_capture_app(server: CaptureSession) -> FastAPI:
+def create_capture_app(
+    server: CaptureSession,
+    frontend_dist: Path = DEFAULT_FRONTEND_DIST,
+) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
@@ -39,13 +43,6 @@ def create_capture_app(server: CaptureSession) -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
-
-    @app.get("/", response_class=Response)
-    async def capture_page() -> Response:
-        return Response(
-            render_capture_page(server.session_token),
-            media_type="text/html",
-        )
 
     @app.post("/frame")
     async def receive_frame(request: Request) -> Response:
@@ -80,6 +77,7 @@ def create_capture_app(server: CaptureSession) -> FastAPI:
             return _status_response(403)
         return _status_response(204)
 
+    install_frontend_route(app, frontend_dist)
     return app
 
 

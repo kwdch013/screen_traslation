@@ -24,6 +24,28 @@ jobs:
         with:
           python-version: "3.14"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: フロントエンド依存関係を復元
+        working-directory: frontend
+        run: npm ci
+
+      - name: フロントエンド lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: フロントエンドテスト
+        working-directory: frontend
+        run: npm test
+
+      - name: フロントエンドビルド
+        working-directory: frontend
+        run: npm run build
+
       - name: Lint (ruff)
         run: |
           pip install -r requirements-dev.txt

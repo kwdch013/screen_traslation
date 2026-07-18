@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 import threading
 from collections.abc import Callable
+from pathlib import Path
 from time import monotonic
 
 import uvicorn
@@ -19,6 +20,7 @@ from .web_capture_security import (
     TOKEN_HEADER as TOKEN_HEADER,
     decode_frame_bytes as decode_frame_bytes,
 )
+from .web_frontend import DEFAULT_FRONTEND_DIST
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -94,6 +96,7 @@ class WebCaptureServer:
         port: int = DEFAULT_PORT,
         *,
         read_timeout_seconds: float = READ_TIMEOUT_SECONDS,
+        frontend_dist: Path = DEFAULT_FRONTEND_DIST,
     ) -> None:
         if host != DEFAULT_HOST:
             raise ValueError(f"WebCaptureServerは{DEFAULT_HOST}でのみ待ち受けできます: {host}")
@@ -107,7 +110,7 @@ class WebCaptureServer:
         self._lifecycle_lock = threading.Lock()
         self._session_lock = threading.Lock()
         self._session_token = _new_token()
-        self._app = create_capture_app(self)
+        self._app = create_capture_app(self, frontend_dist)
         self._uvicorn_server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
         self._startup_error: BaseException | None = None
