@@ -46,3 +46,46 @@ WebAppService.__init__() got an unexpected keyword argument 'config_path'
 - tkinterの撤去
 - SSEおよび制御APIの仕様変更
 - 公開設定項目の全面的な再設計（段階9で実施）
+
+## PR #11 レビュー指摘の修正
+
+### 修正内容
+
+- 公開設定をJSONの型どおりに検証し、`bool`の数値扱いを拒否した。数値は有限値、バックエンド等は許容値、`priority_order`は許容された文字列の配列であることを保存前に確認する。
+- 設定JSONを`allow_nan=False`で直列化してから原子的保存へ渡し、不正値では保持設定と既存ファイルを変更しない。
+- 辞書の単調増加リビジョンを追加し、翻訳開始時のリビジョンと結果反映直前のリビジョンが異なる場合はSSE公開・描画・記録を破棄する。結果反映とリビジョン更新は専用ロックで直列化した。
+- キャッシュ失効とリビジョン更新では`WebAppService`の状態ロックを保持せず、LLM翻訳完了待ちの間も状態取得・開始・停止を妨げない構成にした。
+- 原子的書込みの一時パスを`NamedTemporaryFile`取得直後に記録し、書込み・flush・fsync・replaceの各失敗で一時ファイルを削除する。
+- READMEと仕様書へ、設定・辞書ファイルを複数プロセスから同時編集しない制約を追記した。
+
+### TDD
+
+#### Red
+
+実装前に、設定境界値、型・選択肢・非有限値、GET応答キー完全一致、辞書削除時のキャッシュ失効、辞書更新競合、原子的書込みの例外注入テストを追加した。
+
+```text
+PYTHONPATH=src .venv/bin/python -m unittest src.tests.test_web_settings_validation src.tests.test_glossary_revision src.tests.test_atomic_file src.tests.test_web_settings_api
+Ran 16 tests
+FAILED (failures=18, errors=5)  # サブテストを含む失敗数
+```
+
+追加の巨大整数境界では、`math.isfinite()`の`OverflowError`と巨大`font_size`の受理を確認した。
+
+```text
+Ran 8 tests
+FAILED (failures=1, errors=1)
+```
+
+#### Green
+
+境界テスト追加後の対象17テストを実装後に再実行し、全件成功した。
+
+```text
+Ran 17 tests in 0.107s
+OK
+```
+
+実ソケット使用テストと、この環境で停止する既存`TestClient`テストを除く回帰テストを`.venv`で実行し、136件すべて成功した。`compileall`と`git diff --check`も成功した。`.venv`には`ruff`が導入されていないため、最終的なコンテナテストとlintは依頼者環境で確認する。
+
+レビュー対応の設定・辞書・リビジョン・原子的書込みに関する最終対象テストは21件すべて成功した。

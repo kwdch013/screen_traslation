@@ -12,6 +12,7 @@ from .contracts import OverlayRenderer
 from .glossary import Glossary
 from .overlay import InMemoryOverlayRenderer
 from .result_events import TranslationEventPublisher
+from .revision import MonotonicRevision
 from .web_app_status import WebAppStatus
 from .web_capture import WebCaptureFrameStore, WebCaptureServer
 from .web_control_api import install_control_routes
@@ -61,6 +62,7 @@ class WebAppService:
         self._server = server or WebCaptureServer()
         self._operation_lock = threading.Lock()
         self._lock = threading.RLock()
+        self._glossary_revision = MonotonicRevision()
         # 世代進行とPublisherの旧世代無効化の間に結果配信を割り込ませない。
         self._event_publisher = TranslationEventPublisher(lock=self._lock)
         if pipeline_factory is None:
@@ -71,6 +73,7 @@ class WebAppService:
                 overlay,
                 result_publisher=self._event_publisher,
                 generation_provider=lambda: self.generation,
+                glossary_revision=self._glossary_revision,
             )
         else:
             self._pipeline_factory = pipeline_factory
@@ -269,8 +272,13 @@ class WebAppService:
     def _invalidate_translation_cache(self) -> None:
         with self._lock:
             invalidator = getattr(self._pipeline, "invalidate_translation_cache", None)
+
+        def invalidate() -> None:
             if callable(invalidator):
                 invalidator()
+
+        # LLM翻訳完了待ちは専用ロック内で行い、制御API用ロックを占有しない。
+        self._glossary_revision.advance_after(invalidate)
 
     def _status_unlocked(self) -> WebAppStatus:
         token_valid = self._state in {"awaiting_frame", "running"}

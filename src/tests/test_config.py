@@ -53,6 +53,16 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(Path(temporary_path).parent, path.parent)
         self.assertEqual(Path(destination_path), path)
 
+    def test_save_config_rejects_nan_before_changing_existing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "app.json"
+            path.write_text("既存\n", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                save_config(PipelineConfig(ocr_fps=float("nan")), path)
+
+            self.assertEqual(path.read_text(encoding="utf-8"), "既存\n")
+
 
 if __name__ == "__main__":
     unittest.main()

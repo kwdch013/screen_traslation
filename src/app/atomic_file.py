@@ -18,10 +18,10 @@ def atomic_write_text(path: Path, content: str) -> None:
             suffix=".tmp",
             delete=False,
         ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
             temporary_file.write(content)
             temporary_file.flush()
             os.fsync(temporary_file.fileno())
-            temporary_path = Path(temporary_file.name)
         os.replace(temporary_path, path)
         temporary_path = None
     finally:

@@ -7,6 +7,7 @@ from .contracts import OverlayRenderer, ResultPublisher
 from .factory import build_pipeline
 from .glossary import Glossary
 from .pipeline import TranslationPipeline
+from .revision import MonotonicRevision
 from .runtime import PipelineRunner
 from .web_capture import WebCaptureFrameStore
 
@@ -19,6 +20,7 @@ def build_web_pipeline(
     *,
     result_publisher: ResultPublisher,
     generation_provider: Callable[[], int],
+    glossary_revision: MonotonicRevision | None = None,
 ) -> TranslationPipeline:
     return build_pipeline(
         config,
@@ -27,6 +29,7 @@ def build_web_pipeline(
         overlay_renderer=overlay,
         result_publisher=result_publisher,
         generation_provider=generation_provider,
+        glossary_revision=glossary_revision,
     )
 
 

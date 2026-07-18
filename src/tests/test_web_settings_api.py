@@ -136,6 +136,28 @@ class WebSettingsApiTest(unittest.TestCase):
         response = self.client.get("/api/config", headers=self._headers())
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            set(response.json()),
+            {
+                "ocr_fps",
+                "min_confidence",
+                "ocr_backend",
+                "ocr_fallback_min_confidence",
+                "translator_backend",
+                "llm_model",
+                "llm_timeout_seconds",
+                "source_language",
+                "target_language",
+                "target_scope",
+                "external_api_policy",
+                "priority_order",
+                "overlay_style",
+            },
+        )
+        self.assertEqual(
+            set(response.json()["overlay_style"]),
+            {"font_size", "text_color", "background_color", "overlay_opacity"},
+        )
         self.assertEqual(response.json()["ocr_fps"], 5.0)
         self.assertEqual(response.json()["overlay_style"]["overlay_opacity"], 0.72)
         self.assertNotIn("translation_log_path", response.json())
@@ -240,6 +262,11 @@ class WebSettingsApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(self.pipelines[0].translate("Save"), "セーブ")
+
+        deleted = self.client.delete("/api/glossary/Save", headers=self._headers())
+
+        self.assertEqual(deleted.status_code, 204)
+        self.assertEqual(self.pipelines[0].translate("Save"), "Save")
 
     def test_mutations_reject_invalid_host_and_origin(self) -> None:
         requests = [

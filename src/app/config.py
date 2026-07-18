@@ -67,7 +67,13 @@ def load_config(path: Path) -> PipelineConfig:
 def save_config(config: PipelineConfig, path: Path) -> None:
     atomic_write_text(
         path,
-        json.dumps(_config_to_dict(config), ensure_ascii=False, indent=2) + "\n",
+        json.dumps(
+            _config_to_dict(config),
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        + "\n",
     )
 
 
