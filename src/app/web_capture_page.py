@@ -26,6 +26,7 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
 <body>
 <h1>Screen Translation: 翻訳する画面を選択してください</h1>
 <button id="start">画面を選択して開始</button>
+<button id="reselect" disabled>画面を選び直す</button>
 <button id="stop" disabled>共有を停止</button>
 <div id="status">画面、ウィンドウ、またはタブを選択してください。</div>
 <video id="preview" autoplay muted playsinline hidden></video>
@@ -33,9 +34,10 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
 (function () {{
   // このタブに割り当てられたセッショントークン。再選択のたびに更新され、
   // 古いトークンからの送信はサーバー側で拒否される。
-  const SESSION_TOKEN = {token_json};
+  let sessionToken = {token_json};
   const SEND_INTERVAL_MS = {send_interval_ms};
   const startButton = document.getElementById("start");
+  const reselectButton = document.getElementById("reselect");
   const stopButton = document.getElementById("stop");
   const statusEl = document.getElementById("status");
   const video = document.getElementById("preview");
@@ -64,7 +66,7 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
           method: "POST",
           headers: {{
             "Content-Type": "image/jpeg",
-            "X-Capture-Token": SESSION_TOKEN,
+            "X-Capture-Token": sessionToken,
           }},
           body: blob,
         }})
@@ -95,15 +97,33 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
     }}
     video.hidden = true;
     startButton.disabled = false;
+    reselectButton.disabled = true;
     stopButton.disabled = true;
   }}
 
-  function stopByUser() {{
-    stopSharing();
-    setStatus("共有を終了しました。もう一度「画面を選択して開始」を押すと選び直せます。");
+  async function control(path) {{
+    const response = await fetch(path, {{ method: "POST" }});
+    const body = await response.json();
+    if (!response.ok) {{
+      throw new Error(body.detail || "制御APIの呼び出しに失敗しました。");
+    }}
+    if (body.session_token) {{
+      sessionToken = body.session_token;
+    }}
+    return body;
   }}
 
-  async function startSharing() {{
+  async function stopByUser() {{
+    stopSharing();
+    try {{
+      await control("/api/control/stop");
+      setStatus("共有を終了しました。もう一度「画面を選択して開始」を押すと再開できます。");
+    }} catch (error) {{
+      setStatus("共有は停止しましたが、翻訳処理を停止できませんでした: " + error);
+    }}
+  }}
+
+  async function selectAndShare() {{
     try {{
       stream = await navigator.mediaDevices.getDisplayMedia({{
         video: {{ frameRate: 5 }},
@@ -111,18 +131,40 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
       }});
     }} catch (error) {{
       setStatus("画面の選択がキャンセルされたか、失敗しました: " + error);
+      await control("/api/control/stop").catch(function () {{}});
       return;
     }}
     video.srcObject = stream;
     video.hidden = false;
     startButton.disabled = true;
+    reselectButton.disabled = false;
     stopButton.disabled = false;
     setStatus("送信中です。このタブは翻訳中も開いたままにしてください。");
     stream.getVideoTracks()[0].addEventListener("ended", stopByUser);
     sendTimer = setInterval(sendFrame, SEND_INTERVAL_MS);
   }}
 
+  async function startSharing() {{
+    try {{
+      await control("/api/control/start");
+      await selectAndShare();
+    }} catch (error) {{
+      setStatus("翻訳を開始できませんでした: " + error);
+    }}
+  }}
+
+  async function reselectSharing() {{
+    try {{
+      await control("/api/control/reselect");
+      stopSharing();
+      await selectAndShare();
+    }} catch (error) {{
+      setStatus("画面を選び直せませんでした: " + error);
+    }}
+  }}
+
   startButton.addEventListener("click", startSharing);
+  reselectButton.addEventListener("click", reselectSharing);
   stopButton.addEventListener("click", stopByUser);
   window.addEventListener("pagehide", stopSharing);
 }})();

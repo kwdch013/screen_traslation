@@ -86,12 +86,13 @@ def build_pipeline(
     glossary: Glossary,
     static_text: str | None = None,
     web_capture_store: WebCaptureFrameStore | None = None,
+    overlay_renderer: OverlayRenderer | None = None,
 ) -> TranslationPipeline:
     return TranslationPipeline(
         capture_source=build_capture_source(config, web_capture_store),
         ocr_engine=build_ocr_engine(config, static_text),
         translator=build_translator(config, glossary),
-        overlay_renderer=build_overlay_renderer(config),
+        overlay_renderer=overlay_renderer or build_overlay_renderer(config),
         config=config,
         translation_logger=JsonlTranslationLogger(config.translation_log_path),
     )

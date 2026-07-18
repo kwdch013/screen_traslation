@@ -34,6 +34,7 @@
 - `overlay`: オーバーレイ表示を担当する。
 - `pipeline`: 各モジュールを接続する。
 - `runtime`: パイプラインの開始、停止を担当する。
+- `web_app_service`: Web向けパイプラインの状態、世代、キャプチャセッションを管理する。
 - `desktop_app`: デスクトップUIを担当する。
 - `window`: 起動中ウィンドウ一覧の取得を担当する(レガシーの`mss`キャプチャ用)。
 - `factory`: 設定から各モジュールを組み立てる。
@@ -49,6 +50,17 @@
 `web` はローカルWebページ(`web_capture.WebCaptureServer`)をブラウザで開き、`navigator.mediaDevices.getDisplayMedia` によるブラウザ標準の「画面、ウィンドウ、またはタブを選択」ダイアログでキャプチャ対象を選ぶ。選択後はブラウザがJPEGフレームを定期的にローカルサーバーへ送信し、`WebCaptureSource` が最新フレームを取得する。Windowsのウィンドウ一覧取得(`pygetwindow`)に依存しないため、対象アプリの種類やOS権限の影響を受けにくい。`getDisplayMedia` に対応したブラウザ(Chrome / Edge など)が必要となる。
 
 `web` の受信サーバーは FastAPI + uvicorn で動作し、`127.0.0.1` のみで待ち受ける。接続受理から15秒以内に初回リクエストの行・ヘッダを受信できない接続は、h11プロトコル層の絶対期限で閉じる。`POST /frame` はセッショントークン(`X-Capture-Token`)、`Host` / `Origin` ヘッダ検証、`Content-Type` 制限、`Content-Length` 上限、画像の辺長・総画素数上限、画像形式照合、本文読み取りタイムアウトで保護する。開始・停止・再選択のたびにセッショントークンを更新し(`WebCaptureServer.new_session`)、古いブラウザタブから届くフレームは拒否される。CLIの `--run-once` など `web_capture_store` を伴わない非対話経路では `web` を利用できず、明示的なエラーで `mss` / `blank` への設定を促す。
+
+### Web制御API
+
+`python -m app.main --web` は、画面選択ページ、フレーム受信API、次の制御APIを同一のローカルサーバーで起動する。インメモリ状態を共有するためuvicornは1ワーカーで動作し、`POST /frame`と同じHost / Origin検証を制御APIにも適用する。
+
+- `POST /api/control/start`: Webキャプチャ用パイプラインを開始し、最初のフレームを待つ。
+- `POST /api/control/stop`: パイプラインを停止し、キャプチャセッションを失効させる。
+- `POST /api/control/reselect`: パイプラインを維持したままセッションと世代を更新し、新しいフレーム待ちへ戻す。
+- `GET /api/status`: 状態、エラーメッセージ、現行セッショントークンの有効性を返す。
+
+状態は`idle → starting → awaiting_frame → running → stopping → idle`で遷移し、開始・実行・停止に失敗した場合は`error`になる。停止要求から2秒後もRunnerスレッドが生存している場合は`idle`へ遷移せず、旧パイプラインとの並走を防ぐ。
 
 `mss` は対象ウィンドウまたは指定領域を画像として取得するレガシー方式で、Tkinterの矩形ドラッグ選択と組み合わせて利用する。
 

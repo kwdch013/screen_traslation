@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from time import sleep
 
 from collections.abc import Callable
@@ -18,6 +18,7 @@ class PipelineRunner:
         self._pipeline = pipeline
         self._poll_interval_seconds = poll_interval_seconds
         self._on_error = on_error
+        self._callback_lock = Lock()
         self._stop_event = Event()
         self._thread: Thread | None = None
 
@@ -36,16 +37,24 @@ class PipelineRunner:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
-            self._thread = None
+            if not self._thread.is_alive():
+                self._thread = None
+
+    def set_on_error(self, on_error: Callable[[Exception], None] | None) -> None:
+        with self._callback_lock:
+            self._on_error = on_error
 
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
+            # tick開始時の世代に対応する通知先を固定し、再選択前の遅延通知を区別する。
+            with self._callback_lock:
+                on_error = self._on_error
             try:
                 self._pipeline.tick()
             except Exception as error:
                 self._stop_event.set()
-                if self._on_error is not None:
-                    self._on_error(error)
+                if on_error is not None:
+                    on_error(error)
                 return
             else:
                 sleep(self._poll_interval_seconds)
