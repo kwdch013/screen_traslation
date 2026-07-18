@@ -21,6 +21,9 @@ export function useScreenCapture() {
   const operationGenerationRef = useRef(0)
   const operationRef = useRef(false)
   const mountedRef = useRef(false)
+  const pageHiddenRef = useRef(false)
+  const keepaliveStopRef = useRef<Promise<void> | null>(null)
+  const syncStatusRef = useRef<() => Promise<void>>(async () => undefined)
   const stopByUserRef = useRef<() => void>(() => undefined)
 
   const applyStatus = useCallback((status: ServiceStatus) => {
@@ -71,6 +74,19 @@ export function useScreenCapture() {
     )
   }, [stopSharing])
 
+  const stopWithKeepaliveAndSync = useCallback((sessionToken?: string) => {
+    if (!sessionToken) return
+    const stopPromise = stopWithKeepalive(sessionToken)
+    keepaliveStopRef.current = stopPromise
+    void stopPromise.then(() => {
+      if (keepaliveStopRef.current !== stopPromise) return
+      keepaliveStopRef.current = null
+      if (mountedRef.current && !pageHiddenRef.current) {
+        void syncStatusRef.current()
+      }
+    })
+  }, [])
+
   const selectAndShare = useCallback(
     async (generation: number) => {
       let selectedStream: MediaStream
@@ -85,7 +101,7 @@ export function useScreenCapture() {
         try {
           const stopped = await control('stop', sessionTokenRef.current)
           if (!isOperationValid(generation)) {
-            stopWithKeepalive(stopped.session_token)
+            stopWithKeepaliveAndSync(stopped.session_token)
             return false
           }
           applyStatus(stopped)
@@ -97,7 +113,7 @@ export function useScreenCapture() {
       }
       if (!isOperationValid(generation)) {
         selectedStream.getTracks().forEach((track) => track.stop())
-        stopWithKeepalive(sessionTokenRef.current)
+        stopWithKeepaliveAndSync(sessionTokenRef.current)
         return false
       }
       streamRef.current = selectedStream
@@ -113,7 +129,7 @@ export function useScreenCapture() {
       setStatusText('送信中です。このタブは翻訳中も開いたままにしてください。')
       return true
     },
-    [applyStatus, isOperationValid, sendFrame],
+    [applyStatus, isOperationValid, sendFrame, stopWithKeepaliveAndSync],
   )
 
   const beginOperation = useCallback(() => {
@@ -170,6 +186,8 @@ export function useScreenCapture() {
     }
   }, [applyStatus, isOperationValid])
 
+  syncStatusRef.current = syncStatus
+
   const applyOperationFailure = useCallback(
     async (error: unknown) => {
       applyFailureStatus(error)
@@ -186,7 +204,7 @@ export function useScreenCapture() {
     try {
       const status = await control('start')
       if (!isOperationValid(generation)) {
-        stopWithKeepalive(status.session_token)
+        stopWithKeepaliveAndSync(status.session_token)
         return
       }
       applyStatus(status)
@@ -199,7 +217,7 @@ export function useScreenCapture() {
     } finally {
       endOperation(generation)
     }
-  }, [applyOperationFailure, applyStatus, beginOperation, endOperation, isOperationValid, selectAndShare])
+  }, [applyOperationFailure, applyStatus, beginOperation, endOperation, isOperationValid, selectAndShare, stopWithKeepaliveAndSync])
 
   const stopByUser = useCallback(async () => {
     const generation = beginOperation()
@@ -208,7 +226,7 @@ export function useScreenCapture() {
     try {
       const status = await control('stop', sessionTokenRef.current)
       if (!isOperationValid(generation)) {
-        stopWithKeepalive(status.session_token)
+        stopWithKeepaliveAndSync(status.session_token)
         return
       }
       applyStatus(status)
@@ -222,7 +240,7 @@ export function useScreenCapture() {
     } finally {
       endOperation(generation)
     }
-  }, [applyOperationFailure, applyStatus, beginOperation, endOperation, isOperationValid, stopSharing])
+  }, [applyOperationFailure, applyStatus, beginOperation, endOperation, isOperationValid, stopSharing, stopWithKeepaliveAndSync])
 
   stopByUserRef.current = () => void stopByUser()
 
@@ -233,7 +251,7 @@ export function useScreenCapture() {
     try {
       const status = await control('reselect')
       if (!isOperationValid(generation)) {
-        stopWithKeepalive(status.session_token)
+        stopWithKeepaliveAndSync(status.session_token)
         return
       }
       applyStatus(status)
@@ -246,17 +264,21 @@ export function useScreenCapture() {
     } finally {
       endOperation(generation)
     }
-  }, [applyOperationFailure, applyStatus, beginOperation, endOperation, isOperationValid, selectAndShare, stopSharing])
+  }, [applyOperationFailure, applyStatus, beginOperation, endOperation, isOperationValid, selectAndShare, stopSharing, stopWithKeepaliveAndSync])
 
   useEffect(() => {
     mountedRef.current = true
     const stopOwnedSession = () => {
+      pageHiddenRef.current = true
       invalidateOperation(true)
       stopSharing()
-      stopWithKeepalive(sessionTokenRef.current)
+      stopWithKeepaliveAndSync(sessionTokenRef.current)
       sessionTokenRef.current = undefined
     }
-    const handlePageShow = () => void syncStatus()
+    const handlePageShow = () => {
+      pageHiddenRef.current = false
+      void syncStatus()
+    }
     window.addEventListener('pageshow', handlePageShow)
     window.addEventListener('pagehide', stopOwnedSession)
     void syncStatus()
@@ -267,10 +289,10 @@ export function useScreenCapture() {
       mountedRef.current = false
       if (statusTimerRef.current !== null) window.clearTimeout(statusTimerRef.current)
       stopSharing()
-      stopWithKeepalive(sessionTokenRef.current)
+      stopWithKeepaliveAndSync(sessionTokenRef.current)
       sessionTokenRef.current = undefined
     }
-  }, [invalidateOperation, stopSharing, syncStatus])
+  }, [invalidateOperation, stopSharing, stopWithKeepaliveAndSync, syncStatus])
 
   const active = serviceState === 'running' || serviceState === 'awaiting_frame'
   const locked = operationInProgress || ['loading', 'starting', 'stopping'].includes(serviceState)

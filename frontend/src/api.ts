@@ -43,15 +43,19 @@ export async function control(
   return parseStatusResponse(response, '制御APIの呼び出しに失敗しました。')
 }
 
-export function stopWithKeepalive(sessionToken?: string): void {
+export async function stopWithKeepalive(sessionToken?: string): Promise<void> {
   if (!sessionToken) {
     return
   }
-  void fetch('/api/control/stop', {
-    method: 'POST',
-    headers: { 'X-Capture-Token': sessionToken },
-    keepalive: true,
-  }).catch(() => undefined)
+  try {
+    await fetch('/api/control/stop', {
+      method: 'POST',
+      headers: { 'X-Capture-Token': sessionToken },
+      keepalive: true,
+    })
+  } catch {
+    // ページ離脱時のベストエフォート停止では通信失敗を画面へ反映できない。
+  }
 }
 
 async function parseStatusResponse(

@@ -109,3 +109,24 @@
 - `PYTHONPATH=src .venv/bin/python -m unittest src.tests.test_web_capture_page src.tests.test_frontend_infrastructure src.tests.test_web_capture_api.WebCaptureSecurityTest`: 16件成功。
 - 変更したPython 3ファイルの `py_compile`: 成功。
 - Dockerでの最終確認は依頼者側で実施する。
+
+## PR #13 再レビュー指摘の修正
+
+### Red
+
+- pagehide後の遅延start応答とpageshowの状態同期を、開始・keepalive停止の応答順を手動制御して再現するテストへ拡張した。
+- pageshow直後の `/api/status` が `running` を返した後、keepalive停止を完了しても再同期されず、画面が実行中表示のまま残る失敗を確認した。
+
+### Green
+
+- `stopWithKeepalive` が停止完了を表すPromiseを返すようにし、フックで最新のkeepalive停止Promiseとページの退避状態を保持した。
+- pagehide後の停止が完了した時点でページが復元済みなら `syncStatus()` を再実行し、通常のpagehide停止と遅延応答トークンの停止を同じ経路で処理するようにした。
+- ページが非表示のままなら再同期せず、pageshow時の通常同期に委ねることで不要な状態取得を避けた。
+
+### 検証結果
+
+- Red確認: `npx vitest run src/App.review.test.tsx` は対象1件が失敗（期待したstatus呼び出し3回に対して2回）。
+- Green確認: `npx vitest run src/App.review.test.tsx` は7件成功。
+- `npx vitest run`: 20件成功。
+- `npm run lint`: 成功。
+- `npm run build`: 成功。

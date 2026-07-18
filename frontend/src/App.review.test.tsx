@@ -9,35 +9,53 @@ describe('App PRレビュー回帰', () => {
     installCaptureElementMocks()
   })
 
-  it('pagehide後に開始応答を受け取った場合は新トークンを即時停止する', async () => {
+  it('pagehide後の遅延開始を停止し、pageshowとの競合後に状態を再同期する', async () => {
     let resolveStart: ((response: Response) => void) | undefined
     const pendingStart = new Promise<Response>((resolve) => {
       resolveStart = resolve
     })
+    let resolveStop: ((response: Response) => void) | undefined
+    const pendingStop = new Promise<Response>((resolve) => {
+      resolveStop = resolve
+    })
+    let statusCalls = 0
     const getDisplayMedia = vi.fn()
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,
       value: { getDisplayMedia },
     })
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      if (input === '/api/status') return Promise.resolve(jsonResponse({ state: 'idle' }))
+      if (input === '/api/status') {
+        statusCalls += 1
+        const state = statusCalls === 1 || statusCalls >= 3 ? 'idle' : 'running'
+        return Promise.resolve(jsonResponse({ state }))
+      }
       if (input === '/api/control/start') return pendingStart
-      return Promise.resolve(jsonResponse({ state: 'idle' }))
+      if (input === '/api/control/stop') return pendingStop
+      throw new Error(`想定外のリクエスト: ${String(input)}`)
     })
     vi.stubGlobal('fetch', fetchMock)
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: '画面を選択して開始' }))
 
     fireEvent(window, new Event('pagehide'))
-    resolveStart?.(jsonResponse({ state: 'awaiting_frame', session_token: 'late-token' }))
-    await act(async () => {})
+    fireEvent(window, new Event('pageshow'))
+    await waitFor(() => expect(statusCalls).toBe(2))
+    expect(screen.getByRole('button', { name: '画面を選び直す' })).toBeEnabled()
 
-    expect(getDisplayMedia).not.toHaveBeenCalled()
-    expect(fetchMock).toHaveBeenCalledWith('/api/control/stop', {
-      headers: { 'X-Capture-Token': 'late-token' },
-      keepalive: true,
-      method: 'POST',
+    resolveStart?.(jsonResponse({ state: 'awaiting_frame', session_token: 'late-token' }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/control/stop', {
+        headers: { 'X-Capture-Token': 'late-token' },
+        keepalive: true,
+        method: 'POST',
+      })
     })
+    expect(getDisplayMedia).not.toHaveBeenCalled()
+
+    resolveStop?.(jsonResponse({ state: 'idle' }))
+    await waitFor(() => expect(statusCalls).toBe(3))
+    expect(screen.getByRole('button', { name: '画面を選択して開始' })).toBeEnabled()
   })
 
   it('アンマウント後に画面選択が完了した場合は取得ストリームを停止する', async () => {
