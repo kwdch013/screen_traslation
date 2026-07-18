@@ -1,7 +1,10 @@
 import { useState } from 'react'
 
 import './App.css'
+import { SubtitleList } from './SubtitleList'
+import { TranslationPreview } from './TranslationPreview'
 import { useScreenCapture } from './useScreenCapture'
+import { useTranslationEvents } from './useTranslationEvents'
 
 type Tab = 'preview' | 'subtitles' | 'settings'
 
@@ -14,6 +17,22 @@ const tabs: { id: Tab; label: string }[] = [
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('preview')
   const capture = useScreenCapture()
+  const translation = useTranslationEvents()
+
+  const startSharing = () => {
+    translation.clearForSessionChange()
+    void capture.startSharing()
+  }
+
+  const reselectSharing = () => {
+    translation.clearForSessionChange()
+    void capture.reselectSharing()
+  }
+
+  const stopSharing = () => {
+    translation.clearForSessionChange()
+    void capture.stopByUser()
+  }
 
   return (
     <main className="app-shell">
@@ -38,6 +57,10 @@ function App() {
         ))}
       </nav>
 
+      {translation.connection === 'reconnecting' && (
+        <p className="event-connection" aria-live="polite">翻訳結果を再接続中です。</p>
+      )}
+
       <section
         id="preview-panel"
         className="panel preview-panel"
@@ -45,13 +68,13 @@ function App() {
         hidden={activeTab !== 'preview'}
       >
         <div className="controls">
-          <button type="button" onClick={() => void capture.startSharing()} disabled={capture.startDisabled}>
+          <button type="button" onClick={startSharing} disabled={capture.startDisabled}>
             画面を選択して開始
           </button>
           <button
             type="button"
             className="secondary"
-            onClick={() => void capture.reselectSharing()}
+            onClick={reselectSharing}
             disabled={capture.reselectDisabled}
           >
             画面を選び直す
@@ -59,7 +82,7 @@ function App() {
           <button
             type="button"
             className="danger"
-            onClick={() => void capture.stopByUser()}
+            onClick={stopSharing}
             disabled={capture.stopDisabled}
           >
             共有を停止
@@ -68,12 +91,11 @@ function App() {
         <p className="status" role="status" aria-live="polite">
           {capture.statusText}
         </p>
-        <video ref={capture.videoRef} autoPlay muted playsInline aria-label="共有画面のプレビュー" />
+        <TranslationPreview videoRef={capture.videoRef} result={translation.currentResult} />
       </section>
 
-      <section id="subtitles-panel" className="panel placeholder" role="tabpanel" hidden={activeTab !== 'subtitles'}>
-        <h2>字幕リスト</h2>
-        <p>翻訳結果の表示は段階6で追加します。</p>
+      <section id="subtitles-panel" className="panel" role="tabpanel" hidden={activeTab !== 'subtitles'}>
+        <SubtitleList history={translation.history} />
       </section>
 
       <section id="settings-panel" className="panel placeholder" role="tabpanel" hidden={activeTab !== 'settings'}>
