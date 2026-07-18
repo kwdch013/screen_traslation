@@ -1,9 +1,19 @@
 import unittest
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
+from unittest import mock
 
-from app.contracts import Rect, TextRegion
-from app.ocr import FallbackOcrEngine, clean_llm_ocr_text, group_text_lines, preprocess_image_for_ocr, regions_from_tesseract_data, resolve_tesseract_command
+from app.contracts import Frame, Rect, TextRegion
+from app.ocr import (
+    FallbackOcrEngine,
+    TesseractOcrEngine,
+    clean_llm_ocr_text,
+    group_text_lines,
+    preprocess_image_for_ocr,
+    regions_from_tesseract_data,
+    resolve_tesseract_command,
+)
 
 
 class OcrTest(unittest.TestCase):
@@ -41,6 +51,57 @@ class OcrTest(unittest.TestCase):
 
         self.assertEqual([region.text for region in regions], ["New Game", "Game Options"])
         self.assertEqual(regions[0].bounds.width, 120)
+
+    def test_regions_from_tesseract_data_restores_original_image_scale(self) -> None:
+        data = {
+            "text": ["New", "Game"],
+            "conf": ["90", "80"],
+            "left": [20, 120],
+            "top": [40, 44],
+            "width": [80, 140],
+            "height": [40, 36],
+            "block_num": [1, 1],
+            "par_num": [1, 1],
+            "line_num": [1, 1],
+        }
+
+        regions = regions_from_tesseract_data(data, min_confidence=0.5, coordinate_scale=0.5)
+
+        self.assertEqual(regions[0].bounds, Rect(x=10, y=20, width=120, height=20))
+
+    def test_tesseract_engine_returns_coordinates_in_original_image_scale(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is not installed")
+        received_sizes = []
+
+        def image_to_data(image, **kwargs):
+            received_sizes.append(image.size)
+            return {
+                "text": ["Start"],
+                "conf": ["90"],
+                "left": [20],
+                "top": [40],
+                "width": [160],
+                "height": [40],
+                "block_num": [1],
+                "par_num": [1],
+                "line_num": [1],
+            }
+
+        fake_tesseract = SimpleNamespace(image_to_data=image_to_data)
+        engine = TesseractOcrEngine()
+        with (
+            mock.patch("app.ocr._load_pytesseract", return_value=fake_tesseract),
+            mock.patch("app.ocr.resolve_tesseract_command", return_value=None),
+        ):
+            regions = engine.recognize(
+                Frame(image=Image.new("RGB", (100, 50), color="white"), captured_at=0.0)
+            )
+
+        self.assertEqual(received_sizes, [(200, 100)])
+        self.assertEqual(regions[0].bounds, Rect(x=10, y=20, width=80, height=20))
 
     def test_group_text_lines_merges_nearby_dialogue_lines(self) -> None:
         lines = [

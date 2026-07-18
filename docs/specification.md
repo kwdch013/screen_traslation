@@ -33,8 +33,10 @@
 - `glossary`: 用語辞書を担当する。
 - `overlay`: オーバーレイ表示を担当する。
 - `pipeline`: 各モジュールを接続する。
+- `result_events`: 翻訳結果と状態イベントの複数クライアント向け配信を担当する。
 - `runtime`: パイプラインの開始、停止を担当する。
 - `web_app_service`: Web向けパイプラインの状態、世代、キャプチャセッションを管理する。
+- `web_events_api`: SSEエンドポイントとheartbeatを担当する。
 - `desktop_app`: デスクトップUIを担当する。
 - `window`: 起動中ウィンドウ一覧の取得を担当する(レガシーの`mss`キャプチャ用)。
 - `factory`: 設定から各モジュールを組み立てる。
@@ -63,6 +65,33 @@
 状態は`idle → starting → awaiting_frame → running → stopping → idle`で遷移し、開始・実行・停止に失敗した場合は`error`になる。停止要求から2秒後もRunnerスレッドが生存している場合は`idle`へ遷移せず、旧パイプラインとの並走を防ぐ。画面選択ページは`pageshow`で状態を再同期し、`starting` / `stopping`の間は安定状態まで短間隔で再取得する。`error`では停止だけを操作可能にして、保持中のRunnerを停止できれば`idle`へ復旧する。`pagehide`のkeepalive停止にはページのセッショントークンを付け、復元前の旧ページから遅れて届いた停止要求が新しいセッションを止めないようにする。
 
 `mss` は対象ウィンドウまたは指定領域を画像として取得するレガシー方式で、Tkinterの矩形ドラッグ選択と組み合わせて利用する。
+
+### 翻訳結果イベントAPI
+
+`GET /api/events`は同一オリジンのブラウザへServer-Sent Events (SSE)を配信する。`EventSource`では任意ヘッダを付けられないためセッショントークンは要求せず、共通ミドルウェアのHost検証と、Originが付く場合のローカルOrigin検証を適用する。接続直後と状態変化時には`state`イベント、OCR処理後には`translation_result`イベントを送る。15秒間送るイベントがない場合はSSEコメント行`: heartbeat`を送信する。
+
+`translation_result`の`data`は次のJSON契約とする。
+
+| フィールド | 型 | 内容 |
+| --- | --- | --- |
+| `generation` | integer | `WebAppService`のセッション世代。開始、停止、再選択、異常終了で更新する。 |
+| `frame_id` | integer | サーバーが受理したフレームの単調増加ID。セッションを消去しても巻き戻さない。 |
+| `captured_at` | number | サーバーがフレームを保存した単調時計の秒数。 |
+| `processed_at` | number | パイプラインが結果を生成した単調時計の秒数。 |
+| `frame_width` | integer | OCR対象画像の幅(ピクセル)。 |
+| `frame_height` | integer | OCR対象画像の高さ(ピクセル)。 |
+| `regions` | array | 翻訳領域。0件も表示消去イベントとして配信する。 |
+
+各`regions[]`は`source`、`translated`、`x`、`y`、`width`、`height`、`confidence`、`positioning`を持つ。座標はすべて「サーバーへ送信された画像の左上を`(0, 0)`とする画像ピクセル座標」であり、画面全体やデスクトップの絶対座標ではない。Tesseractの前処理で画像を2倍に拡大した場合も、返却前に元画像スケールへ戻す。
+
+`positioning`は、座標をプレビューへ重畳できるTesseract結果では`available`、固定のダミー領域しか持たないLLM OCR結果では`unavailable`とする。フロントエンドは`unavailable`の領域を座標重畳せず、字幕リストとして扱う。
+
+```text
+event: translation_result
+data: {"generation":1,"frame_id":42,"captured_at":123.4,"processed_at":123.5,"frame_width":1280,"frame_height":720,"regions":[{"source":"New Game","translated":"ニューゲーム","x":10,"y":20,"width":120,"height":30,"confidence":0.9,"positioning":"available"}]}
+```
+
+Publisherはアプリ全体で1つを保持し、クライアントごとに上限16件のキューを持つ。キューが満杯の場合は最古のイベントを捨てるため、遅いクライアントが翻訳パイプラインや他クライアントを停止させない。停止時もSSE接続は維持し、`state`イベントで`idle`などの状態を通知する。世代が変わると購読キューに残る旧結果を消去し、その後に完了した旧世代の結果も配信しない。
 
 ### OCR
 

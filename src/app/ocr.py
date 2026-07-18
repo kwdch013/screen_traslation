@@ -15,6 +15,7 @@ DEFAULT_TESSERACT_PATHS = (
     Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
     Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
 )
+OCR_IMAGE_SCALE = 2
 
 
 class StaticOcrEngine:
@@ -51,15 +52,17 @@ class TesseractOcrEngine:
         from pytesseract import Output
 
         try:
+            processed_image = preprocess_image_for_ocr(frame.image)
             data = pytesseract.image_to_data(
-                preprocess_image_for_ocr(frame.image),
+                processed_image,
                 lang=self._language,
                 output_type=Output.DICT,
                 config=self._config,
             )
         except Exception as error:
             raise DependencyUnavailableError(_tesseract_unavailable_message()) from error
-        return regions_from_tesseract_data(data, self._min_confidence)
+        coordinate_scale = _coordinate_scale(frame.image, processed_image)
+        return regions_from_tesseract_data(data, self._min_confidence, coordinate_scale=coordinate_scale)
 
 
 class FallbackOcrEngine:
@@ -120,7 +123,15 @@ class LlmOcrEngine:
         )
         if not text:
             return []
-        return [text_to_region(text)]
+        region = text_to_region(text)
+        return [
+            TextRegion(
+                text=region.text,
+                bounds=region.bounds,
+                confidence=region.confidence,
+                positioning="unavailable",
+            )
+        ]
 
 
 def _should_use_fallback(regions: Sequence[TextRegion], min_primary_confidence: float) -> bool:
@@ -132,7 +143,12 @@ def _should_use_fallback(regions: Sequence[TextRegion], min_primary_confidence: 
 
 def _clean_llm_region(region: TextRegion) -> TextRegion:
     text = clean_llm_ocr_text(region.text)
-    return TextRegion(text=text, bounds=region.bounds, confidence=region.confidence)
+    return TextRegion(
+        text=text,
+        bounds=region.bounds,
+        confidence=region.confidence,
+        positioning=region.positioning,
+    )
 
 
 def clean_llm_ocr_text(text: str) -> str:
@@ -160,7 +176,11 @@ def clean_llm_ocr_text(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def regions_from_tesseract_data(data: dict[str, list[object]], min_confidence: float) -> list[TextRegion]:
+def regions_from_tesseract_data(
+    data: dict[str, list[object]],
+    min_confidence: float,
+    coordinate_scale: float = 1.0,
+) -> list[TextRegion]:
     words_by_line: dict[tuple[object, ...], list[tuple[int, str, float, Rect]]] = {}
     count = len(data.get("text", []))
     for index in range(count):
@@ -185,7 +205,7 @@ def regions_from_tesseract_data(data: dict[str, list[object]], min_confidence: f
                     y=int(data["top"][index]),
                     width=int(data["width"][index]),
                     height=int(data["height"][index]),
-                ),
+                ).scaled(coordinate_scale),
             )
         )
     return group_text_lines([_line_region(words) for words in words_by_line.values()])
@@ -203,8 +223,18 @@ def preprocess_image_for_ocr(image: object) -> object:
     processed = ImageEnhance.Contrast(processed).enhance(1.8)
     width, height = processed.size
     if width > 0 and height > 0:
-        processed = processed.resize((width * 2, height * 2))
+        processed = processed.resize((width * OCR_IMAGE_SCALE, height * OCR_IMAGE_SCALE))
     return processed
+
+
+def _coordinate_scale(original: object, processed: object) -> float:
+    original_size = getattr(original, "size", None)
+    processed_size = getattr(processed, "size", None)
+    if not original_size or not processed_size:
+        return 1.0
+    if processed_size == (original_size[0] * OCR_IMAGE_SCALE, original_size[1] * OCR_IMAGE_SCALE):
+        return 1.0 / OCR_IMAGE_SCALE
+    return 1.0
 
 
 def group_text_lines(lines: Sequence[TextRegion]) -> list[TextRegion]:

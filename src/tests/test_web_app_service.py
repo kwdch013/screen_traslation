@@ -10,6 +10,7 @@ from PIL import Image
 from app.config import PipelineConfig
 from app.glossary import Glossary
 from app.runtime import PipelineRunner
+from app.contracts import TranslationResult
 from app.web_app_service import WebAppConflictError, WebAppService
 from app.web_capture import WebCaptureServer
 
@@ -55,6 +56,18 @@ class RecoveringStopRunner(FakeRunner):
         if self.stop_calls == 1:
             raise RuntimeError("runner stop failed once")
         self.running = False
+
+
+def _result(generation: int, frame_id: int) -> TranslationResult:
+    return TranslationResult(
+        generation=generation,
+        frame_id=frame_id,
+        captured_at=1.0,
+        processed_at=2.0,
+        frame_width=2,
+        frame_height=2,
+        regions=(),
+    )
 
 
 class WebAppServiceTest(unittest.TestCase):
@@ -147,6 +160,44 @@ class WebAppServiceTest(unittest.TestCase):
         old_error_callback(RuntimeError("old error"))
         self.assertEqual(service.status().state, "error")
         self.assertEqual(service.status().error_message, "old error")
+
+    def test_reselect_discards_queued_and_late_results_from_old_generation(self) -> None:
+        service = self._service()
+        subscription = service.event_publisher.subscribe()
+        self.addCleanup(subscription.close)
+        subscription.get_nowait()
+        service.start()
+        started_generation = service.generation
+        while not subscription.empty():
+            subscription.get_nowait()
+        service.event_publisher.publish(_result(started_generation, frame_id=1))
+
+        service.reselect()
+        service.event_publisher.publish(_result(started_generation, frame_id=2))
+
+        events = []
+        while not subscription.empty():
+            events.append(subscription.get_nowait())
+        self.assertEqual([event.event for event in events], ["state"])
+        self.assertEqual(events[0].data["generation"], service.generation)
+
+    def test_stop_keeps_subscription_and_discards_old_generation_results(self) -> None:
+        service = self._service()
+        subscription = service.event_publisher.subscribe()
+        self.addCleanup(subscription.close)
+        subscription.get_nowait()
+        service.start()
+        started_generation = service.generation
+        while not subscription.empty():
+            subscription.get_nowait()
+
+        service.stop()
+        service.event_publisher.publish(_result(started_generation, frame_id=1))
+
+        event = subscription.get_nowait()
+        self.assertEqual(event.event, "state")
+        self.assertEqual(event.data["state"], "idle")
+        self.assertTrue(subscription.empty())
 
     def test_stop_with_stale_session_token_preserves_reselected_runner(self) -> None:
         service = self._service()

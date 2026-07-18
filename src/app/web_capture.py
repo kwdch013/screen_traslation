@@ -48,10 +48,17 @@ class WebCaptureFrameStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._frame: Frame | None = None
+        self._next_frame_id = 1
 
     def update(self, image: object) -> None:
         with self._lock:
-            self._frame = Frame(image=image, captured_at=monotonic(), region=None)
+            self._frame = Frame(
+                image=image,
+                captured_at=monotonic(),
+                region=None,
+                frame_id=self._next_frame_id,
+            )
+            self._next_frame_id += 1
 
     def latest(self) -> Frame:
         with self._lock:
