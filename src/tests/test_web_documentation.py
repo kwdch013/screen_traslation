@@ -13,7 +13,8 @@ class WebDocumentationTest(unittest.TestCase):
     def test_readme_describes_web_start_stop_and_reselect(self) -> None:
         readme = (self.repository_root / "README.md").read_text(encoding="utf-8")
 
-        self.assertIn("python -m app.main --web", readme)
+        self.assertIn("python -m app.main\n", readme)
+        self.assertIn("python -m app.main --no-browser", readme)
         self.assertIn("画面を選び直す", readme)
         self.assertIn("共有を停止", readme)
 

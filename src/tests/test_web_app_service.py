@@ -92,7 +92,7 @@ class WebAppServiceTest(unittest.TestCase):
             return runner
 
         return WebAppService(
-            PipelineConfig(capture_backend="mss", overlay_backend="tk"),
+            PipelineConfig(capture_backend="blank", overlay_backend="console"),
             Glossary(),
             server=self.server,
             pipeline_factory=build_pipeline,

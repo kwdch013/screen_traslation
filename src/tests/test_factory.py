@@ -53,7 +53,6 @@ class FactoryTest(unittest.TestCase):
 
         # 非対話経路でも対処法が分かる、実用的なエラーであること。
         message = str(context.exception)
-        self.assertIn("mss", message)
         self.assertIn("blank", message)
 
     def test_build_web_capture_source_uses_given_store(self) -> None:
@@ -63,6 +62,12 @@ class FactoryTest(unittest.TestCase):
         source = build_capture_source(config, store)
 
         self.assertIsInstance(source, WebCaptureSource)
+
+    def test_removed_desktop_backends_are_rejected_clearly(self) -> None:
+        with self.assertRaisesRegex(ValueError, "未対応のcapture_backend.*mss"):
+            build_capture_source(PipelineConfig(capture_backend="mss"))
+        with self.assertRaisesRegex(ValueError, "未対応のoverlay_backend.*tk"):
+            build_overlay_renderer(PipelineConfig(overlay_backend="tk"))
 
     def test_build_tesseract_llm_fallback_backend(self) -> None:
         config = PipelineConfig(

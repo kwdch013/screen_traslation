@@ -34,12 +34,11 @@ class PipelineConfig:
     llm_model: str = ""
     llm_timeout_seconds: float = 120.0
     translation_log_path: str = "verification/translation_log.jsonl"
-    overlay_backend: str = "tk"
+    overlay_backend: str = "memory"
     source_language: str = "en"
     target_language: str = "ja"
     target_scope: str = "ui_all"
     external_api_policy: str = "local_first_free_only"
-    ui_mode: str = "desktop"
     priority_order: tuple[str, ...] = ("gpu_speed", "latency", "translation_quality", "implementation_speed")
     target_region: Rect | None = None
     overlay_style: OverlayStyle = field(default_factory=OverlayStyle)
@@ -88,7 +87,7 @@ def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
     return PipelineConfig(
         ocr_fps=float(data.get("ocr_fps", 5.0)),
         min_confidence=float(data.get("min_confidence", 0.45)),
-        capture_backend=str(data.get("capture_backend", "web")),
+        capture_backend=_compatible_capture_backend(data.get("capture_backend", "web")),
         ocr_backend=str(data.get("ocr_backend", "tesseract")),
         ocr_fallback_min_confidence=float(data.get("ocr_fallback_min_confidence", 0.65)),
         translator_backend=str(data.get("translator_backend", "argos")),
@@ -96,12 +95,11 @@ def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
         llm_model=str(data.get("llm_model", "")),
         llm_timeout_seconds=float(data.get("llm_timeout_seconds", 120.0)),
         translation_log_path=str(data.get("translation_log_path", "verification/translation_log.jsonl")),
-        overlay_backend=str(data.get("overlay_backend", "tk")),
+        overlay_backend=_compatible_overlay_backend(data.get("overlay_backend", "memory")),
         source_language=str(data.get("source_language", "en")),
         target_language=str(data.get("target_language", "ja")),
         target_scope=str(data.get("target_scope", "ui_all")),
         external_api_policy=str(data.get("external_api_policy", "local_first_free_only")),
-        ui_mode=str(data.get("ui_mode", "desktop")),
         priority_order=tuple(
             data.get(
                 "priority_order",
@@ -111,3 +109,13 @@ def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
         target_region=region,
         overlay_style=OverlayStyle(**style_data),
     )
+
+
+def _compatible_capture_backend(value: object) -> str:
+    backend = str(value)
+    return "web" if backend == "mss" else backend
+
+
+def _compatible_overlay_backend(value: object) -> str:
+    backend = str(value)
+    return "memory" if backend == "tk" else backend

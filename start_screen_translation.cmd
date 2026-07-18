@@ -20,7 +20,7 @@ if not exist ".venv\Scripts\python.exe" (
     )
 )
 
-".venv\Scripts\python.exe" -c "import mss, PIL, pytesseract, argostranslate, pygetwindow" >nul 2>nul
+".venv\Scripts\python.exe" -c "import PIL, pytesseract, argostranslate, fastapi, uvicorn" >nul 2>nul
 if errorlevel 1 (
     echo Installing Python dependencies into .venv...
     ".venv\Scripts\python.exe" -m pip install -r requirements.txt
@@ -54,7 +54,7 @@ if "%~1"=="--check" (
 )
 
 set "PYTHONPATH=src"
-".venv\Scripts\python.exe" -m app.main --desktop
+".venv\Scripts\python.exe" -m app.main
 if errorlevel 1 (
     echo.
     echo The app failed to start or exited with an error.

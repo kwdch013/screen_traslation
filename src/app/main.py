@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 from pathlib import Path
+import webbrowser
 
 from .capture import BlankCaptureSource
 from .config import PipelineConfig, load_config, save_config
@@ -11,26 +12,27 @@ from .glossary import Glossary
 from .ocr import StaticOcrEngine, text_to_region
 from .overlay import ConsoleOverlayRenderer
 from .pipeline import JsonlTranslationLogger, TranslationPipeline
+from .single_instance import SingleInstanceLock
 from .translator import GlossaryAwareTranslator, PassthroughTranslator
+from .web_app_service import WebAppService
+from .web_capture import DEFAULT_HOST, DEFAULT_PORT
+
+
+DEFAULT_WEB_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/"
+DEFAULT_LOCK_PATH = Path("config/screen_translation.lock")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="リアルタイム画面翻訳アプリの最小実行コマンド")
     parser.add_argument("--text", help="OCRの代わりに処理するテキスト。初期検証用。")
-    parser.add_argument("--desktop", action="store_true", help="デスクトップアプリを起動する。")
     parser.add_argument("--web", action="store_true", help="Webアプリを起動する。")
+    parser.add_argument("--no-browser", action="store_true", help="起動時にブラウザを自動で開かない。")
     parser.add_argument("--run-once", action="store_true", help="設定された実バックエンドで1回だけ翻訳処理する。")
     parser.add_argument("--install-argos-en-ja", action="store_true", help="Argos Translateの英日モデルを導入する。")
     parser.add_argument("--config", type=Path, default=Path("config/app.json"))
     parser.add_argument("--glossary", type=Path, default=Path("config/glossary.json"))
     parser.add_argument("--add-term", nargs=2, metavar=("SOURCE", "TARGET"), help="辞書へ用語を登録する。")
     args = parser.parse_args()
-
-    if args.desktop:
-        from .desktop_app import DesktopApplication
-
-        DesktopApplication(args.config, args.glossary).run()
-        return 0
 
     if args.install_argos_en_ja:
         from .model_setup import install_argos_package
@@ -41,21 +43,6 @@ def main() -> int:
 
     config = load_config(args.config) if args.config.exists() else PipelineConfig()
     glossary = Glossary.load(args.glossary)
-
-    if args.web:
-        from .web_app_service import WebAppService
-
-        service = WebAppService(
-            config,
-            glossary,
-            config_path=args.config,
-            glossary_path=args.glossary,
-        )
-        try:
-            service.server.run_forever()
-        finally:
-            service.stop()
-        return 0
 
     if args.add_term:
         glossary.register(args.add_term[0], args.add_term[1])
@@ -78,21 +65,62 @@ def main() -> int:
         glossary.save(args.glossary)
         return 0
 
-    if not args.text:
-        parser.error("--text または --add-term を指定してください。")
+    if args.text and not args.web:
+        translator = GlossaryAwareTranslator(PassthroughTranslator(), glossary)
+        pipeline = TranslationPipeline(
+            capture_source=BlankCaptureSource(config.target_region),
+            ocr_engine=StaticOcrEngine([text_to_region(args.text)]),
+            translator=translator,
+            overlay_renderer=ConsoleOverlayRenderer(),
+            config=config,
+            translation_logger=JsonlTranslationLogger(config.translation_log_path),
+        )
+        pipeline.tick()
+        save_config(config, args.config)
+        glossary.save(args.glossary)
+        return 0
 
-    translator = GlossaryAwareTranslator(PassthroughTranslator(), glossary)
-    pipeline = TranslationPipeline(
-        capture_source=BlankCaptureSource(config.target_region),
-        ocr_engine=StaticOcrEngine([text_to_region(args.text)]),
-        translator=translator,
-        overlay_renderer=ConsoleOverlayRenderer(),
-        config=config,
-        translation_logger=JsonlTranslationLogger(config.translation_log_path),
+    return _run_web_app(
+        config,
+        glossary,
+        config_path=args.config,
+        glossary_path=args.glossary,
+        open_browser=not args.no_browser,
     )
-    pipeline.tick()
-    save_config(config, args.config)
-    glossary.save(args.glossary)
+
+
+def _run_web_app(
+    config: PipelineConfig,
+    glossary: Glossary,
+    *,
+    config_path: Path,
+    glossary_path: Path,
+    open_browser: bool,
+) -> int:
+    # 設定ファイルを切り替えても固定ポートのサーバーが多重起動しないよう、ロックは共通にする。
+    instance_lock = SingleInstanceLock(DEFAULT_LOCK_PATH)
+    if not instance_lock.acquire():
+        webbrowser.open(DEFAULT_WEB_URL)
+        print(f"Screen Translationはすでに起動しています。既存の画面を開きます: {DEFAULT_WEB_URL}")
+        return 0
+
+    service: WebAppService | None = None
+    try:
+        service = WebAppService(
+            config,
+            glossary,
+            config_path=config_path,
+            glossary_path=glossary_path,
+        )
+        if open_browser:
+            webbrowser.open(service.server.url)
+        service.server.run_forever()
+    finally:
+        try:
+            if service is not None:
+                service.stop()
+        finally:
+            instance_lock.release()
     return 0
 
 
