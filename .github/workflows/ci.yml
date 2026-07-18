@@ -26,7 +26,7 @@ jobs:
 
       - name: Lint (ruff)
         run: |
-          pip install ruff
+          pip install -r requirements-dev.txt
           ruff check src
 
       # GitHub Actions キャッシュにレイヤを載せてビルド時間を短縮
