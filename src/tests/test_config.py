@@ -1,6 +1,8 @@
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from app.config import OverlayStyle, PipelineConfig, load_config, save_config
 from app.contracts import Rect
@@ -39,6 +41,17 @@ class ConfigTest(unittest.TestCase):
             loaded = load_config(path)
 
         self.assertEqual(loaded, config)
+
+    def test_save_config_uses_same_directory_atomic_replace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "config" / "app.json"
+            with mock.patch("app.atomic_file.os.replace", wraps=os.replace) as replace_file:
+                save_config(PipelineConfig(ocr_fps=2.0), path)
+
+            temporary_path, destination_path = replace_file.call_args.args
+
+        self.assertEqual(Path(temporary_path).parent, path.parent)
+        self.assertEqual(Path(destination_path), path)
 
 
 if __name__ == "__main__":

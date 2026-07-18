@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+import threading
 from time import monotonic
 from typing import Callable, Protocol
 
@@ -23,13 +24,19 @@ from .contracts import (
 
 class TranslationCache:
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self._values: dict[str, str] = {}
 
     def get_or_translate(self, text: str, translator: Translator) -> str:
         key = _normalize_cache_key(text)
-        if key not in self._values:
-            self._values[key] = translator.translate(text)
-        return self._values[key]
+        with self._lock:
+            if key not in self._values:
+                self._values[key] = translator.translate(text)
+            return self._values[key]
+
+    def clear(self) -> None:
+        with self._lock:
+            self._values.clear()
 
 
 class OcrStabilizer:
@@ -138,6 +145,9 @@ class TranslationPipeline:
         self._last_frame_id: int | None = None
         self._fallback_frame_id = 0
         self._processing_generation: int | None = None
+
+    def invalidate_translation_cache(self) -> None:
+        self._cache.clear()
 
     def tick(self, now: float | None = None) -> bool:
         current_time = monotonic() if now is None else now

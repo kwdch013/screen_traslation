@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 import unittest
 from unittest import mock
@@ -15,10 +16,12 @@ class MainWebTest(unittest.TestCase):
         with mock.patch.object(sys, "argv", ["app.main", "--web"]), mock.patch(
             "app.web_app_service.WebAppService",
             return_value=fake_service,
-        ):
+        ) as service_factory:
             result = main()
 
         self.assertEqual(result, 0)
+        self.assertEqual(service_factory.call_args.kwargs["config_path"], Path("config/app.json"))
+        self.assertEqual(service_factory.call_args.kwargs["glossary_path"], Path("config/glossary.json"))
         fake_server.run_forever.assert_called_once_with()
         fake_service.stop.assert_called_once_with()
 

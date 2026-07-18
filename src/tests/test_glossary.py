@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
 import unittest
@@ -30,7 +31,25 @@ class GlossaryTest(unittest.TestCase):
 
         self.assertEqual(loaded.translate_exact("save"), "セーブ")
 
+    def test_register_and_translate_can_run_concurrently(self) -> None:
+        glossary = Glossary()
+
+        def register_terms() -> None:
+            for index in range(200):
+                glossary.register(f"Source {index}", f"訳 {index}")
+
+        def translate_terms() -> None:
+            for index in range(200):
+                glossary.apply(f"Source {index}")
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [executor.submit(register_terms)]
+            futures.extend(executor.submit(translate_terms) for _ in range(3))
+            for future in futures:
+                future.result()
+
+        self.assertEqual(len(glossary.terms), 200)
+
 
 if __name__ == "__main__":
     unittest.main()
-
