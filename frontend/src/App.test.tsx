@@ -22,6 +22,45 @@ describe('App', () => {
     expect(fetch).toHaveBeenCalledWith('/api/status')
   })
 
+  it('設定タブを初めて開いたときに設定と辞書を読み込む', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (input === '/api/status') return Promise.resolve(jsonResponse({ state: 'idle' }))
+      if (input === '/api/config') {
+        return Promise.resolve(jsonResponse({
+          ocr_fps: 5,
+          min_confidence: 0.45,
+          ocr_backend: 'tesseract',
+          ocr_fallback_min_confidence: 0.65,
+          translator_backend: 'argos',
+          llm_model: '',
+          llm_timeout_seconds: 120,
+          source_language: 'en',
+          target_language: 'ja',
+          target_scope: 'ui_all',
+          external_api_policy: 'local_first_free_only',
+          priority_order: ['gpu_speed', 'latency'],
+          overlay_style: {
+            font_size: 28,
+            text_color: '#ffffff',
+            background_color: '#000000',
+            overlay_opacity: 0.72,
+          },
+        }))
+      }
+      if (input === '/api/glossary') return Promise.resolve(jsonResponse([]))
+      throw new Error(`想定外のリクエスト: ${String(input)}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<App />)
+
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/config')
+    fireEvent.click(screen.getByRole('tab', { name: '設定' }))
+
+    expect(await screen.findByRole('spinbutton', { name: 'OCR FPS' })).toHaveValue(5)
+    expect(fetchMock).toHaveBeenCalledWith('/api/config')
+    expect(fetchMock).toHaveBeenCalledWith('/api/glossary')
+  })
+
   it('開始応答のトークンで500msごとにJPEGフレームを送る', async () => {
     vi.useFakeTimers()
     const { stream } = createStream()

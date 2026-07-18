@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import './App.css'
+import { SettingsPanel } from './SettingsPanel'
 import { SubtitleList } from './SubtitleList'
 import { TranslationPreview } from './TranslationPreview'
 import { useScreenCapture } from './useScreenCapture'
@@ -16,6 +17,7 @@ const tabs: { id: Tab; label: string }[] = [
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('preview')
+  const [settingsMounted, setSettingsMounted] = useState(false)
   const capture = useScreenCapture()
   const translation = useTranslationEvents()
 
@@ -34,6 +36,11 @@ function App() {
     void capture.stopByUser()
   }
 
+  const selectTab = (tab: Tab) => {
+    setActiveTab(tab)
+    if (tab === 'settings') setSettingsMounted(true)
+  }
+
   return (
     <main className="app-shell">
       <header className="app-header">
@@ -50,7 +57,7 @@ function App() {
             role="tab"
             aria-selected={activeTab === tab.id}
             aria-controls={`${tab.id}-panel`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => selectTab(tab.id)}
           >
             {tab.label}
           </button>
@@ -98,9 +105,8 @@ function App() {
         <SubtitleList history={translation.history} />
       </section>
 
-      <section id="settings-panel" className="panel placeholder" role="tabpanel" hidden={activeTab !== 'settings'}>
-        <h2>設定</h2>
-        <p>翻訳設定と辞書の編集は段階7で追加します。</p>
+      <section id="settings-panel" className="panel" role="tabpanel" hidden={activeTab !== 'settings'}>
+        {settingsMounted && <SettingsPanel />}
       </section>
     </main>
   )

@@ -97,6 +97,8 @@ def _validated_term(source: str, target: str) -> GlossaryTerm:
     normalized_target = target.strip()
     if not normalized_source:
         raise ValueError("辞書の登録元文字列は空にできません。")
+    if normalized_source in {".", ".."}:
+        raise ValueError("原文に「.」または「..」は登録できません。")
     if not normalized_target:
         raise ValueError("辞書の翻訳先文字列は空にできません。")
     return GlossaryTerm(source=normalized_source, target=normalized_target)

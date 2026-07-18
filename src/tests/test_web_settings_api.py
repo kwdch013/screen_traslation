@@ -293,6 +293,20 @@ class WebSettingsApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("空", response.json()["detail"])
 
+    def test_dot_path_glossary_sources_return_400_without_registration(self) -> None:
+        for source in (".", ".."):
+            with self.subTest(source=source):
+                response = self.client.post(
+                    "/api/glossary",
+                    json={"source": source, "target": "訳"},
+                    headers=self._headers(),
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("登録できません", response.json()["detail"])
+                self.assertEqual(self.glossary.terms, [])
+                self.assertEqual(json.loads(self.glossary_path.read_text(encoding="utf-8")), [])
+
     def test_glossary_update_invalidates_running_pipeline_cache(self) -> None:
         self.service.start()
         self.assertEqual(self.pipelines[0].translate("Save"), "Save")
