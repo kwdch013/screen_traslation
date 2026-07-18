@@ -35,7 +35,9 @@ class FrontendRoute(Route):
 
 
 def _frontend_response(request: Request, frontend_dist: Path) -> Response:
-    index_path = frontend_dist / "index.html"
+    index_path = _safe_static_path(frontend_dist, "/index.html")
+    if index_path is None:
+        return Response(status_code=404)
     if not index_path.is_file():
         return PlainTextResponse(_MISSING_BUILD_MESSAGE, status_code=503)
     if request.url.path == "/":

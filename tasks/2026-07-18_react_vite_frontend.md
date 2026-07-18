@@ -82,3 +82,30 @@
 - 字幕リストの実データ表示。
 - 設定・辞書の編集 UI。
 - tkinter の撤去。
+
+## PR #13 レビュー指摘の修正
+
+### Red
+
+- pagehide後の遅延開始応答、アンマウント後の遅延画面選択、未解決フレーム送信中の再選択を追加し、後続処理・ストリーム・送信ガードが残る失敗を確認した。
+- start / stop / reselect の409応答を追加し、`detail` が状態として誤適用され、`/api/status` が再同期されない失敗を確認した。
+- 初期 `/api/status` の正規なerror状態を追加し、通信失敗の文言として表示される失敗を確認した。
+- `index.html` の外部シンボリックリンクを追加し、dist境界外のファイルが200で配信される失敗を確認した。`../` とURLエンコードされた遡及パスの回帰テストも追加した。
+- Dockerfileのステージ関係とCIの名前付きステップを標準ライブラリで構造解析し、`frontend-test` ステージとコンテナ検証・ホスト構成テストの不足を確認した。
+
+### Green
+
+- マウント状態と操作世代を各非同期処理で検証し、無効化後のトークンをkeepalive停止、遅延取得したストリームを即時停止するようにした。
+- フレーム送信をAbortControllerと共有世代へ紐付け、停止・再選択時に旧送信を破棄できるようにした。
+- API応答のstateを実行時検証し、409では従前状態を壊さず `/api/status` から再同期するようにした。初期error状態はサービスエラーとして表示する。
+- `index.html` を含む配信対象を解決後のdist配下に限定した。
+- npm依存復元・distビルド・フロント検証のDockerステージを共有し、CIのフロント検証を `frontend-test` ターゲットのビルドへ移した。構成テストはホストでも必ず実行する。
+
+### 検証結果
+
+- `npx vitest run`: 20件成功。
+- `npm run lint`: 成功。
+- `npm run build`: 成功。
+- `PYTHONPATH=src .venv/bin/python -m unittest src.tests.test_web_capture_page src.tests.test_frontend_infrastructure src.tests.test_web_capture_api.WebCaptureSecurityTest`: 16件成功。
+- 変更したPython 3ファイルの `py_compile`: 成功。
+- Dockerでの最終確認は依頼者側で実施する。

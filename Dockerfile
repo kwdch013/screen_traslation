@@ -1,12 +1,21 @@
-FROM node:24-slim AS frontend-build
+FROM node:24-slim AS frontend-deps
 
 WORKDIR /frontend
 
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
+
+FROM frontend-deps AS frontend-build
+
 COPY frontend/ ./
 RUN npm run build
+
+
+FROM frontend-build AS frontend-test
+
+RUN npm run lint
+RUN npx vitest run
 
 
 FROM python:3.14-slim

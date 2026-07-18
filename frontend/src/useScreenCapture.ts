@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { control, getStatus, ServiceApiError, stopWithKeepalive } from './api'
 import type { ServiceState, ServiceStatus } from './api'
+import { CaptureFrameSender } from './captureFrameSender'
 
 const SEND_INTERVAL_MS = 500
 const STATUS_POLL_INTERVAL_MS = 200
@@ -16,8 +17,10 @@ export function useScreenCapture() {
   const sendTimerRef = useRef<number | null>(null)
   const statusTimerRef = useRef<number | null>(null)
   const sessionTokenRef = useRef<string | undefined>(undefined)
-  const sendingRef = useRef(false)
+  const frameSenderRef = useRef(new CaptureFrameSender())
+  const operationGenerationRef = useRef(0)
   const operationRef = useRef(false)
+  const mountedRef = useRef(false)
   const stopByUserRef = useRef<() => void>(() => undefined)
 
   const applyStatus = useCallback((status: ServiceStatus) => {
@@ -36,7 +39,13 @@ export function useScreenCapture() {
     [applyStatus],
   )
 
+  const isOperationValid = useCallback(
+    (generation: number) => mountedRef.current && operationGenerationRef.current === generation,
+    [],
+  )
+
   const stopSharing = useCallback(() => {
+    frameSenderRef.current.reset()
     if (sendTimerRef.current !== null) {
       window.clearInterval(sendTimerRef.current)
       sendTimerRef.current = null
@@ -50,141 +59,100 @@ export function useScreenCapture() {
   }, [])
 
   const sendFrame = useCallback(async () => {
-    const video = videoRef.current
-    const token = sessionTokenRef.current
-    if (sendingRef.current || !video || !token || !video.videoWidth || !video.videoHeight) {
-      return
-    }
-    sendingRef.current = true
-    try {
-      const canvas = canvasRef.current
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      const context = canvas.getContext('2d')
-      if (!context) {
-        return
-      }
-      context.drawImage(video, 0, 0, canvas.width, canvas.height)
-      const blob = await canvasToJpeg(canvas)
-      if (!blob) {
-        return
-      }
-      const response = await fetch('/frame', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'image/jpeg',
-          'X-Capture-Token': token,
-        },
-        body: blob,
-      })
-      if (response.status === 403 && sessionTokenRef.current === token) {
+    await frameSenderRef.current.send(
+      videoRef.current,
+      canvasRef.current,
+      sessionTokenRef.current,
+      () => {
         stopSharing()
+        sessionTokenRef.current = undefined
         setStatusText('このタブのセッションは終了しました。画面を選び直してください。')
-      }
-    } catch {
-      // 一時的な送信失敗は次のフレームで回復できるため、共有自体は維持する。
-    } finally {
-      sendingRef.current = false
-    }
+      },
+    )
   }, [stopSharing])
 
-  const selectAndShare = useCallback(async () => {
-    let selectedStream: MediaStream
-    try {
-      selectedStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 5 },
-        audio: false,
-      })
-    } catch (error) {
-      setStatusText(`画面の選択がキャンセルされたか、失敗しました: ${String(error)}`)
+  const selectAndShare = useCallback(
+    async (generation: number) => {
+      let selectedStream: MediaStream
       try {
-        const stopped = await control('stop', sessionTokenRef.current)
-        applyStatus(stopped)
-        sessionTokenRef.current = undefined
-      } catch {
-        // 選択失敗を主メッセージとして保つ。
+        selectedStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: 5 },
+          audio: false,
+        })
+      } catch (error) {
+        if (!isOperationValid(generation)) return false
+        setStatusText(`画面の選択がキャンセルされたか、失敗しました: ${String(error)}`)
+        try {
+          const stopped = await control('stop', sessionTokenRef.current)
+          if (!isOperationValid(generation)) {
+            stopWithKeepalive(stopped.session_token)
+            return false
+          }
+          applyStatus(stopped)
+          sessionTokenRef.current = undefined
+        } catch {
+          // 選択失敗を主メッセージとして保つ。
+        }
+        return false
       }
-      return false
-    }
-    streamRef.current = selectedStream
-    if (videoRef.current) {
-      videoRef.current.srcObject = selectedStream
-    }
-    selectedStream.getVideoTracks()[0]?.addEventListener('ended', () => {
-      if (streamRef.current === selectedStream) {
-        stopByUserRef.current()
+      if (!isOperationValid(generation)) {
+        selectedStream.getTracks().forEach((track) => track.stop())
+        stopWithKeepalive(sessionTokenRef.current)
+        return false
       }
-    })
-    sendTimerRef.current = window.setInterval(() => void sendFrame(), SEND_INTERVAL_MS)
-    setStatusText('送信中です。このタブは翻訳中も開いたままにしてください。')
-    return true
-  }, [applyStatus, sendFrame])
+      streamRef.current = selectedStream
+      if (videoRef.current) {
+        videoRef.current.srcObject = selectedStream
+      }
+      selectedStream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        if (streamRef.current === selectedStream) {
+          stopByUserRef.current()
+        }
+      })
+      sendTimerRef.current = window.setInterval(() => void sendFrame(), SEND_INTERVAL_MS)
+      setStatusText('送信中です。このタブは翻訳中も開いたままにしてください。')
+      return true
+    },
+    [applyStatus, isOperationValid, sendFrame],
+  )
 
   const beginOperation = useCallback(() => {
-    if (operationRef.current) {
-      return false
+    if (operationRef.current || !mountedRef.current) {
+      return null
+    }
+    if (statusTimerRef.current !== null) {
+      window.clearTimeout(statusTimerRef.current)
+      statusTimerRef.current = null
     }
     operationRef.current = true
+    operationGenerationRef.current += 1
     setOperationInProgress(true)
-    return true
+    return operationGenerationRef.current
   }, [])
 
-  const endOperation = useCallback(() => {
+  const endOperation = useCallback((generation: number) => {
+    if (!mountedRef.current || operationGenerationRef.current !== generation) return
     operationRef.current = false
     setOperationInProgress(false)
   }, [])
 
-  const startSharing = useCallback(async () => {
-    if (!beginOperation()) return
-    try {
-      applyStatus(await control('start'))
-      await selectAndShare()
-    } catch (error) {
-      applyFailureStatus(error)
-      setStatusText(`翻訳を開始できませんでした: ${String(error)}`)
-    } finally {
-      endOperation()
+  const invalidateOperation = useCallback((updateState: boolean) => {
+    operationGenerationRef.current += 1
+    operationRef.current = false
+    if (updateState && mountedRef.current) {
+      setOperationInProgress(false)
     }
-  }, [applyFailureStatus, applyStatus, beginOperation, endOperation, selectAndShare])
-
-  const stopByUser = useCallback(async () => {
-    if (!beginOperation()) return
-    stopSharing()
-    try {
-      applyStatus(await control('stop', sessionTokenRef.current))
-      sessionTokenRef.current = undefined
-      setStatusText('共有を終了しました。画面を選択すると再開できます。')
-    } catch (error) {
-      applyFailureStatus(error)
-      setStatusText(`共有は停止しましたが、翻訳処理を停止できませんでした: ${String(error)}`)
-    } finally {
-      endOperation()
-    }
-  }, [applyFailureStatus, applyStatus, beginOperation, endOperation, stopSharing])
-
-  stopByUserRef.current = () => void stopByUser()
-
-  const reselectSharing = useCallback(async () => {
-    if (!beginOperation()) return
-    try {
-      applyStatus(await control('reselect'))
-      stopSharing()
-      await selectAndShare()
-    } catch (error) {
-      applyFailureStatus(error)
-      setStatusText(`画面を選び直せませんでした: ${String(error)}`)
-    } finally {
-      endOperation()
-    }
-  }, [applyFailureStatus, applyStatus, beginOperation, endOperation, selectAndShare, stopSharing])
+  }, [])
 
   const syncStatus = useCallback(async () => {
     if (statusTimerRef.current !== null) {
       window.clearTimeout(statusTimerRef.current)
       statusTimerRef.current = null
     }
+    const generation = operationGenerationRef.current
     try {
       const status = await getStatus()
+      if (!isOperationValid(generation)) return
       applyStatus(status)
       if (status.state === 'starting' || status.state === 'stopping') {
         statusTimerRef.current = window.setTimeout(() => void syncStatus(), STATUS_POLL_INTERVAL_MS)
@@ -192,28 +160,117 @@ export function useScreenCapture() {
         setStatusText('翻訳処理は実行中です。「画面を選び直す」から共有を再開できます。')
       } else if (status.state === 'idle') {
         setStatusText('画面、ウィンドウ、またはタブを選択してください。')
+      } else if (status.state === 'error') {
+        setStatusText(`翻訳処理でエラーが発生しました: ${status.error_message || '詳細不明'}`)
       }
     } catch (error) {
+      if (!isOperationValid(generation)) return
       setServiceState('error')
       setStatusText(`翻訳処理の状態を取得できませんでした: ${String(error)}`)
     }
-  }, [applyStatus])
+  }, [applyStatus, isOperationValid])
+
+  const applyOperationFailure = useCallback(
+    async (error: unknown) => {
+      applyFailureStatus(error)
+      if (error instanceof ServiceApiError && error.responseStatus === 409) {
+        await syncStatus()
+      }
+    },
+    [applyFailureStatus, syncStatus],
+  )
+
+  const startSharing = useCallback(async () => {
+    const generation = beginOperation()
+    if (generation === null) return
+    try {
+      const status = await control('start')
+      if (!isOperationValid(generation)) {
+        stopWithKeepalive(status.session_token)
+        return
+      }
+      applyStatus(status)
+      await selectAndShare(generation)
+    } catch (error) {
+      if (!isOperationValid(generation)) return
+      await applyOperationFailure(error)
+      if (!isOperationValid(generation)) return
+      setStatusText(`翻訳を開始できませんでした: ${String(error)}`)
+    } finally {
+      endOperation(generation)
+    }
+  }, [applyOperationFailure, applyStatus, beginOperation, endOperation, isOperationValid, selectAndShare])
+
+  const stopByUser = useCallback(async () => {
+    const generation = beginOperation()
+    if (generation === null) return
+    stopSharing()
+    try {
+      const status = await control('stop', sessionTokenRef.current)
+      if (!isOperationValid(generation)) {
+        stopWithKeepalive(status.session_token)
+        return
+      }
+      applyStatus(status)
+      sessionTokenRef.current = undefined
+      setStatusText('共有を終了しました。画面を選択すると再開できます。')
+    } catch (error) {
+      if (!isOperationValid(generation)) return
+      await applyOperationFailure(error)
+      if (!isOperationValid(generation)) return
+      setStatusText(`共有は停止しましたが、翻訳処理を停止できませんでした: ${String(error)}`)
+    } finally {
+      endOperation(generation)
+    }
+  }, [applyOperationFailure, applyStatus, beginOperation, endOperation, isOperationValid, stopSharing])
+
+  stopByUserRef.current = () => void stopByUser()
+
+  const reselectSharing = useCallback(async () => {
+    const generation = beginOperation()
+    if (generation === null) return
+    stopSharing()
+    try {
+      const status = await control('reselect')
+      if (!isOperationValid(generation)) {
+        stopWithKeepalive(status.session_token)
+        return
+      }
+      applyStatus(status)
+      await selectAndShare(generation)
+    } catch (error) {
+      if (!isOperationValid(generation)) return
+      await applyOperationFailure(error)
+      if (!isOperationValid(generation)) return
+      setStatusText(`画面を選び直せませんでした: ${String(error)}`)
+    } finally {
+      endOperation(generation)
+    }
+  }, [applyOperationFailure, applyStatus, beginOperation, endOperation, isOperationValid, selectAndShare, stopSharing])
 
   useEffect(() => {
-    const handlePageHide = () => {
+    mountedRef.current = true
+    const stopOwnedSession = () => {
+      invalidateOperation(true)
       stopSharing()
       stopWithKeepalive(sessionTokenRef.current)
+      sessionTokenRef.current = undefined
     }
-    window.addEventListener('pageshow', syncStatus)
-    window.addEventListener('pagehide', handlePageHide)
+    const handlePageShow = () => void syncStatus()
+    window.addEventListener('pageshow', handlePageShow)
+    window.addEventListener('pagehide', stopOwnedSession)
     void syncStatus()
     return () => {
-      window.removeEventListener('pageshow', syncStatus)
-      window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('pageshow', handlePageShow)
+      window.removeEventListener('pagehide', stopOwnedSession)
+      invalidateOperation(false)
+      mountedRef.current = false
       if (statusTimerRef.current !== null) window.clearTimeout(statusTimerRef.current)
       stopSharing()
+      stopWithKeepalive(sessionTokenRef.current)
+      sessionTokenRef.current = undefined
     }
-  }, [stopSharing, syncStatus])
+  }, [invalidateOperation, stopSharing, syncStatus])
 
   const active = serviceState === 'running' || serviceState === 'awaiting_frame'
   const locked = operationInProgress || ['loading', 'starting', 'stopping'].includes(serviceState)
@@ -227,8 +284,4 @@ export function useScreenCapture() {
     reselectDisabled: locked || !active,
     stopDisabled: locked || (!active && serviceState !== 'error'),
   }
-}
-
-function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob | null> {
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8))
 }

@@ -15,7 +15,12 @@ class WebCapturePageTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.temporary_directory = TemporaryDirectory()
         self.addCleanup(self.temporary_directory.cleanup)
-        self.dist = Path(self.temporary_directory.name)
+        self.root = Path(self.temporary_directory.name)
+        self.dist = self.root / "dist"
+        self.dist.mkdir()
+        self.outside = self.root / "outside"
+        self.outside.mkdir()
+        (self.outside / "secret.txt").write_text("secret", encoding="utf-8")
         (self.dist / "assets").mkdir()
         (self.dist / "index.html").write_text(
             '<!doctype html><div id="root"></div><script src="/assets/app-abc123.js"></script>',
@@ -59,6 +64,26 @@ class WebCapturePageTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    async def test_parent_directory_traversal_returns_404(self) -> None:
+        response = await self.frontend_route.endpoint(_request("/../outside/secret.txt"))
+
+        self.assertEqual(response.status_code, 404)
+
+    async def test_url_encoded_parent_directory_traversal_returns_404(self) -> None:
+        response = await self.frontend_route.endpoint(
+            _request("/../outside/secret.txt", raw_path=b"/%2e%2e/outside/secret.txt"),
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    async def test_external_index_symlink_returns_404(self) -> None:
+        (self.dist / "index.html").unlink()
+        (self.dist / "index.html").symlink_to(self.outside / "secret.txt")
+
+        response = await self.frontend_route.endpoint(_request("/"))
+
+        self.assertEqual(response.status_code, 404)
+
     async def test_api_path_is_not_swallowed_by_frontend_route(self) -> None:
         match, _ = self.frontend_route.matches(_scope("/api/not-found"))
 
@@ -90,11 +115,11 @@ class WebCapturePageTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("frontend/dist", response.body.decode("utf-8"))
 
 
-def _request(path: str) -> Request:
-    return Request(_scope(path))
+def _request(path: str, raw_path: bytes | None = None) -> Request:
+    return Request(_scope(path, raw_path))
 
 
-def _scope(path: str) -> dict[str, object]:
+def _scope(path: str, raw_path: bytes | None = None) -> dict[str, object]:
     return {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -102,7 +127,7 @@ def _scope(path: str) -> dict[str, object]:
         "method": "GET",
         "scheme": "http",
         "path": path,
-        "raw_path": path.encode("ascii"),
+        "raw_path": raw_path or path.encode("ascii"),
         "query_string": b"",
         "headers": [(b"host", b"127.0.0.1:8765")],
         "client": ("127.0.0.1", 12345),

@@ -53,6 +53,7 @@ describe('App', () => {
         'X-Capture-Token': 'start-token',
       },
       method: 'POST',
+      signal: expect.any(AbortSignal),
     })
   })
 

@@ -17,16 +17,18 @@ export interface ServiceStatus {
 
 export class ServiceApiError extends Error {
   readonly status?: ServiceStatus
+  readonly responseStatus?: number
 
-  constructor(message: string, status?: ServiceStatus) {
+  constructor(message: string, status?: ServiceStatus, responseStatus?: number) {
     super(message)
     this.status = status
+    this.responseStatus = responseStatus
   }
 }
 
 export async function getStatus(): Promise<ServiceStatus> {
   const response = await fetch('/api/status')
-  return parseStatusResponse(response, '状態を取得できませんでした。')
+  return parseStatusResponse(response, '状態を取得できませんでした。', true)
 }
 
 export async function control(
@@ -52,15 +54,56 @@ export function stopWithKeepalive(sessionToken?: string): void {
   }).catch(() => undefined)
 }
 
-async function parseStatusResponse(response: Response, fallback: string): Promise<ServiceStatus> {
-  let body: ServiceStatus
+async function parseStatusResponse(
+  response: Response,
+  fallback: string,
+  acceptErrorState = false,
+): Promise<ServiceStatus> {
+  let body: unknown
   try {
-    body = (await response.json()) as ServiceStatus
+    body = await response.json()
   } catch {
-    throw new ServiceApiError(fallback)
+    throw new ServiceApiError(fallback, undefined, response.status)
   }
-  if (!response.ok || body.state === 'error') {
-    throw new ServiceApiError(body.detail || body.error_message || fallback, body)
+  const status = isServiceStatus(body) ? body : undefined
+  if (!response.ok) {
+    throw new ServiceApiError(errorMessage(body, fallback), status, response.status)
   }
-  return body
+  if (!status) {
+    throw new ServiceApiError(fallback, undefined, response.status)
+  }
+  if (status.state === 'error' && !acceptErrorState) {
+    throw new ServiceApiError(status.error_message || fallback, status, response.status)
+  }
+  return status
+}
+
+const SERVICE_STATES: readonly ServiceState[] = [
+  'loading',
+  'idle',
+  'starting',
+  'awaiting_frame',
+  'running',
+  'stopping',
+  'error',
+]
+
+function isServiceStatus(body: unknown): body is ServiceStatus {
+  if (!body || typeof body !== 'object' || !('state' in body)) {
+    return false
+  }
+  return typeof body.state === 'string' && SERVICE_STATES.includes(body.state as ServiceState)
+}
+
+function errorMessage(body: unknown, fallback: string): string {
+  if (!body || typeof body !== 'object') {
+    return fallback
+  }
+  if ('detail' in body && typeof body.detail === 'string') {
+    return body.detail
+  }
+  if ('error_message' in body && typeof body.error_message === 'string') {
+    return body.error_message
+  }
+  return fallback
 }
