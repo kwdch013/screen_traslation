@@ -100,6 +100,18 @@ button:disabled {
   color: #c4cedb;
 }
 
+.event-connection {
+  margin: 0;
+  padding: 10px 16px;
+  color: #ffe6aa;
+  border-inline: 1px solid #6a5428;
+  background: #382e1d;
+}
+
+.preview-stage {
+  position: relative;
+}
+
 video {
   display: block;
   width: 100%;
@@ -109,6 +121,83 @@ video {
   border-radius: 10px;
   background: #070b10;
   object-fit: contain;
+}
+
+.translation-overlay-layer {
+  position: absolute;
+  /* videoのclientWidth基準と揃えるため、1pxの境界線を座標原点から除外する。 */
+  inset: 1px;
+  overflow: hidden;
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.translation-overlay {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  overflow-wrap: anywhere;
+  color: #fff;
+  background: rgb(4 8 14 / 82%);
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 4px;
+  font-size: clamp(0.75rem, 1.6vw, 1.2rem);
+  line-height: 1.25;
+  text-shadow: 0 1px 2px #000;
+}
+
+.unpositioned-translations {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  color: #fff;
+  background: #172131;
+  border: 1px solid #34445b;
+  border-radius: 9px;
+}
+
+.unpositioned-translations p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.subtitle-list {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subtitle-list li {
+  padding: 14px 16px;
+  border: 1px solid #293444;
+  border-radius: 9px;
+  background: #0c131d;
+}
+
+.subtitle-source,
+.subtitle-translated {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.subtitle-source {
+  color: #9ba7b8;
+  font-size: 0.88rem;
+}
+
+.subtitle-translated {
+  margin-top: 6px;
+  color: #f7f9fc;
+  font-size: 1.05rem;
+}
+
+.empty-subtitles {
+  color: #9ba7b8;
 }
 
 .placeholder {
