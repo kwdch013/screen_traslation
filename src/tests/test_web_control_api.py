@@ -129,6 +129,27 @@ class WebControlApiTest(unittest.TestCase):
         self.assertEqual(second.json()["state"], "awaiting_frame")
         self.assertNotEqual(second.json()["session_token"], first["session_token"])
 
+    def test_stale_session_stop_does_not_stop_reselected_session(self) -> None:
+        first = self.client.post("/api/control/start", headers=self._headers()).json()
+        second = self.client.post("/api/control/reselect", headers=self._headers()).json()
+
+        stale_stop = self.client.post(
+            "/api/control/stop",
+            headers={**self._headers(), "X-Capture-Token": first["session_token"]},
+        )
+
+        self.assertEqual(stale_stop.status_code, 409)
+        self.assertEqual(self.service.status().state, "awaiting_frame")
+        self.assertTrue(self.service.status().session_token_valid)
+        self.assertEqual(self.server.session_token, second["session_token"])
+
+        current_stop = self.client.post(
+            "/api/control/stop",
+            headers={**self._headers(), "X-Capture-Token": second["session_token"]},
+        )
+        self.assertEqual(current_stop.status_code, 200)
+        self.assertEqual(current_stop.json()["state"], "idle")
+
     def test_invalid_host_and_origin_are_rejected(self) -> None:
         invalid_host = self.client.post(
             "/api/control/start",

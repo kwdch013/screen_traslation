@@ -142,9 +142,15 @@ class WebAppService:
                     self._state = "running" if self._server.store.has_frame() else "awaiting_frame"
                 return self._status_unlocked()
 
-    def stop(self) -> WebAppStatus:
+    def stop(self, session_token: str | None = None) -> WebAppStatus:
         with self._operation_lock:
             with self._lock:
+                if session_token is not None and not secrets.compare_digest(
+                    session_token,
+                    self._server.session_token,
+                ):
+                    # 409により、旧ページへ停止完了と誤認させず現行セッションを維持する。
+                    raise WebAppConflictError("停止対象のセッションは既に終了しています")
                 self._state = "stopping"
                 self._session_generation += 1
                 self._runner_generation += 1

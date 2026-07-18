@@ -36,6 +36,7 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
   // 古いトークンからの送信はサーバー側で拒否される。
   let sessionToken = {token_json};
   const SEND_INTERVAL_MS = {send_interval_ms};
+  const STATUS_POLL_INTERVAL_MS = 200;
   const startButton = document.getElementById("start");
   const reselectButton = document.getElementById("reselect");
   const stopButton = document.getElementById("stop");
@@ -46,6 +47,7 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
   let sendTimer = null;
   let serviceState = "loading";
   let operationInProgress = false;
+  let statusSyncTimer = null;
 
   function setStatus(text) {{
     statusEl.textContent = text;
@@ -60,9 +62,9 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
       return;
     }}
     const active = serviceState === "running" || serviceState === "awaiting_frame";
-    startButton.disabled = active;
+    startButton.disabled = active || serviceState === "error";
     reselectButton.disabled = !active;
-    stopButton.disabled = !active;
+    stopButton.disabled = !active && serviceState !== "error";
   }}
 
   function applyServiceStatus(body) {{
@@ -215,6 +217,10 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
   }}
 
   async function syncStatus() {{
+    if (statusSyncTimer !== null) {{
+      clearTimeout(statusSyncTimer);
+      statusSyncTimer = null;
+    }}
     try {{
       const response = await fetch("/api/status");
       const body = await response.json();
@@ -222,8 +228,12 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
         throw new Error(body.detail || "状態を取得できませんでした。");
       }}
       applyServiceStatus(body);
-      if (serviceState === "running" || serviceState === "awaiting_frame") {{
+      if (serviceState === "starting" || serviceState === "stopping") {{
+        statusSyncTimer = setTimeout(syncStatus, STATUS_POLL_INTERVAL_MS);
+      }} else if (serviceState === "running" || serviceState === "awaiting_frame") {{
         setStatus("翻訳処理は実行中です。「画面を選び直す」から共有を再開できます。");
+      }} else if (serviceState === "error") {{
+        setStatus(body.error_message || "翻訳処理でエラーが発生しました。");
       }}
     }} catch (error) {{
       serviceState = "error";
@@ -235,10 +245,12 @@ _CAPTURE_PAGE_TEMPLATE = """<!doctype html>
   startButton.addEventListener("click", startSharing);
   reselectButton.addEventListener("click", reselectSharing);
   stopButton.addEventListener("click", stopByUser);
+  window.addEventListener("pageshow", syncStatus);
   window.addEventListener("pagehide", function () {{
     stopSharing();
     fetch("/api/control/stop", {{
       method: "POST",
+      headers: {{ "X-Capture-Token": sessionToken }},
       keepalive: true,
     }}).catch(function () {{}});
   }});

@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from .web_capture_security import origin_allowed
+from .web_capture_security import TOKEN_HEADER, origin_allowed
 
 
 class Status(Protocol):
@@ -16,7 +16,7 @@ class Status(Protocol):
 class ControlService(Protocol):
     def start(self) -> Status: ...
 
-    def stop(self) -> Status: ...
+    def stop(self, session_token: str | None = None) -> Status: ...
 
     def reselect(self) -> Status: ...
 
@@ -45,7 +45,8 @@ def install_control_routes(app: FastAPI, service: ControlService) -> None:
 
     @app.post("/api/control/stop")
     async def stop(request: Request) -> JSONResponse:
-        return await execute(request, service.stop)
+        session_token = request.headers.get(TOKEN_HEADER)
+        return await execute(request, lambda: service.stop(session_token))
 
     @app.post("/api/control/reselect")
     async def reselect(request: Request) -> JSONResponse:

@@ -49,6 +49,14 @@ class RaisingStopRunner(FakeRunner):
         raise RuntimeError("runner stop failed")
 
 
+class RecoveringStopRunner(FakeRunner):
+    def stop(self) -> None:
+        self.stop_calls += 1
+        if self.stop_calls == 1:
+            raise RuntimeError("runner stop failed once")
+        self.running = False
+
+
 class WebAppServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.server = WebCaptureServer()
@@ -140,6 +148,23 @@ class WebAppServiceTest(unittest.TestCase):
         self.assertEqual(service.status().state, "error")
         self.assertEqual(service.status().error_message, "old error")
 
+    def test_stop_with_stale_session_token_preserves_reselected_runner(self) -> None:
+        service = self._service()
+        first = service.start()
+        second = service.reselect()
+
+        with self.assertRaises(WebAppConflictError):
+            service.stop(first.session_token)
+
+        self.assertEqual(service.status().state, "awaiting_frame")
+        self.assertEqual(service.status().session_token, second.session_token)
+        self.assertEqual(self.runners[0].stop_calls, 0)
+        self.assertTrue(self.runners[0].is_running)
+
+        status = service.stop(second.session_token)
+        self.assertEqual(status.state, "idle")
+        self.assertEqual(self.runners[0].stop_calls, 1)
+
     def test_reselect_during_real_runner_tick_retains_error_callback(self) -> None:
         tick_started = threading.Event()
         release_tick = threading.Event()
@@ -201,6 +226,17 @@ class WebAppServiceTest(unittest.TestCase):
         self.assertTrue(self.runners[0].is_running)
         with self.assertRaises(WebAppConflictError):
             service.start()
+
+    def test_successful_stop_after_error_returns_to_idle(self) -> None:
+        service = self._service(RecoveringStopRunner)
+        service.start()
+        self.assertEqual(service.stop().state, "error")
+
+        status = service.stop()
+
+        self.assertEqual(status.state, "idle")
+        self.assertIsNone(status.error_message)
+        self.assertEqual(self.runners[0].stop_calls, 2)
 
     def test_pipeline_error_is_retained_and_invalidates_token(self) -> None:
         service = self._service()

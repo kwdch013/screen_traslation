@@ -56,11 +56,11 @@
 `python -m app.main --web` は、画面選択ページ、フレーム受信API、次の制御APIを同一のローカルサーバーで起動する。インメモリ状態を共有するためuvicornは1ワーカーで動作し、`POST /frame`と同じHost / Origin検証を制御APIにも適用する。
 
 - `POST /api/control/start`: Webキャプチャ用パイプラインを開始し、最初のフレームを待つ。
-- `POST /api/control/stop`: パイプラインを停止し、キャプチャセッションを失効させる。
+- `POST /api/control/stop`: パイプラインを停止し、キャプチャセッションを失効させる。任意の`X-Capture-Token`を指定した場合は現行セッションと一致するときだけ原子的に停止し、不一致はHTTP 409とする。トークンなしの要求はユーザー操作用の無条件停止として扱う。
 - `POST /api/control/reselect`: パイプラインを維持したままセッションと世代を更新し、新しいフレーム待ちへ戻す。
 - `GET /api/status`: 状態、エラーメッセージ、現行セッショントークンの有効性を返す。
 
-状態は`idle → starting → awaiting_frame → running → stopping → idle`で遷移し、開始・実行・停止に失敗した場合は`error`になる。停止要求から2秒後もRunnerスレッドが生存している場合は`idle`へ遷移せず、旧パイプラインとの並走を防ぐ。
+状態は`idle → starting → awaiting_frame → running → stopping → idle`で遷移し、開始・実行・停止に失敗した場合は`error`になる。停止要求から2秒後もRunnerスレッドが生存している場合は`idle`へ遷移せず、旧パイプラインとの並走を防ぐ。画面選択ページは`pageshow`で状態を再同期し、`starting` / `stopping`の間は安定状態まで短間隔で再取得する。`error`では停止だけを操作可能にして、保持中のRunnerを停止できれば`idle`へ復旧する。`pagehide`のkeepalive停止にはページのセッショントークンを付け、復元前の旧ページから遅れて届いた停止要求が新しいセッションを止めないようにする。
 
 `mss` は対象ウィンドウまたは指定領域を画像として取得するレガシー方式で、Tkinterの矩形ドラッグ選択と組み合わせて利用する。
 
