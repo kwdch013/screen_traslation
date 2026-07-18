@@ -1,0 +1,7 @@
+# ビルドコンテキストの転送を軽くする (CI のビルド時間短縮)
+.git
+.venv
+**/__pycache__
+verification
+tasks
+docs
