@@ -32,15 +32,21 @@ class FakeRunner:
         self.on_error = on_error
 
 
+class StuckRunner(FakeRunner):
+    def stop(self) -> None:
+        pass
+
+
 class WebControlApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.server = WebCaptureServer()
+        self.runner_type: type[FakeRunner] = FakeRunner
         self.service = WebAppService(
             PipelineConfig(),
             Glossary(),
             server=self.server,
             pipeline_factory=lambda config, glossary, store, overlay: object(),
-            runner_factory=lambda pipeline, on_error: FakeRunner(on_error),
+            runner_factory=lambda pipeline, on_error: self.runner_type(on_error),
         )
         self.client = TestClient(self.server.app)
 
@@ -85,6 +91,14 @@ class WebControlApiTest(unittest.TestCase):
             },
         )
 
+    def test_status_rejects_foreign_origin(self) -> None:
+        response = self.client.get(
+            "/api/status",
+            headers=self._headers(origin="https://evil.example.com"),
+        )
+
+        self.assertEqual(response.status_code, 403)
+
     def test_first_accepted_frame_changes_status_to_running(self) -> None:
         start = self.client.post("/api/control/start", headers=self._headers()).json()
         output = BytesIO()
@@ -128,6 +142,16 @@ class WebControlApiTest(unittest.TestCase):
         self.assertEqual(invalid_host.status_code, 403)
         self.assertEqual(invalid_origin.status_code, 403)
         self.assertEqual(self.service.status().state, "idle")
+
+    def test_stop_timeout_returns_500_with_error_state(self) -> None:
+        self.runner_type = StuckRunner
+        self.client.post("/api/control/start", headers=self._headers())
+
+        response = self.client.post("/api/control/stop", headers=self._headers())
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["state"], "error")
+        self.assertIn("停止", response.json()["error_message"])
 
 
 if __name__ == "__main__":

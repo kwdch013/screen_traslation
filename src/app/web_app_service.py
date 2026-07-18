@@ -76,7 +76,8 @@ class WebAppService:
         self._lock = threading.RLock()
         self._state = "idle"
         self._error_message: str | None = None
-        self._generation = 0
+        self._session_generation = 0
+        self._runner_generation = 0
         self._runner: Runner | None = None
         self._overlay: InMemoryOverlayRenderer | None = None
         self._server.set_frame_accepted_callback(self._on_frame_accepted)
@@ -89,7 +90,7 @@ class WebAppService:
     @property
     def generation(self) -> int:
         with self._lock:
-            return self._generation
+            return self._session_generation
 
     @property
     def state(self) -> str:
@@ -113,8 +114,9 @@ class WebAppService:
 
                 self._state = "starting"
                 self._error_message = None
-                self._generation += 1
-                generation = self._generation
+                self._session_generation += 1
+                self._runner_generation += 1
+                runner_generation = self._runner_generation
                 self._server.new_session()
             overlay = InMemoryOverlayRenderer()
             runner: Runner | None = None
@@ -127,7 +129,7 @@ class WebAppService:
                     ui_mode="web",
                 )
                 pipeline = self._pipeline_factory(config, self._glossary, self._server.store, overlay)
-                runner = self._runner_factory(pipeline, self._error_handler(generation))
+                runner = self._runner_factory(pipeline, self._error_handler(runner_generation))
                 with self._lock:
                     self._overlay = overlay
                     self._runner = runner
@@ -136,7 +138,7 @@ class WebAppService:
                 self._rollback_failed_start(runner, overlay, error)
                 raise
             with self._lock:
-                if generation == self._generation and self._state == "starting":
+                if runner_generation == self._runner_generation and self._state == "starting":
                     self._state = "running" if self._server.store.has_frame() else "awaiting_frame"
                 return self._status_unlocked()
 
@@ -144,11 +146,18 @@ class WebAppService:
         with self._operation_lock:
             with self._lock:
                 self._state = "stopping"
-                self._generation += 1
+                self._session_generation += 1
+                self._runner_generation += 1
                 self._server.new_session()
                 runner = self._runner
             if runner is not None:
-                runner.stop()
+                try:
+                    runner.stop()
+                except Exception as error:
+                    with self._lock:
+                        self._state = "error"
+                        self._error_message = f"翻訳パイプラインを停止できませんでした: {error}"
+                        return self._status_unlocked()
             with self._lock:
                 # join中に別世代へ変わる操作はoperation_lockで排除されている。
                 if runner is not None and runner.is_running:
@@ -166,10 +175,8 @@ class WebAppService:
             with self._lock:
                 if self._state not in {"awaiting_frame", "running"} or self._runner is None:
                     raise WebAppConflictError(f"state={self._state}では再選択できません")
-                self._generation += 1
-                generation = self._generation
+                self._session_generation += 1
                 self._server.new_session()
-                self._runner.set_on_error(self._error_handler(generation))
                 self._state = "awaiting_frame"
                 self._error_message = None
                 return self._status_unlocked()
@@ -182,7 +189,8 @@ class WebAppService:
     ) -> None:
         with self._lock:
             # 起動しかけたRunnerの通知を先に旧世代扱いにしてからjoinする。
-            self._generation += 1
+            self._session_generation += 1
+            self._runner_generation += 1
             self._server.new_session()
         if runner is not None:
             runner.stop()
@@ -194,12 +202,13 @@ class WebAppService:
                 self._runner = None
                 self._overlay = None
 
-    def _error_handler(self, generation: int) -> Callable[[Exception], None]:
+    def _error_handler(self, runner_generation: int) -> Callable[[Exception], None]:
         def handle(error: Exception) -> None:
             with self._lock:
-                if generation != self._generation:
+                if runner_generation != self._runner_generation:
                     return
-                self._generation += 1
+                self._runner_generation += 1
+                self._session_generation += 1
                 self._server.new_session()
                 self._close_overlay_unlocked()
                 self._state = "error"

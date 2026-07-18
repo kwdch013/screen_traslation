@@ -36,7 +36,8 @@ def install_control_routes(app: FastAPI, service: ControlService) -> None:
             return JSONResponse({"detail": str(error)}, status_code=409)
         except Exception:
             return JSONResponse(service.status().as_dict(), status_code=500)
-        return JSONResponse(status.as_dict())
+        body = status.as_dict()
+        return JSONResponse(body, status_code=500 if body.get("state") == "error" else 200)
 
     @app.post("/api/control/start")
     async def start(request: Request) -> JSONResponse:
@@ -51,7 +52,9 @@ def install_control_routes(app: FastAPI, service: ControlService) -> None:
         return await execute(request, service.reselect)
 
     @app.get("/api/status")
-    async def status() -> JSONResponse:
+    async def status(request: Request) -> JSONResponse:
+        if not origin_allowed(request.headers.get("origin")):
+            return JSONResponse({}, status_code=403)
         body = service.status().as_dict()
         # トークン値は開始・再選択の応答だけに含め、状態確認では有効性のみ公開する。
         body.pop("session_token", None)

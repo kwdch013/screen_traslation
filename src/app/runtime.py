@@ -46,7 +46,7 @@ class PipelineRunner:
 
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
-            # tick開始時の世代に対応する通知先を固定し、再選択前の遅延通知を区別する。
+            # tick中に通知先を差し替えても、発生した処理に対応する通知先へ届ける。
             with self._callback_lock:
                 on_error = self._on_error
             try:
