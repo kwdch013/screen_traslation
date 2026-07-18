@@ -137,6 +137,7 @@ class TranslationPipeline:
         self._last_logged_signature: tuple[tuple[str, str], ...] = ()
         self._last_frame_id: int | None = None
         self._fallback_frame_id = 0
+        self._processing_generation: int | None = None
 
     def tick(self, now: float | None = None) -> bool:
         current_time = monotonic() if now is None else now
@@ -144,12 +145,16 @@ class TranslationPipeline:
             return False
 
         generation = self._generation_provider()
+        self._prepare_generation(generation)
         frame = self._capture_source.capture()
         if frame.frame_id is not None and frame.frame_id == self._last_frame_id:
             return False
+        recognized_regions = self._ocr_engine.recognize(frame)
+        if generation != self._generation_provider():
+            return True
         raw_text_regions = [
             region
-            for region in self._ocr_engine.recognize(frame)
+            for region in recognized_regions
             if (
                 region.text.strip()
                 and region.confidence >= self._config.min_confidence
@@ -174,14 +179,26 @@ class TranslationPipeline:
             )
             for region in text_regions
         ]
-        if generation == self._generation_provider():
-            self._publish_result(generation, frame, translations)
+        self._publish_result(generation, frame, translations)
         self._last_overlay_texts = _overlay_feedback_texts(translations)
         self._overlay_renderer.render(translations)
         self._log_translations_if_changed(translations)
-        if generation == self._generation_provider() and frame.frame_id is not None:
+        if frame.frame_id is not None:
             self._last_frame_id = frame.frame_id
         return True
+
+    def _prepare_generation(self, generation: int) -> None:
+        if self._processing_generation is None:
+            self._processing_generation = generation
+            return
+        if generation == self._processing_generation:
+            return
+        self._processing_generation = generation
+        self._stabilizer.clear()
+        self._last_overlay_texts.clear()
+        self._last_logged_signature = ()
+        self._last_frame_id = None
+        self._fallback_frame_id = 0
 
     def _publish_result(
         self,

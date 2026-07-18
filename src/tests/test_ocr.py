@@ -69,6 +69,23 @@ class OcrTest(unittest.TestCase):
 
         self.assertEqual(regions[0].bounds, Rect(x=10, y=20, width=120, height=20))
 
+    def test_regions_from_tesseract_data_keeps_odd_one_pixel_bounds(self) -> None:
+        data = {
+            "text": ["Start"],
+            "conf": ["90"],
+            "left": [3],
+            "top": [5],
+            "width": [1],
+            "height": [1],
+            "block_num": [1],
+            "par_num": [1],
+            "line_num": [1],
+        }
+
+        regions = regions_from_tesseract_data(data, min_confidence=0.5, coordinate_scale=0.5)
+
+        self.assertEqual(regions[0].bounds, Rect(x=1, y=2, width=1, height=1))
+
     def test_tesseract_engine_returns_coordinates_in_original_image_scale(self) -> None:
         try:
             from PIL import Image

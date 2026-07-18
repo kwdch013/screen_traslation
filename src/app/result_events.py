@@ -41,11 +41,16 @@ class EventSubscription:
 class TranslationEventPublisher:
     """購読者ごとの有界キューへ結果をファンアウトする。"""
 
-    def __init__(self, queue_size: int = DEFAULT_QUEUE_SIZE) -> None:
+    def __init__(
+        self,
+        queue_size: int = DEFAULT_QUEUE_SIZE,
+        *,
+        lock: threading.RLock | None = None,
+    ) -> None:
         if queue_size <= 0:
             raise ValueError("queue_sizeは1以上である必要があります")
         self._queue_size = queue_size
-        self._lock = threading.Lock()
+        self._lock = lock or threading.RLock()
         self._subscriptions: dict[EventSubscription, Queue[SseEvent]] = {}
         self._active_generation = 0
         self._latest_state = SseEvent(
@@ -83,11 +88,13 @@ class TranslationEventPublisher:
             },
         )
         with self._lock:
+            generation_changed = generation != self._active_generation
             self._active_generation = generation
             self._latest_state = event
             for event_queue in self._subscriptions.values():
-                # 世代変更前に滞留した結果を、新しい状態の後で送らないため消去する。
-                _drain(event_queue)
+                if generation_changed:
+                    # 世代変更前に滞留した結果を、新しい状態の後で送らないため消去する。
+                    _drain(event_queue)
                 _offer_latest(event_queue, event)
 
 

@@ -89,6 +89,18 @@ class TranslationEventPublisherTest(unittest.TestCase):
         self.assertEqual(event.data["generation"], 2)
         self.assertTrue(subscription.empty())
 
+    def test_same_generation_state_keeps_queued_result(self) -> None:
+        subscription = self._subscribe_without_initial_state()
+        self.publisher.publish(_result(generation=1, frame_id=1))
+
+        self.publisher.publish_state(generation=1, state="running", error_message=None)
+
+        result_event = subscription.get_nowait()
+        state_event = subscription.get_nowait()
+        self.assertEqual(result_event.event, "translation_result")
+        self.assertEqual(result_event.data["frame_id"], 1)
+        self.assertEqual(state_event.event, "state")
+
 
 if __name__ == "__main__":
     unittest.main()

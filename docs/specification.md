@@ -82,7 +82,7 @@
 | `frame_height` | integer | OCR対象画像の高さ(ピクセル)。 |
 | `regions` | array | 翻訳領域。0件も表示消去イベントとして配信する。 |
 
-各`regions[]`は`source`、`translated`、`x`、`y`、`width`、`height`、`confidence`、`positioning`を持つ。座標はすべて「サーバーへ送信された画像の左上を`(0, 0)`とする画像ピクセル座標」であり、画面全体やデスクトップの絶対座標ではない。Tesseractの前処理で画像を2倍に拡大した場合も、返却前に元画像スケールへ戻す。
+各`regions[]`は`source`、`translated`、`x`、`y`、`width`、`height`、`confidence`、`positioning`を持つ。座標はすべて「サーバーへ送信された画像の左上を`(0, 0)`とする画像ピクセル座標」であり、画面全体やデスクトップの絶対座標ではない。Tesseractの前処理で画像を2倍に拡大した場合も、左上端を切り下げ、右下端を切り上げて元画像スケールへ戻すため、1ピクセルの領域を失わない。
 
 `positioning`は、座標をプレビューへ重畳できるTesseract結果では`available`、固定のダミー領域しか持たないLLM OCR結果では`unavailable`とする。フロントエンドは`unavailable`の領域を座標重畳せず、字幕リストとして扱う。
 
@@ -91,7 +91,7 @@ event: translation_result
 data: {"generation":1,"frame_id":42,"captured_at":123.4,"processed_at":123.5,"frame_width":1280,"frame_height":720,"regions":[{"source":"New Game","translated":"ニューゲーム","x":10,"y":20,"width":120,"height":30,"confidence":0.9,"positioning":"available"}]}
 ```
 
-Publisherはアプリ全体で1つを保持し、クライアントごとに上限16件のキューを持つ。キューが満杯の場合は最古のイベントを捨てるため、遅いクライアントが翻訳パイプラインや他クライアントを停止させない。停止時もSSE接続は維持し、`state`イベントで`idle`などの状態を通知する。世代が変わると購読キューに残る旧結果を消去し、その後に完了した旧世代の結果も配信しない。
+Publisherはアプリ全体で1つを保持し、クライアントごとに上限16件のキューを持つ。キューが満杯の場合は最古のイベントを捨てるため、遅いクライアントが翻訳パイプラインや他クライアントを停止させない。停止時もSSE接続は維持し、`state`イベントで`idle`などの状態を通知する。同一世代の状態通知は通常の有界キュー追加とし、既存の翻訳結果を一括消去しない。世代進行とPublisherの旧世代無効化は同じロック内で行い、世代が変わる場合だけ購読キューを消去して、その後に完了した旧世代の結果も配信しない。
 
 ### OCR
 

@@ -70,7 +70,10 @@ class WebAppService:
         self._config = config
         self._glossary = glossary
         self._server = server or WebCaptureServer()
-        self._event_publisher = TranslationEventPublisher()
+        self._operation_lock = threading.Lock()
+        self._lock = threading.RLock()
+        # 世代進行とPublisherの旧世代無効化の間に結果配信を割り込ませない。
+        self._event_publisher = TranslationEventPublisher(lock=self._lock)
         if pipeline_factory is None:
             self._pipeline_factory = lambda built_config, built_glossary, store, overlay: build_web_pipeline(
                 built_config,
@@ -83,8 +86,6 @@ class WebAppService:
         else:
             self._pipeline_factory = pipeline_factory
         self._runner_factory = runner_factory or build_runner
-        self._operation_lock = threading.Lock()
-        self._lock = threading.RLock()
         self._state = "idle"
         self._error_message: str | None = None
         self._session_generation = 0

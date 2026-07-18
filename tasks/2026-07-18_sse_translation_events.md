@@ -44,6 +44,36 @@
 - `git diff --check`: 成功。
 - ローカルvenvの全実サーバーテストはソケット生成禁止のため実行できないが、同じテストをソケット利用可能なDockerコンテナ内で含めて171件実行し、失敗0件を確認した。
 
+## PR #9 レビュー指摘の修正
+
+### 修正内容
+
+- Pipelineで処理中のセッション世代を追跡し、世代変更時にOCR安定化状態、overlay feedback、ログ署名、処理済みフレームIDを初期化する。
+- OCR直後に世代を再確認し、不一致の場合はStabilizer、翻訳、結果配信、描画、ログを更新せず、同じフレームを新世代で再処理できるようにする。
+- `WebAppService`と`TranslationEventPublisher`で同じ再入可能ロックを使い、Serviceの世代進行とPublisherの旧世代無効化を単一のクリティカルセクションにする。
+- `publish_state()`は世代が変わる場合だけ購読キューを消去し、同一世代の状態通知は通常の有界キュー追加にする。
+- `Rect.scaled()`は左上端を`floor`、右下端を`ceil`で変換し、その差から幅と高さを求める。
+
+### Red
+
+- 既定の`required_repeats=2`で、再選択後の最初のフレームに旧世代の安定文言と座標が配信される失敗を確認した。
+- OCR中に世代を変更すると、破棄対象フレームでも描画され、次の同一フレームが2回目の一致として扱われる失敗を確認した。
+- Serviceの世代進行直後で`publish_state()`をバリア停止すると、旧世代結果の`publish()`が割り込んで購読者へ届く失敗を確認した。
+- 同一世代の`publish_state()`が既存結果を消去する失敗と、縮小時に奇数座標・1ピクセル領域が失われる失敗を確認した。
+
+### Green
+
+- 再選択、OCR中世代変更、世代進行と結果配信の競合、同一世代状態通知、奇数座標・奇数寸法・1ピクセル領域、Tesseract座標補正の回帰テストを追加した。
+- 追加・関連テスト35件を`.venv`（`PYTHONPATH=src`）で実行し、すべて成功した。
+
+### 確認結果
+
+- 実ソケットを使用する3モジュールと、ローカルで応答待ちになるFastAPI `TestClient`の2モジュールを除く115件を`.venv`（`PYTHONPATH=src`）で実行し、すべて成功した。
+- `TestClient`の停止時に取得したスレッドダンプでは、ServiceやPublisherのロック待ちではなく、`httpx2` / Starletteのportal応答待ちだった。
+- bind系テストはサンドボックスのソケット生成禁止により`PermissionError: Operation not permitted`となった。最終確認は依頼者側のDocker環境で行う。
+- `PYTHONPATH=src .venv/bin/python -m py_compile src/app/*.py src/tests/*.py`: 成功。
+- `git diff --check`: 成功。
+
 ## 対象外
 
 - ReactフロントエンドでのSSE購読、プレビュー重畳、字幕リスト表示。

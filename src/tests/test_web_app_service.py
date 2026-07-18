@@ -194,9 +194,12 @@ class WebAppServiceTest(unittest.TestCase):
         service.stop()
         service.event_publisher.publish(_result(started_generation, frame_id=1))
 
-        event = subscription.get_nowait()
-        self.assertEqual(event.event, "state")
-        self.assertEqual(event.data["state"], "idle")
+        stopping_event = subscription.get_nowait()
+        idle_event = subscription.get_nowait()
+        self.assertEqual(stopping_event.event, "state")
+        self.assertEqual(stopping_event.data["state"], "stopping")
+        self.assertEqual(idle_event.event, "state")
+        self.assertEqual(idle_event.data["state"], "idle")
         self.assertTrue(subscription.empty())
 
     def test_stop_with_stale_session_token_preserves_reselected_runner(self) -> None:

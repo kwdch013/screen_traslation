@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil, floor
 from typing import Literal, Protocol, Sequence
 
 
@@ -15,11 +16,15 @@ class Rect:
     height: int
 
     def scaled(self, scale: float) -> "Rect":
+        left = floor(self.x * scale)
+        top = floor(self.y * scale)
+        right = ceil((self.x + self.width) * scale)
+        bottom = ceil((self.y + self.height) * scale)
         return Rect(
-            x=round(self.x * scale),
-            y=round(self.y * scale),
-            width=round(self.width * scale),
-            height=round(self.height * scale),
+            x=left,
+            y=top,
+            width=right - left,
+            height=bottom - top,
         )
 
 
