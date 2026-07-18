@@ -1,0 +1,28 @@
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+  schedule:
+    - cron: "0 0 * * 1" # 毎週月曜。新規に公開された脆弱性を拾うため
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # 解析結果の書き込みに必要
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+      - uses: github/codeql-action/analyze@v3

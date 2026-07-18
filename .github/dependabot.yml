@@ -1,0 +1,24 @@
+version: 2
+updates:
+  # ワークフローが参照する action のバージョン (SHA ピン留めも更新される)
+  # 注: この設定は既定ブランチ (main) に反映されてから有効になる。
+  # PR は運用ルールに合わせて dev 宛てに作らせる。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: dev
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    target-branch: dev
+
+  # Dockerfile のベースイメージ
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: dev
