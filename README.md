@@ -75,10 +75,16 @@ PYTHONPATH=src python3 -m app.main --desktop
 Webアプリ起動:
 
 ```bash
+cd frontend
+npm ci
+npm run build
+cd ..
 PYTHONPATH=src python -m app.main --web
 ```
 
 ブラウザで `画面を選択して開始` を押す。対象を変更する場合は `画面を選び直す`、終了する場合は `共有を停止` を押す。ターミナル側は `Ctrl+C` で終了する。
+
+フロントエンドを開発する場合は、別ターミナルで FastAPI を起動したまま `frontend/` で `npm run dev` を実行する。Vite 開発サーバーは `/api` と `/frame` を `http://127.0.0.1:8765` へプロキシする。
 
 Argos Translateの英日モデル導入:
 
@@ -108,6 +114,15 @@ Tesseractの平均信頼度が低い場合のみ、Ollama上の `qwen2.5vl:7b` �
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s src/tests
+```
+
+フロントエンドの確認:
+
+```bash
+cd frontend
+npm run lint
+npm test
+npm run build
 ```
 
 ## コンテナ

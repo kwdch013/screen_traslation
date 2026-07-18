@@ -1,49 +1,139 @@
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
-from app.web_capture_page import render_capture_page
+from starlette.requests import Request
+from starlette.responses import FileResponse
+from starlette.routing import Match
+
+from app.web_capture import WebCaptureServer
 
 
-class WebCapturePageTest(unittest.TestCase):
+class WebCapturePageTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        self.page = render_capture_page("test-token")
-
-    def test_initializes_controls_from_service_status(self) -> None:
-        self.assertIn('fetch("/api/status")', self.page)
-        self.assertIn('serviceState === "running" || serviceState === "awaiting_frame"', self.page)
-        self.assertIn("syncStatus();", self.page)
-
-    def test_pagehide_requests_service_stop_with_keepalive(self) -> None:
-        self.assertIn('window.addEventListener("pagehide"', self.page)
-        self.assertIn(
-            'fetch("/api/control/stop", {\n'
-            '      method: "POST",\n'
-            '      headers: { "X-Capture-Token": sessionToken },\n'
-            "      keepalive: true,",
-            self.page,
+        self.temporary_directory = TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        self.root = Path(self.temporary_directory.name)
+        self.dist = self.root / "dist"
+        self.dist.mkdir()
+        self.outside = self.root / "outside"
+        self.outside.mkdir()
+        (self.outside / "secret.txt").write_text("secret", encoding="utf-8")
+        (self.dist / "assets").mkdir()
+        (self.dist / "index.html").write_text(
+            '<!doctype html><div id="root"></div><script src="/assets/app-abc123.js"></script>',
+            encoding="utf-8",
+        )
+        (self.dist / "assets" / "app-abc123.js").write_text(
+            'navigator.mediaDevices.getDisplayMedia({video: true});',
+            encoding="utf-8",
+        )
+        (self.dist / "favicon.svg").write_text("<svg></svg>", encoding="utf-8")
+        self.server = WebCaptureServer(frontend_dist=self.dist)
+        self.frontend_route = next(
+            route for route in self.server.app.routes if getattr(route, "name", None) == "frontend"
         )
 
-    def test_control_rejects_error_state_response(self) -> None:
-        self.assertIn('body.state === "error"', self.page)
-        self.assertIn("body.error_message", self.page)
+    async def test_root_serves_built_react_index_without_session_token(self) -> None:
+        response = await self.frontend_route.endpoint(_request("/"))
 
-    def test_control_buttons_are_guarded_during_async_operation(self) -> None:
-        self.assertIn("let operationInProgress = false", self.page)
-        self.assertIn("startButton.disabled = true", self.page)
-        self.assertIn("reselectButton.disabled = true", self.page)
-        self.assertIn("stopButton.disabled = true", self.page)
+        self.assertIsInstance(response, FileResponse)
+        self.assertEqual(Path(response.path), self.dist / "index.html")
+        page = Path(response.path).read_text(encoding="utf-8")
+        self.assertIn('<div id="root"></div>', page)
+        self.assertNotIn(self.server.session_token, page)
+        self.assertEqual(response.media_type, "text/html")
 
-    def test_error_state_enables_only_stop_and_displays_initial_error(self) -> None:
-        self.assertIn('startButton.disabled = active || serviceState === "error"', self.page)
-        self.assertIn('stopButton.disabled = !active && serviceState !== "error"', self.page)
-        self.assertIn('setStatus(body.error_message || "翻訳処理でエラーが発生しました。")', self.page)
+    async def test_hashed_asset_is_served(self) -> None:
+        response = await self.frontend_route.endpoint(_request("/assets/app-abc123.js"))
 
-    def test_pageshow_syncs_and_transitional_state_is_polled(self) -> None:
-        self.assertIn('window.addEventListener("pageshow", syncStatus)', self.page)
-        self.assertIn("STATUS_POLL_INTERVAL_MS", self.page)
-        self.assertIn('serviceState === "starting" || serviceState === "stopping"', self.page)
-        self.assertIn("statusSyncTimer = setTimeout(syncStatus, STATUS_POLL_INTERVAL_MS)", self.page)
+        self.assertIsInstance(response, FileResponse)
+        self.assertEqual(Path(response.path), self.dist / "assets" / "app-abc123.js")
+        self.assertIn("getDisplayMedia", Path(response.path).read_text(encoding="utf-8"))
+
+    async def test_dist_root_file_is_served(self) -> None:
+        response = await self.frontend_route.endpoint(_request("/favicon.svg"))
+
+        self.assertIsInstance(response, FileResponse)
+        self.assertEqual(Path(response.path), self.dist / "favicon.svg")
+
+    async def test_unknown_path_returns_404(self) -> None:
+        response = await self.frontend_route.endpoint(_request("/preview/history"))
+
+        self.assertEqual(response.status_code, 404)
+
+    async def test_parent_directory_traversal_returns_404(self) -> None:
+        response = await self.frontend_route.endpoint(_request("/../outside/secret.txt"))
+
+        self.assertEqual(response.status_code, 404)
+
+    async def test_url_encoded_parent_directory_traversal_returns_404(self) -> None:
+        response = await self.frontend_route.endpoint(
+            _request("/../outside/secret.txt", raw_path=b"/%2e%2e/outside/secret.txt"),
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    async def test_external_index_symlink_returns_404(self) -> None:
+        (self.dist / "index.html").unlink()
+        (self.dist / "index.html").symlink_to(self.outside / "secret.txt")
+
+        response = await self.frontend_route.endpoint(_request("/"))
+
+        self.assertEqual(response.status_code, 404)
+
+    async def test_api_path_is_not_swallowed_by_frontend_route(self) -> None:
+        match, _ = self.frontend_route.matches(_scope("/api/not-found"))
+
+        self.assertIs(match, Match.NONE)
+
+    async def test_frame_path_is_not_swallowed_by_frontend_route(self) -> None:
+        match, _ = self.frontend_route.matches(_scope("/frame"))
+
+        self.assertIs(match, Match.NONE)
+        frame_matches = [
+            route.matches(_scope("/frame"))[0]
+            for route in self.server.app.routes
+            if getattr(route, "path", None) == "/frame"
+        ]
+        self.assertIn(Match.PARTIAL, frame_matches)
+
+    async def test_missing_build_returns_clear_error(self) -> None:
+        missing_server = WebCaptureServer(frontend_dist=self.dist / "missing")
+        route = next(
+            candidate
+            for candidate in missing_server.app.routes
+            if getattr(candidate, "name", None) == "frontend"
+        )
+
+        response = await route.endpoint(_request("/"))
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("npm run build", response.body.decode("utf-8"))
+        self.assertIn("frontend/dist", response.body.decode("utf-8"))
+
+
+def _request(path: str, raw_path: bytes | None = None) -> Request:
+    return Request(_scope(path, raw_path))
+
+
+def _scope(path: str, raw_path: bytes | None = None) -> dict[str, object]:
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": raw_path or path.encode("ascii"),
+        "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:8765")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("127.0.0.1", 8765),
+        "root_path": "",
+    }
 
 
 if __name__ == "__main__":

@@ -1,3 +1,23 @@
+FROM node:24-slim AS frontend-deps
+
+WORKDIR /frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+
+FROM frontend-deps AS frontend-build
+
+COPY frontend/ ./
+RUN npm run build
+
+
+FROM frontend-build AS frontend-test
+
+RUN npm run lint
+RUN npx vitest run
+
+
 FROM python:3.14-slim
 
 WORKDIR /app
@@ -15,6 +35,7 @@ RUN pip install --no-cache-dir torch==2.13.0+cpu --index-url https://download.py
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
+COPY --from=frontend-build /frontend/dist ./frontend/dist
 
 ENV PYTHONPATH=/app/src
 

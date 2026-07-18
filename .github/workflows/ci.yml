@@ -24,6 +24,12 @@ jobs:
         with:
           python-version: "3.14"
 
+      - name: フロントエンドインフラ構成テスト (ホスト)
+        run: PYTHONPATH=src python -m unittest src.tests.test_frontend_infrastructure
+
+      - name: フロントエンド検証 (コンテナ内)
+        run: docker build --target frontend-test --tag frontend-test:ci .
+
       - name: Lint (ruff)
         run: |
           pip install -r requirements-dev.txt

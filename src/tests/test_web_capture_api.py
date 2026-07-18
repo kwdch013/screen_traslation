@@ -1,5 +1,7 @@
 import asyncio
 from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import threading
 import unittest
 from unittest import mock
@@ -44,7 +46,11 @@ class WebCaptureSecurityTest(unittest.IsolatedAsyncioTestCase):
 
 class WebCaptureApiTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.server = WebCaptureServer()
+        self.temporary_directory = TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        dist = Path(self.temporary_directory.name)
+        (dist / "index.html").write_text('<div id="root"></div>', encoding="utf-8")
+        self.server = WebCaptureServer(frontend_dist=dist)
         self.app = create_capture_app(self.server)
         self.client = TestClient(self.app, base_url="http://127.0.0.1:8765")
 
@@ -70,12 +76,12 @@ class WebCaptureApiTest(unittest.TestCase):
     def test_create_capture_app_returns_fastapi_app(self) -> None:
         self.assertIsInstance(self.app, FastAPI)
 
-    def test_root_serves_capture_page_and_security_headers(self) -> None:
+    def test_root_serves_react_entrypoint_and_security_headers(self) -> None:
         response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("getDisplayMedia", response.text)
-        self.assertIn(self.server.session_token, response.text)
+        self.assertIn('<div id="root"></div>', response.text)
+        self.assertNotIn(self.server.session_token, response.text)
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
 

@@ -162,14 +162,14 @@ class WebCaptureServerTest(unittest.TestCase):
         self.addCleanup(server.stop)
         return server
 
-    def test_server_serves_capture_page_with_session_token(self) -> None:
+    def test_server_serves_react_entrypoint_without_session_token(self) -> None:
         server = self._server()
 
         with urllib.request.urlopen(server.url, timeout=5) as response:
             body = response.read().decode("utf-8")
 
-        self.assertIn("getDisplayMedia", body)
-        self.assertIn(server.session_token, body)
+        self.assertIn('<div id="root"></div>', body)
+        self.assertNotIn(server.session_token, body)
 
     def test_valid_frame_with_token_is_accepted(self) -> None:
         server = self._server()
