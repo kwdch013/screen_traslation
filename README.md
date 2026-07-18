@@ -75,7 +75,13 @@ PYTHONPATH=src python -m app.main --no-browser
 
 ### Docker
 
-現在の Docker 構成は、フロントエンドをビルドした Python 3.14 環境で lint とテストを再現するためのものです。
+フロントエンドのビルド、lint、Vitest は `frontend-test` ステージで確認します。
+
+```bash
+docker build --target frontend-test .
+```
+
+Compose では最終イメージをビルドし、そのイメージ内で Python テストを実行します。
 
 ```bash
 docker compose build
@@ -117,7 +123,7 @@ npm test
 npm run build
 ```
 
-コンテナ内の一括確認は `docker compose run --rm app` で実行できます。
+コンテナ内の Python テスト一括確認は `docker compose run --rm app` で実行できます。
 
 ## ドキュメント
 

@@ -82,6 +82,20 @@ class WebDocumentationTest(unittest.TestCase):
 			with self.subTest(expected=expected):
 				self.assertIn(expected, guide)
 
+	def test_docker_guides_run_frontend_test_stage_explicitly(self) -> None:
+		for relative_path in ("README.md", "docs/developer_guide.md"):
+			with self.subTest(path=relative_path):
+				document = self._read(relative_path)
+				self.assertIn("docker build --target frontend-test .", document)
+
+	def test_ci_runs_web_documentation_test_on_host(self) -> None:
+		workflow = self._read(".github/workflows/ci.yml")
+
+		self.assertIn(
+			"PYTHONPATH=src python -m unittest src.tests.test_web_documentation",
+			workflow,
+		)
+
 	def test_specification_api_table_matches_implemented_routes(self) -> None:
 		documented_routes = _documented_api_routes(self._read("docs/specification.md"))
 		implemented_routes: set[tuple[str, str]] = set()
@@ -109,6 +123,16 @@ class WebDocumentationTest(unittest.TestCase):
 		):
 			with self.subTest(expected=expected):
 				self.assertIn(expected, specification)
+
+	def test_specification_assigns_subtitle_history_responsibilities(self) -> None:
+		specification = self._read("docs/specification.md")
+
+		self.assertIn(
+			"`useTranslationEvents.ts`: SSE を購読し、世代と `frame_id` で古い結果を除外して、"
+			"履歴を新しい順に最大100件へ制限する",
+			specification,
+		)
+		self.assertIn("`SubtitleList.tsx`: 字幕履歴を表示する", specification)
 
 	def test_current_documentation_does_not_describe_removed_desktop_features(self) -> None:
 		for relative_path in CURRENT_DOCUMENTS:

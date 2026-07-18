@@ -61,12 +61,20 @@ npm run build
 
 ### Docker
 
+フロントエンドのビルド、lint、Vitest は `frontend-test` ステージで確認します。
+
+```bash
+docker build --target frontend-test .
+```
+
+Compose では最終イメージのビルドと、そのイメージ内での Python テストを行います。
+
 ```bash
 docker compose build
 docker compose run --rm app
 ```
 
-Compose の `app` サービスは `python -m unittest discover -s src/tests` を既定コマンドとします。フロントエンドの lint と Vitest は `frontend-test` ビルドステージで実行されます。Web サーバーはループバックへ固定され、Compose にポート公開がないため、この構成は自動テスト用です。
+Compose の `app` サービスは `python -m unittest discover -s src/tests` を既定コマンドとします。Web サーバーはループバックへ固定され、Compose にポート公開がないため、この構成は自動テスト用です。
 
 ## テスト
 
@@ -145,7 +153,7 @@ docker compose run --rm app
 `.github/workflows/ci.yml` は PR、および `dev`・`main` への push で次を実行します。
 
 1. Python 3.14 を準備する。
-2. ホスト上でフロントエンド構成と撤去済み構成のリポジトリ検査を行う。
+2. ホスト上でフロントエンド構成、文書整合、撤去済み構成のリポジトリ検査を行う。
 3. Docker の `frontend-test` ステージで oxlint、Vitest、TypeScript ビルドを行う。
 4. `ruff check src` を行う。
 5. 最終 Docker イメージをビルドし、全 Python テストをコンテナ内で行う。

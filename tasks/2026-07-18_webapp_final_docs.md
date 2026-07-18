@@ -90,3 +90,24 @@ npm run build
 - Docker の Web 公開対応。現行実装がループバック固定で Compose にポート公開がない事実を文書化するに留めた。
 - 初期要件・実現可能性資料の本文改稿。
 - コミット、push、PR 作成。
+
+## PR #21 レビュー指摘対応
+
+### TDD
+
+レビュー指摘3件を表す文書整合テストを先に追加し、次の指定コマンドで14件中4件が失敗する Red を確認した。
+
+```bash
+PYTHONPATH=src .venv/bin/python -m unittest src.tests.test_web_documentation src.tests.test_frontend_infrastructure
+```
+
+修正後に同じコマンドを再実行し、14件すべてが成功する Green を確認した。
+
+### 修正内容
+
+- `README.md` と `docs/developer_guide.md` に `docker build --target frontend-test .` を追加し、フロントエンドのビルド・lint・Vitest と、Compose による最終イメージのビルド・Python テストを区別した。
+- `.github/workflows/ci.yml` のホスト実行箇所に文書整合テストを追加し、最終実行用イメージではスキップされる `test_web_documentation` を CI で実行するようにした。
+- `docs/specification.md` のフロントエンド責務を実装へ合わせ、履歴上限100件の管理を `useTranslationEvents.ts`、履歴表示を `SubtitleList.tsx` の担当として記載した。
+- `src/tests/test_web_documentation.py` に Docker 手順、CI の文書整合テスト、字幕履歴の責務分担を継続的に検査するテストを追加した。
+
+コードの機能変更、コミット、push、GitHub 上のレビュー返信・スレッド解決は行っていない。

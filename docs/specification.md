@@ -35,9 +35,9 @@
 `frontend/src/` の React アプリが次を担当する。
 
 - `useScreenCapture.ts`: 制御 API、`getDisplayMedia`、500ミリ秒間隔のフレーム送信、共有ストリームの停止を管理する。
-- `useTranslationEvents.ts`: SSE を購読し、世代と `frame_id` で古い結果を除外する。
+- `useTranslationEvents.ts`: SSE を購読し、世代と `frame_id` で古い結果を除外して、履歴を新しい順に最大100件へ制限する。
 - `TranslationPreview.tsx`: 共有映像を `contain` 表示し、画像座標を映像内座標へ変換して訳文を重ねる。
-- `SubtitleList.tsx`: 原文と訳文の履歴を新しい順に最大100領域保持する。
+- `SubtitleList.tsx`: 字幕履歴を表示する。
 - `ConfigEditor.tsx` / `GlossaryEditor.tsx`: 設定と辞書を編集する。
 
 FastAPI は `frontend/dist` の `/` と静的ファイルを配信する。`api` と `frame` は予約パスとし、任意パスを SPA へフォールバックしない。ビルド成果物がない場合、`/` は HTTP 503 とビルド手順を返す。
