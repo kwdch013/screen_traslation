@@ -147,7 +147,6 @@ class WebAppService:
                     capture_backend="web",
                     overlay_backend="memory",
                     target_region=None,
-                    ui_mode="web",
                 )
                 pipeline = self._pipeline_factory(config, self._glossary, self._server.store, overlay)
                 runner = self._runner_factory(pipeline, self._error_handler(runner_generation))

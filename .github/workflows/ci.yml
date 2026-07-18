@@ -27,6 +27,9 @@ jobs:
       - name: フロントエンドインフラ構成テスト (ホスト)
         run: PYTHONPATH=src python -m unittest src.tests.test_frontend_infrastructure
 
+      - name: デスクトップ撤去構成テスト (ホスト)
+        run: PYTHONPATH=src python -m unittest src.tests.test_desktop_removal.DesktopRepositoryRemovalTest
+
       - name: フロントエンド検証 (コンテナ内)
         run: docker build --target frontend-test --tag frontend-test:ci .
 

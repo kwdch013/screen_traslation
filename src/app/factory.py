@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from .capture import BlankCaptureSource, MssCaptureSource
+from .capture import BlankCaptureSource
 from .config import PipelineConfig
 from .contracts import CaptureSource, OcrEngine, OverlayRenderer, ResultPublisher, Translator
 from .glossary import Glossary
@@ -17,14 +17,12 @@ from .web_capture import WebCaptureFrameStore, WebCaptureSource
 def build_capture_source(config: PipelineConfig, web_capture_store: WebCaptureFrameStore | None = None) -> CaptureSource:
     if config.capture_backend == "blank":
         return BlankCaptureSource(config.target_region)
-    if config.capture_backend == "mss":
-        return MssCaptureSource(config.target_region)
     if config.capture_backend == "web":
         if web_capture_store is None:
             raise ValueError(
                 "capture_backend='web' はブラウザ画面共有(WebCaptureServer)経由でのみ利用できます。"
-                "デスクトップアプリから起動するか、build_pipeline に web_capture_store を渡してください。"
-                "CLIの--run-onceなど非対話経路では capture_backend を 'mss' か 'blank' に設定してください。"
+                "Webアプリから起動するか、build_pipeline に web_capture_store を渡してください。"
+                "CLIの--run-onceなど非対話経路では capture_backend を 'blank' に設定してください。"
             )
         return WebCaptureSource(web_capture_store)
     raise ValueError(f"未対応のcapture_backendです: {config.capture_backend}")
@@ -77,10 +75,6 @@ def build_overlay_renderer(config: PipelineConfig) -> OverlayRenderer:
         return ConsoleOverlayRenderer()
     if config.overlay_backend == "memory":
         return InMemoryOverlayRenderer()
-    if config.overlay_backend == "tk":
-        from .tk_overlay import TkOverlayRenderer
-
-        return TkOverlayRenderer(config.overlay_style)
     raise ValueError(f"未対応のoverlay_backendです: {config.overlay_backend}")
 
 

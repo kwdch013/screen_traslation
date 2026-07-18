@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import json
 import tempfile
 import unittest
 from unittest import mock
@@ -17,7 +18,7 @@ class ConfigTest(unittest.TestCase):
         config = PipelineConfig(
             ocr_fps=3.0,
             min_confidence=0.7,
-            capture_backend="mss",
+            capture_backend="web",
             ocr_backend="tesseract",
             translator_backend="argos",
             ocr_fallback_min_confidence=0.7,
@@ -25,12 +26,11 @@ class ConfigTest(unittest.TestCase):
             llm_model="local-model",
             llm_timeout_seconds=30.0,
             translation_log_path="verification/test_translation_log.jsonl",
-            overlay_backend="tk",
+            overlay_backend="memory",
             source_language="en",
             target_language="ja",
             target_scope="ui_all",
             external_api_policy="local_first_free_only",
-            ui_mode="desktop",
             priority_order=("gpu_speed", "latency", "translation_quality", "implementation_speed"),
             target_region=Rect(x=1, y=2, width=300, height=200),
             overlay_style=OverlayStyle(overlay_opacity=0.5),
@@ -41,6 +41,24 @@ class ConfigTest(unittest.TestCase):
             loaded = load_config(path)
 
         self.assertEqual(loaded, config)
+
+    def test_legacy_desktop_backends_are_read_as_web_equivalents(self) -> None:
+        legacy = {
+            "capture_backend": "mss",
+            "overlay_backend": "tk",
+            "ui_mode": "desktop",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "app.json"
+            path.write_text(json.dumps(legacy), encoding="utf-8")
+
+            loaded = load_config(path)
+            save_config(loaded, path)
+            saved = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(loaded.capture_backend, "web")
+        self.assertEqual(loaded.overlay_backend, "memory")
+        self.assertNotIn("ui_mode", saved)
 
     def test_save_config_uses_same_directory_atomic_replace(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

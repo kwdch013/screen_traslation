@@ -32,8 +32,10 @@ class WebCaptureServerCompatibilityTest(unittest.TestCase):
         self.assertFalse(server.is_running)
 
     def test_run_forever_uses_same_secure_single_worker_config(self) -> None:
-        server = WebCaptureServer(port=8765)
+        read_timeout_seconds = 2.75
+        server = WebCaptureServer(port=8765, read_timeout_seconds=read_timeout_seconds)
         config_values: dict[str, object] = {}
+        protocol = object()
 
         class FakeUvicornServer:
             def __init__(self, config: object) -> None:
@@ -46,14 +48,20 @@ class WebCaptureServerCompatibilityTest(unittest.TestCase):
             config_values.update(kwargs)
             return object()
 
-        with mock.patch("app.web_capture.uvicorn.Config", side_effect=capture_config), mock.patch(
-            "app.web_capture.uvicorn.Server", FakeUvicornServer
-        ):
+        with mock.patch(
+            "app.web_capture.create_header_timeout_protocol",
+            return_value=protocol,
+        ) as create_protocol, mock.patch(
+            "app.web_capture.uvicorn.Config",
+            side_effect=capture_config,
+        ), mock.patch("app.web_capture.uvicorn.Server", FakeUvicornServer):
             server.run_forever()
 
+        create_protocol.assert_called_once_with(read_timeout_seconds)
         self.assertEqual(config_values["host"], "127.0.0.1")
         self.assertEqual(config_values["workers"], 1)
-        self.assertTrue(callable(config_values["http"]))
+        self.assertIs(config_values["http"], protocol)
+        self.assertEqual(config_values["timeout_keep_alive"], read_timeout_seconds)
 
     def test_new_session_clears_stored_frame(self) -> None:
         server = WebCaptureServer(port=_free_port())
