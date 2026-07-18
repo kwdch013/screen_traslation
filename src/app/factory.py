@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from .capture import BlankCaptureSource, MssCaptureSource
 from .config import PipelineConfig
-from .contracts import CaptureSource, OcrEngine, OverlayRenderer, Translator
+from .contracts import CaptureSource, OcrEngine, OverlayRenderer, ResultPublisher, Translator
 from .glossary import Glossary
 from .ocr import FallbackOcrEngine, LlmOcrEngine, StaticOcrEngine, TesseractOcrEngine
 from .overlay import ConsoleOverlayRenderer, InMemoryOverlayRenderer
@@ -87,6 +89,8 @@ def build_pipeline(
     static_text: str | None = None,
     web_capture_store: WebCaptureFrameStore | None = None,
     overlay_renderer: OverlayRenderer | None = None,
+    result_publisher: ResultPublisher | None = None,
+    generation_provider: Callable[[], int] | None = None,
 ) -> TranslationPipeline:
     return TranslationPipeline(
         capture_source=build_capture_source(config, web_capture_store),
@@ -95,4 +99,6 @@ def build_pipeline(
         overlay_renderer=overlay_renderer or build_overlay_renderer(config),
         config=config,
         translation_logger=JsonlTranslationLogger(config.translation_log_path),
+        result_publisher=result_publisher,
+        generation_provider=generation_provider,
     )

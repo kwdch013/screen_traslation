@@ -36,7 +36,18 @@ class WebCaptureFrameStoreTest(unittest.TestCase):
         frame = store.latest()
 
         self.assertIs(frame.image, image)
+        self.assertEqual(frame.frame_id, 1)
         self.assertTrue(store.has_frame())
+
+    def test_frame_id_increases_across_clear(self) -> None:
+        store = WebCaptureFrameStore()
+        store.update(Image.new("RGB", (2, 2), color="red"))
+        first_id = store.latest().frame_id
+
+        store.clear()
+        store.update(Image.new("RGB", (2, 2), color="blue"))
+
+        self.assertEqual(store.latest().frame_id, first_id + 1)
 
     def test_clear_removes_stored_frame(self) -> None:
         store = WebCaptureFrameStore()

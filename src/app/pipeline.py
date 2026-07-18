@@ -5,10 +5,20 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 from time import monotonic
-from typing import Protocol
+from typing import Callable, Protocol
 
 from .config import PipelineConfig
-from .contracts import CaptureSource, OcrEngine, OverlayRenderer, TextRegion, TranslationRegion, Translator
+from .contracts import (
+    CaptureSource,
+    Frame,
+    OcrEngine,
+    OverlayRenderer,
+    ResultPublisher,
+    TextRegion,
+    TranslationRegion,
+    TranslationResult,
+    Translator,
+)
 
 
 class TranslationCache:
@@ -109,6 +119,8 @@ class TranslationPipeline:
         frame_limiter: FrameLimiter | None = None,
         stabilizer: OcrStabilizer | None = None,
         translation_logger: TranslationLogger | None = None,
+        result_publisher: ResultPublisher | None = None,
+        generation_provider: Callable[[], int] | None = None,
     ) -> None:
         self._capture_source = capture_source
         self._ocr_engine = ocr_engine
@@ -119,18 +131,30 @@ class TranslationPipeline:
         self._frame_limiter = frame_limiter or FrameLimiter(config.ocr_fps)
         self._stabilizer = stabilizer or OcrStabilizer()
         self._translation_logger = translation_logger
+        self._result_publisher = result_publisher
+        self._generation_provider = generation_provider or (lambda: 0)
         self._last_overlay_texts: set[str] = set()
         self._last_logged_signature: tuple[tuple[str, str], ...] = ()
+        self._last_frame_id: int | None = None
+        self._fallback_frame_id = 0
+        self._processing_generation: int | None = None
 
     def tick(self, now: float | None = None) -> bool:
         current_time = monotonic() if now is None else now
         if not self._frame_limiter.should_run(current_time):
             return False
 
+        generation = self._generation_provider()
+        self._prepare_generation(generation)
         frame = self._capture_source.capture()
+        if frame.frame_id is not None and frame.frame_id == self._last_frame_id:
+            return False
+        recognized_regions = self._ocr_engine.recognize(frame)
+        if generation != self._generation_provider():
+            return True
         raw_text_regions = [
             region
-            for region in self._ocr_engine.recognize(frame)
+            for region in recognized_regions
             if (
                 region.text.strip()
                 and region.confidence >= self._config.min_confidence
@@ -151,13 +175,57 @@ class TranslationPipeline:
                 translated=self._cache.get_or_translate(region.text, self._translator),
                 bounds=region.bounds,
                 confidence=region.confidence,
+                positioning=region.positioning,
             )
             for region in text_regions
         ]
+        if generation != self._generation_provider():
+            return True
+        self._publish_result(generation, frame, translations)
         self._last_overlay_texts = _overlay_feedback_texts(translations)
         self._overlay_renderer.render(translations)
         self._log_translations_if_changed(translations)
+        if frame.frame_id is not None:
+            self._last_frame_id = frame.frame_id
         return True
+
+    def _prepare_generation(self, generation: int) -> None:
+        if self._processing_generation is None:
+            self._processing_generation = generation
+            return
+        if generation == self._processing_generation:
+            return
+        self._processing_generation = generation
+        self._stabilizer.clear()
+        self._last_overlay_texts.clear()
+        self._last_logged_signature = ()
+        self._last_frame_id = None
+        self._fallback_frame_id = 0
+
+    def _publish_result(
+        self,
+        generation: int,
+        frame: Frame,
+        translations: list[TranslationRegion],
+    ) -> None:
+        if self._result_publisher is None or frame.image is None:
+            return
+        frame_id = frame.frame_id
+        if frame_id is None:
+            self._fallback_frame_id += 1
+            frame_id = self._fallback_frame_id
+        frame_width, frame_height = _image_dimensions(frame.image)
+        self._result_publisher.publish(
+            TranslationResult(
+                generation=generation,
+                frame_id=frame_id,
+                captured_at=frame.captured_at,
+                processed_at=monotonic(),
+                frame_width=frame_width,
+                frame_height=frame_height,
+                regions=tuple(translations),
+            )
+        )
 
     def _log_translations_if_changed(self, translations: list[TranslationRegion]) -> None:
         signature = tuple((region.source, region.translated) for region in translations)
@@ -210,3 +278,12 @@ def _overlay_feedback_texts(regions: list[TranslationRegion]) -> set[str]:
             if normalized:
                 texts.add(normalized)
     return texts
+
+
+def _image_dimensions(image: object) -> tuple[int, int]:
+    size = getattr(image, "size", None)
+    if isinstance(size, tuple) and len(size) == 2:
+        return int(size[0]), int(size[1])
+    width = getattr(image, "width", 0)
+    height = getattr(image, "height", 0)
+    return int(width), int(height)

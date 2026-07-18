@@ -17,6 +17,7 @@ class LlmBackendsTest(unittest.TestCase):
 
         self.assertEqual(regions[0].text, "New Game")
         self.assertEqual(regions[0].confidence, 1.0)
+        self.assertEqual(regions[0].positioning, "unavailable")
         self.assertIn("Do not translate", requests[0]["messages"][0]["content"])
         self.assertIn("add labels", requests[0]["messages"][0]["content"])
 
