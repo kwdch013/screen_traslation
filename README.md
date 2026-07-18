@@ -1,128 +1,128 @@
 # screen_translation
 
-ブラウザで共有した画面、ウィンドウ、またはタブの英語テキストをOCRし、日本語訳をWeb画面へ表示するアプリケーションです。
+ブラウザで共有した画面、ウィンドウ、またはタブの英語テキストを OCR し、日本語訳を同じ Web アプリへ表示するローカルアプリケーションです。画面選択にはブラウザの Screen Capture API、バックエンドには FastAPI、フロントエンドには React + Vite を使用します。
 
-## 現在の状態
+## 主な機能
 
-- キャプチャ、OCR、翻訳、辞書、オーバーレイ、パイプラインを疎結合なモジュールとして分離しています。
-- 既定では、ブラウザ標準の画面共有ダイアログ(`getDisplayMedia`)で画面、ウィンドウ、またはタブを選択してキャプチャします。`getDisplayMedia` に対応したブラウザ(Chrome / Edge など)が必要です。
-- Tesseract OCR、LLM OCR、Argos Translateのアダプタを用意しています。
-- 用語辞書はJSONで登録、保存、読み込みできます。
-- 初期検証用に、任意テキストをOCR結果として扱うCLIも用意しています。
+- ブラウザ標準の共有ダイアログによる画面、ウィンドウ、タブの選択
+- Tesseract またはローカルの OpenAI 互換 API を使った OCR
+- Argos Translate によるローカル英日翻訳
+- 共有映像上の翻訳表示と、原文・訳文を蓄積する字幕リスト
+- ブラウザからの翻訳設定と用語辞書の編集
+- Server-Sent Events（SSE）による状態・翻訳結果の配信
 
-### 画面共有(web)方式のセキュリティモデル
+## 必要なもの
 
-- フレーム受信用のローカルHTTPサーバーは `127.0.0.1`(ループバック)のみで待ち受けます。
-- 接続受理から15秒以内に初回リクエストの行・ヘッダを受信できない接続を閉じ、`POST /frame` はセッショントークン(`X-Capture-Token`)、`Host` / `Origin` ヘッダ検証(DNSリバインディング対策)、`Content-Type`・`Content-Length` 上限・画像寸法上限・本文読み取りタイムアウトで保護しています。
-- 開始・停止・再選択のたびにセッショントークンを更新し、古いブラウザタブから届くフレームは拒否します。
-- CLIの `--run-once` など非対話経路ではブラウザ画面共有を使えないため、`capture_backend` は `blank` のみ利用できます。
+- Python 3.14
+- Tesseract OCR 本体
+- Argos Translate の英日モデル
+- `getDisplayMedia` に対応した Chrome、Edge などのブラウザ
+- ソースから利用する場合は Node.js 24 と npm（`frontend/dist` の生成に使用）
 
-## ドキュメント
+## 起動
 
-- [仕様書](docs/specification.md)
-- [利用手順書](docs/user_guide.md)
-- [開発者向け説明書](docs/developer_guide.md)
+### Windows のランチャー
 
-## 実行
+ソースから取得した直後は、先にフロントエンドをビルドします。
 
-クリックで起動する場合:
+```powershell
+cd frontend
+npm ci
+npm run build
+cd ..
+```
+
+その後、リポジトリ直下の次のファイルをダブルクリックします。
 
 ```text
 start_screen_translation.cmd
 ```
 
-リポジトリ直下の `start_screen_translation.cmd` をダブルクリックする。
-初回は `.venv` の作成と依存ライブラリのインストールを行い、2回目以降はそのままWebアプリを起動する。フロントエンドはビルド済みの `dist` を配信するため、起動時にNode.jsは不要。
+ランチャーは `.venv` がなければ Python 3.14 で作成し、Python 依存関係を導入して Web アプリを起動します。Tesseract が PATH にない場合は警告します。配布物に `frontend/dist` が同梱されている場合、Node.js の作業は不要です。
 
-WindowsでWebアプリとして使う場合:
+### Python から起動
+
+Windows PowerShell では次のように準備します。
 
 ```powershell
-git clone https://github.com/kwdch013/screen_traslation.git
-cd screen_traslation
 py -3.14 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+cd frontend
+npm ci
+npm run build
+cd ..
 $env:PYTHONPATH = "src"
 python -m app.main --install-argos-en-ja
 python -m app.main
 ```
 
-Tesseract OCR本体も別途インストールし、`tesseract --version` が実行できる状態にする。
-詳細は [利用手順書](docs/user_guide.md) を参照する。
-
-CLIで最小動作を確認する場合:
-
-```bash
-PYTHONPATH=src python3 -m app.main --text "New Game"
-```
-
-辞書登録:
-
-```bash
-PYTHONPATH=src python3 -m app.main --add-term "New Game" "ニューゲーム"
-```
-
-設定・辞書ファイルは、Web API・CLIなど複数プロセスから同時に編集しないでください。
-
-Webアプリ起動:
+Linux などの POSIX シェルでは、仮想環境を有効にした後の起動コマンドは次のとおりです。
 
 ```bash
 PYTHONPATH=src python -m app.main
 ```
 
-起動時に既定ブラウザで `http://127.0.0.1:8765/` を開く。ブラウザの自動起動を抑止する場合:
+サーバーの準備が完了すると、`http://127.0.0.1:8765/` が既定ブラウザで開きます。自動で開かないようにする場合は次を実行し、URLを手動で開きます。
 
 ```bash
 PYTHONPATH=src python -m app.main --no-browser
 ```
 
-ブラウザで `画面を選択して開始` を押す。対象を変更する場合は `画面を選び直す`、終了する場合は `共有を停止` を押す。ターミナル側は `Ctrl+C` で終了する。
+明示的な `--web` も互換オプションとして利用できます。二重起動した場合は新しいサーバーを作らず、既存の Web 画面を開きます。
 
-フロントエンドを開発する場合は、別ターミナルで FastAPI を起動したまま `frontend/` で `npm run dev` を実行する。Vite 開発サーバーは `/api` と `/frame` を `http://127.0.0.1:8765` へプロキシする。
+ブラウザでは `画面を選択して開始` を押して共有対象を選びます。対象を変更する場合は `画面を選び直す`、処理を止める場合は `共有を停止` を押します。Web サーバー自体は起動したターミナルで `Ctrl+C` を押して終了します。
 
-Argos Translateの英日モデル導入:
+### Docker
 
-```bash
-PYTHONPATH=src python3 -m app.main --install-argos-en-ja
-```
-
-OCR評価:
-
-```powershell
-$env:PYTHONPATH = "src"
-python -m app.evaluate_test_images --engine tesseract
-python -m app.evaluate_test_images --engine windows
-python -m app.evaluate_test_images --engine llm --llm-base-url http://127.0.0.1:8000/v1 --llm-model your-vlm-model
-python -m app.evaluate_translations --engine llm --llm-base-url http://127.0.0.1:8000/v1 --llm-model your-llm-model
-```
-
-評価結果は1ケース1行のJSONで出力され、`similarity` が正解テキスト類似度、`seconds` が処理時間、
-`cpu_seconds` がCPU時間、`memory_bytes` / `memory_delta_bytes` がプロセスのメモリ負荷です。
-LLM系はOpenAI互換の `/v1/chat/completions` を持つローカルAPIを想定します。
-
-実運用候補は `ocr_backend: tesseract_llm_fallback`、`translator_backend: argos` です。
-Tesseractの平均信頼度が低い場合のみ、Ollama上の `qwen2.5vl:7b` を補助OCRとして呼び出します。
-
-
-## テスト
+現在の Docker 構成は、フロントエンドをビルドした Python 3.14 環境で lint とテストを再現するためのものです。
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s src/tests
+docker compose build
+docker compose run --rm app
 ```
 
-フロントエンドの確認:
+Web サーバーは安全のためコンテナ内でも `127.0.0.1` だけで待ち受けます。このため、現在の Compose 定義はホストブラウザから Web アプリを操作する起動方法を提供せず、実利用には Windows ランチャーまたは Python からの起動を使用します。
+
+## Web 画面
+
+- `プレビュー`: 共有映像と、位置情報がある翻訳結果を重ねて表示します。位置情報がない結果は映像の下に表示します。
+- `字幕リスト`: 原文と訳文の直近履歴を新しい順に表示します。
+- `設定`: OCR・翻訳設定を保存し、用語辞書を登録・削除します。設定変更は次回の翻訳開始から、辞書変更は実行中の翻訳にも反映されます。
+
+設定は `config/app.json`、辞書は `config/glossary.json` に保存されます。Web API と CLI など、複数プロセスから同じファイルを同時に編集しないでください。
+
+## セキュリティモデル
+
+本アプリは信頼できる利用者が同じ端末で使うローカルアプリです。インターネットや LAN への公開は想定していません。
+
+- uvicorn は `127.0.0.1:8765`、1ワーカーでのみ起動します。
+- 全 HTTP 要求の `Host` をループバック名に限定し、ブラウザ由来の対象 API では `Origin` も検証します。
+- `POST /frame` は開始・停止・再選択ごとに更新する `X-Capture-Token` を要求し、古いタブのフレームを拒否します。
+- フレームは Content-Type、Content-Length、実画像形式、最大 16 MiB、最大辺 10,000 px、最大 50,000,000画素で検証します。
+- ヘッダーと本文に15秒の読み取り期限を設け、遅い接続を閉じます。
+- 応答にはキャッシュ抑止と `X-Content-Type-Options: nosniff` を付け、FastAPI の OpenAPI・Swagger UI は公開しません。
+- 設定と辞書は一時ファイルからの置換で保存し、途中まで書かれた JSON を残しません。
+
+詳細は [仕様書](docs/specification.md) の「セキュリティ」を参照してください。
+
+## 開発時の確認
 
 ```bash
+PYTHONPATH=src python -m unittest discover -s src/tests
+ruff check src
 cd frontend
 npm run lint
 npm test
 npm run build
 ```
 
-## コンテナ
+コンテナ内の一括確認は `docker compose run --rm app` で実行できます。
 
-```bash
-docker compose build
-docker compose run --rm app
-```
+## ドキュメント
+
+- [仕様書](docs/specification.md)
+- [利用手順書](docs/user_guide.md)
+- [開発者向け説明書](docs/developer_guide.md)
+- [初期要件（経緯資料）](docs/requirements.md)
+- [初期実現可能性メモ（経緯資料）](docs/feasibility.md)

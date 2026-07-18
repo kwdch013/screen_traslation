@@ -1,114 +1,58 @@
 # 利用手順書
 
-## 前提
+## できること
 
-- Windows環境で実行する。
-- Python 3.14を使用する。
-- Gitを使用できる。
-- Tesseract OCR本体をインストールする。
-- Python依存ライブラリをインストールする。
-- Argos Translateの英日モデルを導入する。
+ブラウザで画面、ウィンドウ、またはタブを選び、その共有映像から認識した英語を日本語へ翻訳します。結果は Web アプリの `プレビュー` と `字幕リスト` に表示され、`設定` タブから処理設定と用語辞書を管理できます。
 
 ## セットアップ
 
-### 1. リポジトリ取得
+### 1. 必要なソフトウェア
 
-PowerShellで任意の作業ディレクトリへ移動し、リポジトリを取得する。
+- Python 3.14
+- Git
+- Tesseract OCR 本体
+- Node.js 24 と npm（ソースから `frontend/dist` を生成する場合）
+- Chrome、Edge など `getDisplayMedia` 対応ブラウザ
 
-```powershell
-git clone git@github.com:kwdch013/screen_traslation.git
-cd screen_traslation
-```
-
-SSH設定をしていない場合はHTTPSで取得する。
-
-```powershell
-git clone https://github.com/kwdch013/screen_traslation.git
-cd screen_traslation
-```
-
-### 2. Python仮想環境
-
-Python 3.14で仮想環境を作成して有効化する。
-
-```powershell
-py -3.14 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-```
-
-`py -3.14` で起動できない場合は、Python 3.14をインストールし、`python --version` でバージョンを確認する。
-
-### 3. Python依存ライブラリ
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-### 4. Tesseract OCR
-
-WindowsではTesseract OCR本体をインストールし、`tesseract` がPATHから実行できるようにする。
-
-確認:
+Windows では Tesseract をインストールし、次のコマンドが成功するよう PATH を設定します。
 
 ```powershell
 tesseract --version
 ```
 
-`tesseract` が見つからない場合は、Tesseract OCRのインストール先をPATHに追加してからPowerShellを開き直す。
+### 2. Python とフロントエンド
 
-### 任意: Windows OCR
-
-Windows標準OCRを使う場合は追加依存を入れる。
+PowerShell でリポジトリ直下へ移動し、仮想環境と依存関係を準備します。
 
 ```powershell
+py -3.14 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+cd frontend
+npm ci
+npm run build
+cd ..
 ```
 
-設定ファイルの `ocr_backend` を `windows` にするとWindows OCRを使う。通常のUIフォントではTesseractより高速な場合がある。
+`frontend/dist` が同梱された配布物では Node.js の手順を省略できます。`frontend/dist` がない状態でバックエンドだけを起動すると、ブラウザには HTTP 503 とビルド案内が表示されます。
 
-### 任意: EasyOCR
-
-GPU EasyOCRを試す場合は、Python 3.13などの別仮想環境を作って追加依存を入れる。
-
-```powershell
-py -3.13 -m venv .venv_ocr
-.\.venv_ocr\Scripts\Activate.ps1
-python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-```
-
-評価コマンド例:
-
-```powershell
-$env:PYTHONPATH = "src"
-```
-
-### 5. 英日翻訳モデル
+### 3. 英日翻訳モデル
 
 ```powershell
 $env:PYTHONPATH = "src"
 python -m app.main --install-argos-en-ja
 ```
 
-## 起動
+モデルの導入にはインターネット接続が必要です。導入後の通常翻訳はローカルで動作します。
 
-### クリックで起動する
+## 起動方法
 
-リポジトリ直下の `start_screen_translation.cmd` をダブルクリックする。
+### ランチャーから起動
 
-初回起動時は次を自動で行う。
+リポジトリ直下の `start_screen_translation.cmd` をダブルクリックします。`.venv` がない場合は自動作成し、Python 依存関係が不足している場合は `requirements.txt` から導入します。
 
-- `.venv` の作成
-- Python依存ライブラリのインストール
-- `PYTHONPATH` の設定
-- Webアプリの起動
-
-依存ライブラリは `.venv` 内へ入るため、Windows全体のPython環境には入らない。
-
-Tesseract OCR本体がPATHから見つからない場合は警告を表示する。OCRを使うには、Tesseract OCR本体を別途インストールする。
-
-### PowerShellから起動する
-
-PowerShellで仮想環境を有効化し、Webアプリを起動する。サーバーの準備が完了すると、既定のブラウザが自動で開く。
+### PowerShell から起動
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -116,125 +60,140 @@ $env:PYTHONPATH = "src"
 python -m app.main
 ```
 
-### Web起動を明示する
+サーバーの準備後、既定ブラウザで `http://127.0.0.1:8765/` が開きます。ブラウザを自動で開かない場合は次を使います。
 
 ```powershell
-$env:PYTHONPATH = "src"
+python -m app.main --no-browser
+```
+
+明示的な Web 起動オプションも利用できます。
+
+```powershell
 python -m app.main --web
 ```
 
-ブラウザで `画面を選択して開始` を押す。共有対象を変更する場合は `画面を選び直す`、翻訳処理を終了する場合は `共有を停止` を押す。Webサーバー自体はPowerShellで `Ctrl+C` を押して終了する。
-
-`プレビュー`タブでは、位置を取得できた訳文を共有映像へ重ねて表示する。位置を取得できない訳文は映像の下に表示する。`字幕リスト`タブへ切り替えると、原文と訳文の直近履歴を新しい順に確認できる。タブを切り替えても翻訳結果の受信は継続する。
-
-翻訳結果の接続が切れた場合は「翻訳結果を再接続中です。」と表示し、自動で再接続する。共有の停止または画面の再選択を行うと、それまでの重畳と字幕履歴は消去される。
-
-`設定`タブでは、OCR FPS、信頼度、OCR・翻訳方式、LLM設定、言語・実行方針、オーバーレイの表示設定を編集できる。`設定を保存`を押した後に表示される「次回開始から反映」の案内どおり、保存内容は次に翻訳を開始した時点から使用される。入力値が範囲外の場合や設定の組み合わせが不正な場合は、フォーム上部のメッセージを確認して修正する。保存に失敗しても入力途中の値は保持される。
-
-同じタブの`辞書`では、原文と訳文を入力して用語を登録できる。登録済み用語の`削除`を押すと確認画面が表示される。空の用語や登録済み原文の重複などで更新できない場合は、辞書セクションのメッセージを確認する。登録・削除に成功すると一覧がサーバーの最新状態へ更新される。
+二重起動した場合、新しいサーバーは起動せず既存の画面を開きます。Web サーバーを終了するには、起動したターミナルで `Ctrl+C` を押します。
 
 ## 基本操作
 
-1. 起動後に開いたブラウザの`設定`タブで、必要に応じてOCR FPSや表示設定を調整する。
-2. 用語辞書が必要な場合は、英語と日本語を入力して登録する。
-3. `画面を選択して開始`を押し、翻訳したい画面、ウィンドウ、またはタブを選ぶ。
-4. 選択したブラウザのタブは翻訳中も開いたままにする。
-5. 日本語訳はWebアプリのプレビューまたは字幕リストに表示される。
-6. 共有対象を変える場合は`画面を選び直す`、翻訳を終了する場合は`共有を停止`を押す。
+### 1. 必要に応じて設定する
 
-## 辞書登録
+ブラウザ上部の `設定` タブを開きます。初めて開いたときに、サーバーから現在値を読み込みます。
 
-Webアプリの`設定`タブに加えて、CLIからも登録できる。
+`翻訳設定` では次を編集できます。
+
+- OCR FPS、最小信頼度
+- OCR 方式、フォールバック信頼度
+- 翻訳方式
+- LLM モデル、タイムアウト
+- 言語、翻訳対象、外部 API 方針、優先順位
+- ブラウザ表示用として保存されるフォント、色、透明度の項目
+
+値を変更して `設定を保存` を押します。保存成功後は「次回開始から反映されます」と表示されます。すでに翻訳中の場合、その処理には反映されないため、`共有を停止` してから改めて開始します。入力範囲や組み合わせに問題がある場合は、フォーム上部のエラーを修正します。
+
+### 2. 必要に応じて辞書を登録する
+
+同じ `設定` タブの `辞書` で、英語の `原文` と日本語の `訳文` を入力し、`用語を登録` を押します。原文が完全一致したときは登録訳を優先し、通常翻訳後の文にも登録語を置換適用します。
+
+登録済み用語は原文順に表示されます。削除する場合は対象行の `削除` を押し、確認ダイアログを承認します。空欄や同じ原文の重複は登録できません。登録と削除は実行中の翻訳にも反映されます。
+
+### 3. 共有を開始する
+
+1. `プレビュー` タブを開き、`画面を選択して開始` を押します。
+2. ブラウザ標準の共有ダイアログで、画面、ウィンドウ、またはタブを1つ選びます。
+3. 選択した共有ストリームと、この Web アプリのタブを翻訳中も開いたままにします。
+4. 状態欄が送信中になり、翻訳結果が表示されることを確認します。
+
+共有ダイアログをキャンセルした場合、バックエンドも停止状態へ戻ります。もう一度 `画面を選択して開始` を押してください。
+
+### 4. 翻訳結果を見る
+
+- `プレビュー` タブでは、位置情報がある訳文を共有映像上へ重ねます。
+- 位置情報がない LLM OCR の訳文は、共有映像の下に表示します。
+- `字幕リスト` タブでは原文と訳文を新しい順に確認できます。最大100領域分を保持します。
+- タブを切り替えても共有と翻訳結果の受信は続きます。
+- 現在のプレビュー結果は、新しい結果が10秒来なければ消えます。字幕リストの履歴はセッション中そのまま残ります。
+- SSE 接続が切れると「翻訳結果を再接続中です。」と表示し、ブラウザが自動で再接続します。
+
+### 5. 共有対象を変更・停止する
+
+- `画面を選び直す`: パイプラインを維持したまま以前の共有を止め、新しい共有ダイアログを開きます。以前のプレビューと字幕履歴は消去されます。
+- `共有を停止`: 共有ストリームと翻訳パイプラインを停止し、以前の結果を消去します。
+
+ブラウザ自身の共有停止操作でトラックが終了した場合も、Web アプリは停止処理を行います。ページを閉じた場合は現在のセッショントークンを使った停止を試みます。再開するには `http://127.0.0.1:8765/` を開き、`画面を選択して開始` を押します。
+
+## 保存ファイル
+
+- 設定: `config/app.json`
+- 辞書: `config/glossary.json`
+- 翻訳ログ: 設定された `translation_log_path`
+
+設定と辞書は Web 画面または CLI のどちらか一方から編集してください。複数プロセスから同時に同じファイルを更新する使い方は想定していません。
+
+CLI から辞書へ登録する場合は次を使います。
 
 ```powershell
 $env:PYTHONPATH = "src"
 python -m app.main --add-term "New Game" "ニューゲーム"
 ```
 
-登録内容は `config/glossary.json` に保存される。
-
-## CLI検証
-
-実OCRや実翻訳を使わず、辞書とパイプラインの動作だけ確認する。
+実 OCR と実翻訳を使わない最小確認もできます。
 
 ```powershell
 $env:PYTHONPATH = "src"
 python -m app.main --text "New Game"
 ```
 
-1回だけ実行する。
-
-```powershell
-$env:PYTHONPATH = "src"
-python -m app.main --run-once --text "New Game"
-```
-
-テスト画像OCR評価:
-
-```powershell
-$env:PYTHONPATH = "src"
-python -m app.evaluate_test_images --engine tesseract
-```
-
 ## Docker
 
-Dockerが導入済みの場合:
+Docker Compose はコンテナ内でテスト環境を再現するために使用します。
 
 ```bash
 docker compose build
 docker compose run --rm app
 ```
 
-このコンテナはテストや推論環境の再現性確認用である。画面共有の操作確認には、ホスト側で対応ブラウザからWebアプリへアクセスする。
-
-## Dockerインストール
-
-この作業環境ではsudoの対話認証が必要だったため、CodexからDockerを直接インストールできなかった。最終確認時点ではDocker CLIとComposeは存在したが、Dockerデーモンのソケット権限によりビルドは実行できなかった。
-
-Ubuntu/WSLで未導入、または権限設定をやり直す場合は次を実行する。
-
-```bash
-scripts/install_docker_ubuntu.sh
-```
-
-実行後、WSLまたはシェルを再起動する。
-
-再起動後に確認する。
-
-```bash
-docker info
-docker compose version
-```
+Web サーバーは `127.0.0.1` だけで待ち受け、現行 Compose はホスト向けポートを公開しません。ブラウザでの実利用はランチャーまたはホストの Python 環境から起動します。
 
 ## トラブルシュート
 
-### PowerShellで仮想環境を有効化できない
+### Web 画面が HTTP 503 になる
 
-実行ポリシーにより `Activate.ps1` がブロックされている可能性がある。現在のPowerShellだけ許可してから再実行する。
+`frontend/dist` がありません。リポジトリ直下から次を実行し、バックエンドを再起動します。
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
+### PowerShell で仮想環境を有効化できない
+
+現在の PowerShell プロセスだけスクリプト実行を許可してから再実行します。
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 ```
 
-### `tesseract` が見つからない
+### Tesseract が見つからない
 
-Tesseract OCR本体が未導入、またはPATHに入っていない。
+`tesseract --version` を実行し、見つからなければ Tesseract OCR 本体を導入して PATH を設定します。ランチャーは標準的な `C:\Program Files\Tesseract-OCR` も確認します。
 
-### Argos Translateの英日モデルが未導入
-
-次を実行する。
+### Argos Translate の英日モデルがない
 
 ```bash
 PYTHONPATH=src python -m app.main --install-argos-en-ja
 ```
 
-### ブラウザで画面が選択できない、映像が届かない
+### ブラウザが自動で開かない
 
-- `開始` を押しても既定のブラウザが自動で開かない場合は、ステータス欄に表示されたURL(既定は `http://127.0.0.1:8765/`)を手動でブラウザに入力する。
-- ブラウザの画面共有ダイアログでキャンセルした場合は、ページの `画面を選択して開始` を押し直す。
-- ページを閉じてしまった場合は、`画面再選択` を押すとブラウザが再度開く。
+バックエンドが動作していることを確認し、`http://127.0.0.1:8765/` を Chrome または Edge で開きます。
 
-### 翻訳結果が表示されない
+### 共有できない、翻訳結果が出ない
 
-画面共有が継続していることと、Webアプリのステータス欄にエラーが出ていないことを確認する。共有が停止している場合は`画面を選択して開始`を押し直す。
+- ブラウザが Screen Capture API に対応していることを確認します。
+- 共有ダイアログで対象を選び、共有が継続していることを確認します。
+- Web 画面の状態欄に表示されたエラーを確認します。
+- Tesseract と Argos Translate モデルが導入済みか確認します。
+- LLM OCR を選んだ場合は、設定したモデルを提供するローカル OpenAI 互換 API が既定の `http://127.0.0.1:8000/v1` で動作していることを確認します。
