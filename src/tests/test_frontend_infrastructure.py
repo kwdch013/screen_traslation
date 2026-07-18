@@ -56,6 +56,11 @@ class FrontendInfrastructureTest(unittest.TestCase):
             steps["フロントエンドインフラ構成テスト (ホスト)"].get("run"),
             "PYTHONPATH=src python -m unittest src.tests.test_frontend_infrastructure",
         )
+        self.assertEqual(
+            steps["デスクトップ撤去構成テスト (ホスト)"].get("run"),
+            "PYTHONPATH=src python -m unittest "
+            "src.tests.test_desktop_removal.DesktopRepositoryRemovalTest",
+        )
         self.assertNotIn("フロントエンド依存関係を復元", steps)
         self.assertNotIn("フロントエンド lint", steps)
         self.assertNotIn("フロントエンドテスト", steps)

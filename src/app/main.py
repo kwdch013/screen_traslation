@@ -3,6 +3,10 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 from pathlib import Path
+import threading
+from time import monotonic
+from urllib.error import HTTPError
+from urllib.request import urlopen
 import webbrowser
 
 from .capture import BlankCaptureSource
@@ -19,7 +23,10 @@ from .web_capture import DEFAULT_HOST, DEFAULT_PORT
 
 
 DEFAULT_WEB_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/"
-DEFAULT_LOCK_PATH = Path("config/screen_translation.lock")
+BROWSER_READINESS_TIMEOUT_SECONDS = 10.0
+SECOND_INSTANCE_READINESS_TIMEOUT_SECONDS = 2.0
+READINESS_REQUEST_TIMEOUT_SECONDS = 0.25
+READINESS_POLL_INTERVAL_SECONDS = 0.05
 
 
 def main() -> int:
@@ -98,13 +105,21 @@ def _run_web_app(
     open_browser: bool,
 ) -> int:
     # 設定ファイルを切り替えても固定ポートのサーバーが多重起動しないよう、ロックは共通にする。
-    instance_lock = SingleInstanceLock(DEFAULT_LOCK_PATH)
+    instance_lock = SingleInstanceLock(_default_lock_path())
     if not instance_lock.acquire():
-        webbrowser.open(DEFAULT_WEB_URL)
-        print(f"Screen Translationはすでに起動しています。既存の画面を開きます: {DEFAULT_WEB_URL}")
+        if _wait_for_readiness(
+            DEFAULT_WEB_URL,
+            timeout_seconds=SECOND_INSTANCE_READINESS_TIMEOUT_SECONDS,
+        ):
+            webbrowser.open(DEFAULT_WEB_URL)
+            print(f"Screen Translationはすでに起動しています。既存の画面を開きます: {DEFAULT_WEB_URL}")
+        else:
+            print("Screen Translationは起動中ですが、Web画面の準備完了を確認できませんでした。")
         return 0
 
     service: WebAppService | None = None
+    browser_stop = threading.Event()
+    browser_thread: threading.Thread | None = None
     try:
         service = WebAppService(
             config,
@@ -113,15 +128,65 @@ def _run_web_app(
             glossary_path=glossary_path,
         )
         if open_browser:
-            webbrowser.open(service.server.url)
+            browser_thread = threading.Thread(
+                target=_open_browser_after_readiness,
+                args=(service.server.url, browser_stop),
+                name="browser-readiness",
+                daemon=True,
+            )
+            browser_thread.start()
         service.server.run_forever()
     finally:
+        browser_stop.set()
+        if browser_thread is not None:
+            browser_thread.join(
+                timeout=READINESS_REQUEST_TIMEOUT_SECONDS + READINESS_POLL_INTERVAL_SECONDS
+            )
         try:
             if service is not None:
                 service.stop()
         finally:
             instance_lock.release()
     return 0
+
+
+def _default_lock_path() -> Path:
+    return Path.home() / ".screen_translation" / "screen_translation.lock"
+
+
+def _open_browser_after_readiness(url: str, stop_event: threading.Event) -> None:
+    if _wait_for_readiness(
+        url,
+        timeout_seconds=BROWSER_READINESS_TIMEOUT_SECONDS,
+        stop_event=stop_event,
+    ) and not stop_event.is_set():
+        webbrowser.open(url)
+
+
+def _wait_for_readiness(
+    url: str,
+    *,
+    timeout_seconds: float,
+    stop_event: threading.Event | None = None,
+) -> bool:
+    cancellation = stop_event or threading.Event()
+    deadline = monotonic() + timeout_seconds
+    while not cancellation.is_set():
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return False
+        try:
+            with urlopen(
+                url,
+                timeout=min(READINESS_REQUEST_TIMEOUT_SECONDS, remaining),
+            ):
+                return True
+        except HTTPError:
+            # HTTP応答が返る時点でソケットの待ち受けは完了している。
+            return True
+        except OSError:
+            cancellation.wait(min(READINESS_POLL_INTERVAL_SECONDS, remaining))
+    return False
 
 
 if __name__ == "__main__":

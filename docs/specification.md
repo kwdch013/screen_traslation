@@ -2,7 +2,7 @@
 
 ## 概要
 
-本アプリは、Windows上で起動中のアプリケーション画面をキャプチャし、英語テキストをOCRで抽出し、日本語へ翻訳した結果を透過オーバーレイとして表示するデスクトップアプリである。
+本アプリは、ブラウザで共有した画面、ウィンドウ、またはタブをキャプチャし、英語テキストをOCRで抽出して、日本語へ翻訳した結果をWeb画面へ表示するアプリである。
 
 初期対象は英語のみとし、翻訳先は日本語のみとする。翻訳対象は字幕に限定せず、対象ウィンドウ全体のUIテキストを扱える構成とする。
 
@@ -37,8 +37,7 @@
 - `runtime`: パイプラインの開始、停止を担当する。
 - `web_app_service`: Web向けパイプラインの状態、世代、キャプチャセッションを管理する。
 - `web_events_api`: SSEエンドポイントとheartbeatを担当する。
-- `desktop_app`: デスクトップUIを担当する。
-- `window`: 起動中ウィンドウ一覧の取得を担当する(レガシーの`mss`キャプチャ用)。
+- `web_frontend`: 画面共有操作、設定、辞書、翻訳結果表示を担当する。
 - `factory`: 設定から各モジュールを組み立てる。
 
 ## バックエンド
@@ -46,12 +45,11 @@
 ### キャプチャ
 
 - 既定値: `web`
-- レガシー: `mss`
 - テスト用: `blank`
 
-`web` はローカルWebページ(`web_capture.WebCaptureServer`)をブラウザで開き、`navigator.mediaDevices.getDisplayMedia` によるブラウザ標準の「画面、ウィンドウ、またはタブを選択」ダイアログでキャプチャ対象を選ぶ。選択後はブラウザがJPEGフレームを定期的にローカルサーバーへ送信し、`WebCaptureSource` が最新フレームを取得する。Windowsのウィンドウ一覧取得(`pygetwindow`)に依存しないため、対象アプリの種類やOS権限の影響を受けにくい。`getDisplayMedia` に対応したブラウザ(Chrome / Edge など)が必要となる。
+`web` はローカルWebページ(`web_capture.WebCaptureServer`)をブラウザで開き、`navigator.mediaDevices.getDisplayMedia` によるブラウザ標準の「画面、ウィンドウ、またはタブを選択」ダイアログでキャプチャ対象を選ぶ。選択後はブラウザがJPEGフレームを定期的にローカルサーバーへ送信し、`WebCaptureSource` が最新フレームを取得する。OS固有のウィンドウ一覧取得には依存しない。`getDisplayMedia` に対応したブラウザ(Chrome / Edge など)が必要となる。
 
-`web` の受信サーバーは FastAPI + uvicorn で動作し、`127.0.0.1` のみで待ち受ける。接続受理から15秒以内に初回リクエストの行・ヘッダを受信できない接続は、h11プロトコル層の絶対期限で閉じる。`POST /frame` はセッショントークン(`X-Capture-Token`)、`Host` / `Origin` ヘッダ検証、`Content-Type` 制限、`Content-Length` 上限、画像の辺長・総画素数上限、画像形式照合、本文読み取りタイムアウトで保護する。開始・停止・再選択のたびにセッショントークンを更新し(`WebCaptureServer.new_session`)、古いブラウザタブから届くフレームは拒否される。CLIの `--run-once` など `web_capture_store` を伴わない非対話経路では `web` を利用できず、明示的なエラーで `mss` / `blank` への設定を促す。
+`web` の受信サーバーは FastAPI + uvicorn で動作し、`127.0.0.1` のみで待ち受ける。接続受理から15秒以内に初回リクエストの行・ヘッダを受信できない接続は、h11プロトコル層の絶対期限で閉じる。`POST /frame` はセッショントークン(`X-Capture-Token`)、`Host` / `Origin` ヘッダ検証、`Content-Type` 制限、`Content-Length` 上限、画像の辺長・総画素数上限、画像形式照合、本文読み取りタイムアウトで保護する。開始・停止・再選択のたびにセッショントークンを更新し(`WebCaptureServer.new_session`)、古いブラウザタブから届くフレームは拒否される。CLIの `--run-once` など `web_capture_store` を伴わない非対話経路では `web` を利用できず、テスト用の`blank`など別のキャプチャ方式を明示する必要がある。
 
 ### Web制御API
 
@@ -63,8 +61,6 @@
 - `GET /api/status`: 状態、エラーメッセージ、現行セッショントークンの有効性を返す。
 
 状態は`idle → starting → awaiting_frame → running → stopping → idle`で遷移し、開始・実行・停止に失敗した場合は`error`になる。停止要求から2秒後もRunnerスレッドが生存している場合は`idle`へ遷移せず、旧パイプラインとの並走を防ぐ。画面選択ページは`pageshow`で状態を再同期し、`starting` / `stopping`の間は安定状態まで短間隔で再取得する。`error`では停止だけを操作可能にして、保持中のRunnerを停止できれば`idle`へ復旧する。`pagehide`のkeepalive停止にはページのセッショントークンを付け、復元前の旧ページから遅れて届いた停止要求が新しいセッションを止めないようにする。
-
-`mss` は対象ウィンドウまたは指定領域を画像として取得するレガシー方式で、Tkinterの矩形ドラッグ選択と組み合わせて利用する。
 
 ### 翻訳結果イベントAPI
 
@@ -119,12 +115,12 @@ Publisherはアプリ全体で1つを保持し、クライアントごとに上�
 
 Argos Translateによるローカル翻訳を使う。英日モデルは別途導入する。
 
-### オーバーレイ
+### 翻訳結果表示
 
-- 既定値: `tk`
-- テスト用: `console`, `memory`
+- 既定値: `memory`
+- テスト用: `console`
 
-Tkの透明ウィンドウを使って翻訳結果を描画する。オーバーレイ以外の画面透明度は変更しない。
+パイプラインが生成した翻訳結果をSSEでブラウザへ送り、プレビューまたは字幕リストへ表示する。
 
 ## 辞書
 
@@ -156,16 +152,14 @@ Tkの透明ウィンドウを使って翻訳結果を描画する。オーバー
 
 ## 制約
 
-- 実画面キャプチャと透過オーバーレイはWindowsデスクトップ環境を前提とする。
-- アンチチートがあるゲームではオーバーレイや画面取得が制限される場合がある。
+- 画面共有はブラウザのScreen Capture APIとユーザー操作を必要とする。
+- アンチチートがあるゲームではブラウザによる画面取得が制限される場合がある。
 - OCR精度はフォント、背景、解像度、エフェクトに影響される。
 - Argos Translateの英日モデルが未導入の場合、翻訳は開始できない。
-- Dockerコンテナ内からWindowsのゲーム画面を直接取得、オーバーレイ表示することは想定しない。
-- 設定・辞書ファイルは、Web API・デスクトップアプリ・CLIなど複数プロセスから同時に編集しない。
+- Dockerコンテナ内だけでホストのゲーム画面を直接取得することは想定しない。
+- 設定・辞書ファイルは、Web APIとCLIなど複数プロセスから同時に編集しない。
 
 ## 参考
 
-- mss: https://pypi.org/project/mss/
 - pytesseract: https://pypi.org/project/pytesseract/
 - Argos Translate: https://github.com/argosopentech/argos-translate
-- PyGetWindow: https://pygetwindow.readthedocs.io/

@@ -149,3 +149,47 @@ PYTHONPATH=src .venv/bin/python -m unittest -v \
 - OCR・翻訳・Web UI の新機能追加。
 - フロントエンド実装とビルド成果物の変更。
 - コミット、プッシュ、PR 作成。
+
+## PR #19 レビュー指摘の修正
+
+### Red
+
+ソケットを使わない次のテストを先に追加・強化した。
+
+```bash
+PYTHONPATH=src .venv/bin/python -m unittest -v \
+  src.tests.test_main_web \
+  src.tests.test_desktop_removal \
+  src.tests.test_frontend_infrastructure \
+  src.tests.test_web_documentation \
+  src.tests.test_web_capture_server_compatibility.WebCaptureServerCompatibilityTest.test_run_forever_uses_same_secure_single_worker_config
+```
+
+結果: `Ran 21 tests ... FAILED (failures=3, errors=4)`
+
+指摘ごとの Red は次のとおり。
+
+1. readiness 関数がなく、ブラウザをサーバー実行前に直接開いていたため、初回・二重起動の順序テストが error になった。
+2. ソース撤去検査を Dockerfile の有無に依存しないクラスへ分離するとともに、CIホスト側のリポジトリ構成検査を要求するテストが、手順未定義により error になった。
+3. 現行ドキュメントで`--desktop`を案内しないテストが、`docs/user_guide.md`の旧起動手順を検出して failure になった。
+4. 旧テストは`http`がcallableかしか確認していなかった。sentinelプロトコルと実タイムアウト値を検証するテストへ強化したところ、対象実装は既に正しく、この項目は追加時から成功した。
+5. ユーザーホーム配下の固定ロックパスを要求する2テストが、`config/screen_translation.lock`を検出して failure になった。
+
+### Green
+
+- 初回起動では別スレッドがローカルURLを最大10秒ポーリングし、HTTP応答後だけブラウザを開くようにした。終了時はポーリングをキャンセルする。
+- 二重起動では既存URLを最大2秒確認し、readiness成立後だけブラウザを開くようにした。
+- ロックを`Path.home() / ".screen_translation" / "screen_translation.lock"`へ変更した。
+- デスクトップ撤去検査をソース検査とリポジトリ構成検査へ分離し、後者をCIホスト実行ステップへ追加した。
+- `docs/user_guide.md`、`docs/specification.md`、`docs/developer_guide.md`の壊れた起動手順と撤去済みバックエンドへの言及を、現行のWeb起動・Web表示へ置き換えた。
+- `run_forever()`経路で、`create_header_timeout_protocol()`の戻り値が`uvicorn.Config(http=...)`へ渡ることと、ヘッダ・keep-aliveのタイムアウト値を検証した。
+
+同じコマンドを再実行した結果: `Ran 22 tests ... OK`
+
+追加確認:
+
+- 関連する設定・factory・WebAppService・h11互換性まで含むソケット不要の回帰テスト49件: 成功。
+- `PYTHONPATH=src .venv/bin/python -m compileall -q src/app src/tests`: 成功。
+- `git diff --check`: 成功。
+- `.venv`にruffは未導入のため、lintは依頼者側Dockerでの最終確認対象とする。
+- ユーザー指定に従い、コミットとプッシュは行わない。

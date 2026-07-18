@@ -5,9 +5,11 @@ from io import StringIO
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
+import app.main as main_module
 from app.glossary import Glossary
 from app.main import main
 
@@ -31,21 +33,46 @@ class MainWebTest(unittest.TestCase):
         fake_server, fake_service, fake_lock, service_patch, lock_patch, browser_patch = (
             self._web_patches()
         )
+        server_started = threading.Event()
+        browser_opened = threading.Event()
+        call_order: list[str] = []
+
+        def run_forever() -> None:
+            call_order.append("run_forever")
+            server_started.set()
+            self.assertTrue(browser_opened.wait(timeout=1))
+
+        def wait_for_readiness(*args: object, **kwargs: object) -> bool:
+            self.assertTrue(server_started.wait(timeout=1))
+            call_order.append("readiness")
+            return True
+
+        def open_browser(url: str) -> bool:
+            call_order.append("open")
+            browser_opened.set()
+            return True
+
+        fake_server.run_forever.side_effect = run_forever
 
         with (
             mock.patch.object(sys, "argv", ["app.main"]),
             service_patch as service_factory,
             lock_patch as lock_factory,
-            browser_patch as open_browser,
+            browser_patch as open_browser_mock,
+            mock.patch("app.main._wait_for_readiness", side_effect=wait_for_readiness),
         ):
+            open_browser_mock.side_effect = open_browser
             result = main()
 
         self.assertEqual(result, 0)
-        lock_factory.assert_called_once_with(Path("config/screen_translation.lock"))
+        lock_factory.assert_called_once_with(
+            Path.home() / ".screen_translation" / "screen_translation.lock"
+        )
         fake_lock.acquire.assert_called_once_with()
         self.assertEqual(service_factory.call_args.kwargs["config_path"], Path("config/app.json"))
         self.assertEqual(service_factory.call_args.kwargs["glossary_path"], Path("config/glossary.json"))
-        open_browser.assert_called_once_with("http://127.0.0.1:8765/")
+        open_browser_mock.assert_called_once_with("http://127.0.0.1:8765/")
+        self.assertEqual(call_order, ["run_forever", "readiness", "open"])
         fake_server.run_forever.assert_called_once_with()
         fake_service.stop.assert_called_once_with()
         fake_lock.release.assert_called_once_with()
@@ -85,7 +112,31 @@ class MainWebTest(unittest.TestCase):
             result = main()
 
         self.assertEqual(result, 0)
-        lock_factory.assert_called_once_with(Path("config/screen_translation.lock"))
+        lock_factory.assert_called_once_with(
+            Path.home() / ".screen_translation" / "screen_translation.lock"
+        )
+
+    def test_lock_path_is_under_user_home_independently_of_config_path(self) -> None:
+        _, _, _, service_patch, lock_patch, browser_patch = self._web_patches()
+        user_home = Path("/fixed/user-home")
+
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                ["app.main", "--no-browser", "--config", "relative/app.json"],
+            ),
+            mock.patch("app.main.Path.home", return_value=user_home),
+            service_patch,
+            lock_patch as lock_factory,
+            browser_patch,
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        lock_factory.assert_called_once_with(
+            user_home / ".screen_translation" / "screen_translation.lock"
+        )
 
     def test_lock_is_released_even_if_service_cleanup_fails(self) -> None:
         _, fake_service, fake_lock, service_patch, lock_patch, browser_patch = self._web_patches()
@@ -105,21 +156,57 @@ class MainWebTest(unittest.TestCase):
     def test_second_launch_opens_existing_url_without_starting_server(self) -> None:
         _, _, fake_lock, service_patch, lock_patch, browser_patch = self._web_patches(acquired=False)
         output = StringIO()
+        call_order: list[str] = []
+
+        def wait_for_readiness(*args: object, **kwargs: object) -> bool:
+            call_order.append("readiness")
+            return True
+
+        def open_browser(url: str) -> bool:
+            call_order.append("open")
+            return True
 
         with (
             mock.patch.object(sys, "argv", ["app.main", "--no-browser"]),
             service_patch as service_factory,
             lock_patch,
-            browser_patch as open_browser,
+            browser_patch as open_browser_mock,
+            mock.patch(
+                "app.main._wait_for_readiness",
+                side_effect=wait_for_readiness,
+            ) as readiness,
             redirect_stdout(output),
+        ):
+            open_browser_mock.side_effect = open_browser
+            result = main()
+
+        self.assertEqual(result, 0)
+        service_factory.assert_not_called()
+        readiness.assert_called_once_with(
+            "http://127.0.0.1:8765/",
+            timeout_seconds=2.0,
+        )
+        open_browser_mock.assert_called_once_with("http://127.0.0.1:8765/")
+        self.assertEqual(call_order, ["readiness", "open"])
+        self.assertIn("すでに起動", output.getvalue())
+        fake_lock.release.assert_not_called()
+
+    def test_second_launch_does_not_open_url_when_server_is_not_ready(self) -> None:
+        _, _, _, service_patch, lock_patch, browser_patch = self._web_patches(acquired=False)
+
+        with (
+            mock.patch.object(sys, "argv", ["app.main"]),
+            service_patch as service_factory,
+            lock_patch,
+            browser_patch as open_browser,
+            mock.patch("app.main._wait_for_readiness", return_value=False),
+            redirect_stdout(StringIO()),
         ):
             result = main()
 
         self.assertEqual(result, 0)
         service_factory.assert_not_called()
-        open_browser.assert_called_once_with("http://127.0.0.1:8765/")
-        self.assertIn("すでに起動", output.getvalue())
-        fake_lock.release.assert_not_called()
+        open_browser.assert_not_called()
 
     def test_desktop_option_is_removed(self) -> None:
         with mock.patch.object(sys, "argv", ["app.main", "--desktop"]), redirect_stderr(StringIO()):
@@ -178,6 +265,27 @@ class MainCliCompatibilityTest(unittest.TestCase):
 
             self.assertEqual(result, 0)
             self.assertEqual(Glossary.load(glossary_path).translate_exact("New Game"), "ニューゲーム")
+
+
+class MainReadinessTest(unittest.TestCase):
+    def test_readiness_retries_until_the_server_responds(self) -> None:
+        response = mock.MagicMock()
+        stop_event = mock.Mock()
+        stop_event.is_set.return_value = False
+
+        with mock.patch(
+            "app.main.urlopen",
+            side_effect=[OSError("接続拒否"), response],
+        ) as request:
+            ready = main_module._wait_for_readiness(
+                "http://127.0.0.1:8765/",
+                timeout_seconds=1.0,
+                stop_event=stop_event,
+            )
+
+        self.assertTrue(ready)
+        self.assertEqual(request.call_count, 2)
+        stop_event.wait.assert_called_once()
 
 
 if __name__ == "__main__":

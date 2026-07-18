@@ -8,8 +8,6 @@ import unittest
 class DesktopRemovalTest(unittest.TestCase):
     def setUp(self) -> None:
         self.repository_root = Path(__file__).resolve().parents[2]
-        if not (self.repository_root / "Dockerfile").is_file():
-            self.skipTest("実行用コンテナにはリポジトリ設定を含めていません")
 
     def test_desktop_modules_are_removed(self) -> None:
         for relative_path in (
@@ -26,6 +24,13 @@ class DesktopRemovalTest(unittest.TestCase):
         for path in (self.repository_root / "src" / "app").glob("*.py"):
             with self.subTest(path=path.name):
                 self.assertIsNone(forbidden_import.search(path.read_text(encoding="utf-8")))
+
+
+class DesktopRepositoryRemovalTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.repository_root = Path(__file__).resolve().parents[2]
+        if not (self.repository_root / "Dockerfile").is_file():
+            self.skipTest("実行用コンテナにはリポジトリ設定を含めていません")
 
     def test_runtime_dependencies_and_container_have_no_desktop_packages(self) -> None:
         requirements = (self.repository_root / "requirements.txt").read_text(encoding="utf-8")
