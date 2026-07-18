@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+import threading
 from time import monotonic
 from typing import Callable, Protocol
 
@@ -19,17 +20,30 @@ from .contracts import (
     TranslationResult,
     Translator,
 )
+from .pipeline_text import (
+    _looks_like_overlay_feedback,
+    _normalize_cache_key,
+    _overlay_feedback_texts,
+    should_translate_source_text,
+)
+from .revision import MonotonicRevision
 
 
 class TranslationCache:
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self._values: dict[str, str] = {}
 
     def get_or_translate(self, text: str, translator: Translator) -> str:
         key = _normalize_cache_key(text)
-        if key not in self._values:
-            self._values[key] = translator.translate(text)
-        return self._values[key]
+        with self._lock:
+            if key not in self._values:
+                self._values[key] = translator.translate(text)
+            return self._values[key]
+
+    def clear(self) -> None:
+        with self._lock:
+            self._values.clear()
 
 
 class OcrStabilizer:
@@ -121,6 +135,7 @@ class TranslationPipeline:
         translation_logger: TranslationLogger | None = None,
         result_publisher: ResultPublisher | None = None,
         generation_provider: Callable[[], int] | None = None,
+        glossary_revision: MonotonicRevision | None = None,
     ) -> None:
         self._capture_source = capture_source
         self._ocr_engine = ocr_engine
@@ -133,11 +148,15 @@ class TranslationPipeline:
         self._translation_logger = translation_logger
         self._result_publisher = result_publisher
         self._generation_provider = generation_provider or (lambda: 0)
+        self._glossary_revision = glossary_revision or MonotonicRevision()
         self._last_overlay_texts: set[str] = set()
         self._last_logged_signature: tuple[tuple[str, str], ...] = ()
         self._last_frame_id: int | None = None
         self._fallback_frame_id = 0
         self._processing_generation: int | None = None
+
+    def invalidate_translation_cache(self) -> None:
+        self._cache.clear()
 
     def tick(self, now: float | None = None) -> bool:
         current_time = monotonic() if now is None else now
@@ -145,6 +164,7 @@ class TranslationPipeline:
             return False
 
         generation = self._generation_provider()
+        glossary_revision = self._glossary_revision.current()
         self._prepare_generation(generation)
         frame = self._capture_source.capture()
         if frame.frame_id is not None and frame.frame_id == self._last_frame_id:
@@ -181,13 +201,24 @@ class TranslationPipeline:
         ]
         if generation != self._generation_provider():
             return True
+        self._glossary_revision.run_if_current(
+            glossary_revision,
+            lambda: self._commit_result(generation, frame, translations),
+        )
+        return True
+
+    def _commit_result(
+        self,
+        generation: int,
+        frame: Frame,
+        translations: list[TranslationRegion],
+    ) -> None:
         self._publish_result(generation, frame, translations)
         self._last_overlay_texts = _overlay_feedback_texts(translations)
         self._overlay_renderer.render(translations)
         self._log_translations_if_changed(translations)
         if frame.frame_id is not None:
             self._last_frame_id = frame.frame_id
-        return True
 
     def _prepare_generation(self, generation: int) -> None:
         if self._processing_generation is None:
@@ -234,50 +265,6 @@ class TranslationPipeline:
         self._last_logged_signature = signature
         if translations and self._translation_logger is not None:
             self._translation_logger.log(translations, self._config)
-
-
-def _normalize_cache_key(text: str) -> str:
-    return " ".join(text.casefold().split())
-
-
-def should_translate_source_text(text: str) -> bool:
-    stripped = text.strip()
-    if not stripped:
-        return False
-    english_letters = sum(1 for character in stripped if "A" <= character <= "Z" or "a" <= character <= "z")
-    japanese_characters = sum(
-        1
-        for character in stripped
-        if (
-            "\u3040" <= character <= "\u309f"
-            or "\u30a0" <= character <= "\u30ff"
-            or "\u4e00" <= character <= "\u9fff"
-        )
-    )
-    if english_letters == 0:
-        return False
-    return english_letters >= japanese_characters
-
-
-def _looks_like_overlay_feedback(text: str, overlay_texts: set[str]) -> bool:
-    normalized = _normalize_cache_key(text)
-    if not normalized:
-        return True
-    if normalized in overlay_texts:
-        return True
-    return "->" in text or "翻訳待機中" in text
-
-
-def _overlay_feedback_texts(regions: list[TranslationRegion]) -> set[str]:
-    texts: set[str] = set()
-    for region in regions:
-        source = region.source.strip()
-        translated = region.translated.strip()
-        for value in (translated, f"{source} -> {translated}"):
-            normalized = _normalize_cache_key(value)
-            if normalized:
-                texts.add(normalized)
-    return texts
 
 
 def _image_dimensions(image: object) -> tuple[int, int]:

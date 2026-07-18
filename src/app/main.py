@@ -45,7 +45,12 @@ def main() -> int:
     if args.web:
         from .web_app_service import WebAppService
 
-        service = WebAppService(config, glossary)
+        service = WebAppService(
+            config,
+            glossary,
+            config_path=args.config,
+            glossary_path=args.glossary,
+        )
         try:
             service.server.run_forever()
         finally:

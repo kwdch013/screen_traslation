@@ -9,6 +9,7 @@ from .glossary import Glossary
 from .ocr import FallbackOcrEngine, LlmOcrEngine, StaticOcrEngine, TesseractOcrEngine
 from .overlay import ConsoleOverlayRenderer, InMemoryOverlayRenderer
 from .pipeline import JsonlTranslationLogger, TranslationPipeline
+from .revision import MonotonicRevision
 from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTranslator
 from .web_capture import WebCaptureFrameStore, WebCaptureSource
 
@@ -91,6 +92,7 @@ def build_pipeline(
     overlay_renderer: OverlayRenderer | None = None,
     result_publisher: ResultPublisher | None = None,
     generation_provider: Callable[[], int] | None = None,
+    glossary_revision: MonotonicRevision | None = None,
 ) -> TranslationPipeline:
     return TranslationPipeline(
         capture_source=build_capture_source(config, web_capture_store),
@@ -101,4 +103,5 @@ def build_pipeline(
         translation_logger=JsonlTranslationLogger(config.translation_log_path),
         result_publisher=result_publisher,
         generation_provider=generation_provider,
+        glossary_revision=glossary_revision,
     )

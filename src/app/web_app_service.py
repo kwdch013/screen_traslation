@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import replace
+from pathlib import Path
 import secrets
 import threading
 from typing import Protocol
@@ -11,10 +12,14 @@ from .contracts import OverlayRenderer
 from .glossary import Glossary
 from .overlay import InMemoryOverlayRenderer
 from .result_events import TranslationEventPublisher
+from .revision import MonotonicRevision
+from .web_app_status import WebAppStatus
 from .web_capture import WebCaptureFrameStore, WebCaptureServer
 from .web_control_api import install_control_routes
 from .web_events_api import install_event_routes
 from .web_pipeline import build_runner, build_web_pipeline
+from .web_settings import WebSettings
+from .web_settings_api import install_settings_routes
 
 
 class Runner(Protocol):
@@ -35,22 +40,6 @@ PipelineFactory = Callable[
 RunnerFactory = Callable[[object, Callable[[Exception], None]], Runner]
 
 
-@dataclass(frozen=True)
-class WebAppStatus:
-    state: str
-    error_message: str | None
-    session_token: str | None
-    session_token_valid: bool
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "state": self.state,
-            "error_message": self.error_message,
-            "session_token": self.session_token,
-            "session_token_valid": self.session_token_valid,
-        }
-
-
 class WebAppConflictError(RuntimeError):
     """現在の状態では制御操作を実行できないことを表す。"""
 
@@ -63,15 +52,17 @@ class WebAppService:
         config: PipelineConfig,
         glossary: Glossary,
         *,
+        config_path: Path = Path("config/app.json"),
+        glossary_path: Path = Path("config/glossary.json"),
         server: WebCaptureServer | None = None,
         pipeline_factory: PipelineFactory | None = None,
         runner_factory: RunnerFactory | None = None,
     ) -> None:
-        self._config = config
         self._glossary = glossary
         self._server = server or WebCaptureServer()
         self._operation_lock = threading.Lock()
         self._lock = threading.RLock()
+        self._glossary_revision = MonotonicRevision()
         # 世代進行とPublisherの旧世代無効化の間に結果配信を割り込ませない。
         self._event_publisher = TranslationEventPublisher(lock=self._lock)
         if pipeline_factory is None:
@@ -82,6 +73,7 @@ class WebAppService:
                 overlay,
                 result_publisher=self._event_publisher,
                 generation_provider=lambda: self.generation,
+                glossary_revision=self._glossary_revision,
             )
         else:
             self._pipeline_factory = pipeline_factory
@@ -91,10 +83,19 @@ class WebAppService:
         self._session_generation = 0
         self._runner_generation = 0
         self._runner: Runner | None = None
+        self._pipeline: object | None = None
         self._overlay: InMemoryOverlayRenderer | None = None
+        self._settings = WebSettings(
+            config,
+            glossary,
+            config_path,
+            glossary_path,
+            invalidate_translation_cache=self._invalidate_translation_cache,
+        )
         self._server.set_frame_accepted_callback(self._on_frame_accepted)
         install_control_routes(self._server.app, self)
         install_event_routes(self._server.app, self._event_publisher)
+        install_settings_routes(self._server.app, self._settings)
 
     @property
     def server(self) -> WebCaptureServer:
@@ -127,6 +128,7 @@ class WebAppService:
                     raise WebAppConflictError(f"state={self._state}では開始できません")
                 # timeout後に自然終了した旧Runnerの資源を、新規開始前に回収する。
                 self._runner = None
+                self._pipeline = None
                 self._close_overlay_unlocked()
 
                 self._state = "starting"
@@ -134,13 +136,14 @@ class WebAppService:
                 self._session_generation += 1
                 self._runner_generation += 1
                 runner_generation = self._runner_generation
+                base_config = self._settings.config_snapshot()
                 self._server.new_session()
                 self._publish_state_unlocked()
             overlay = InMemoryOverlayRenderer()
             runner: Runner | None = None
             try:
                 config = replace(
-                    self._config,
+                    base_config,
                     capture_backend="web",
                     overlay_backend="memory",
                     target_region=None,
@@ -150,6 +153,7 @@ class WebAppService:
                 runner = self._runner_factory(pipeline, self._error_handler(runner_generation))
                 with self._lock:
                     self._overlay = overlay
+                    self._pipeline = pipeline
                     self._runner = runner
                 runner.start()
             except Exception as error:
@@ -193,6 +197,7 @@ class WebAppService:
                     self._publish_state_unlocked()
                     return self._status_unlocked()
                 self._runner = None
+                self._pipeline = None
                 self._close_overlay_unlocked()
                 self._state = "idle"
                 self._error_message = None
@@ -231,6 +236,7 @@ class WebAppService:
         with self._lock:
             if runner is None or not runner.is_running:
                 self._runner = None
+                self._pipeline = None
                 self._overlay = None
 
     def _error_handler(self, runner_generation: int) -> Callable[[Exception], None]:
@@ -242,6 +248,7 @@ class WebAppService:
                 self._session_generation += 1
                 self._server.new_session()
                 self._close_overlay_unlocked()
+                self._pipeline = None
                 self._state = "error"
                 self._error_message = str(error)
                 self._publish_state_unlocked()
@@ -261,6 +268,17 @@ class WebAppService:
         if self._overlay is not None:
             self._overlay.close()
             self._overlay = None
+
+    def _invalidate_translation_cache(self) -> None:
+        with self._lock:
+            invalidator = getattr(self._pipeline, "invalidate_translation_cache", None)
+
+        def invalidate() -> None:
+            if callable(invalidator):
+                invalidator()
+
+        # LLM翻訳完了待ちは専用ロック内で行い、制御API用ロックを占有しない。
+        self._glossary_revision.advance_after(invalidate)
 
     def _status_unlocked(self) -> WebAppStatus:
         token_valid = self._state in {"awaiting_frame", "running"}

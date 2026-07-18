@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
 
+from .atomic_file import atomic_write_text
 from .contracts import Rect
 
 
@@ -64,10 +65,15 @@ def load_config(path: Path) -> PipelineConfig:
 
 
 def save_config(config: PipelineConfig, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_config_to_dict(config), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    atomic_write_text(
+        path,
+        json.dumps(
+            _config_to_dict(config),
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        + "\n",
     )
 
 

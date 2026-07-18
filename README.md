@@ -64,6 +64,8 @@ PYTHONPATH=src python3 -m app.main --text "New Game"
 PYTHONPATH=src python3 -m app.main --add-term "New Game" "ニューゲーム"
 ```
 
+設定・辞書ファイルは、Web API・デスクトップアプリ・CLIなど複数プロセスから同時に編集しないでください。
+
 デスクトップアプリ起動:
 
 ```bash
