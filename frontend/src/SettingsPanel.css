@@ -106,6 +106,10 @@
 }
 
 .form-message.error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   color: #ffd9dc;
   border: 1px solid #74373e;
   background: #402329;

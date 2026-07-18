@@ -82,7 +82,7 @@ export function ConfigEditor() {
         <p className="settings-loading">設定を読み込んでいます…</p>
       ) : (
         <form className="config-form" onSubmit={(event) => event.preventDefault()}>
-          <fieldset>
+          <fieldset disabled={saving}>
             <legend>OCR・翻訳</legend>
             <div className="field-grid">
               <label>OCR FPS<input type="number" step="any" value={draft.ocr_fps} onChange={(event) => update('ocr_fps', event.target.value)} /></label>
@@ -95,7 +95,7 @@ export function ConfigEditor() {
             </div>
           </fieldset>
 
-          <fieldset>
+          <fieldset disabled={saving}>
             <legend>言語・実行方針</legend>
             <div className="field-grid">
               <label>原文言語<select value={draft.source_language} onChange={(event) => update('source_language', event.target.value as 'en')}><option value="en">英語 (en)</option></select></label>
@@ -106,7 +106,7 @@ export function ConfigEditor() {
             </div>
           </fieldset>
 
-          <fieldset>
+          <fieldset disabled={saving}>
             <legend>オーバーレイ</legend>
             <div className="field-grid">
               <label>フォントサイズ<input type="number" step="1" min="1" value={draft.font_size} onChange={(event) => update('font_size', event.target.value)} /></label>

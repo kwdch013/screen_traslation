@@ -110,6 +110,7 @@ export async function getGlossary(): Promise<GlossaryTerm[]> {
 }
 
 export async function registerGlossaryTerm(source: string, target: string): Promise<GlossaryTerm> {
+  validateGlossarySource(source)
   const response = await fetch('/api/glossary', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -119,9 +120,16 @@ export async function registerGlossaryTerm(source: string, target: string): Prom
 }
 
 export async function deleteGlossaryTerm(source: string): Promise<void> {
+  validateGlossarySource(source)
   const response = await fetch(`/api/glossary/${encodeURIComponent(source)}`, { method: 'DELETE' })
   if (!response.ok) {
     throw new ServiceApiError(await responseErrorMessage(response, '用語を削除できませんでした。'), undefined, response.status)
+  }
+}
+
+function validateGlossarySource(source: string): void {
+  if (['.', '..'].includes(source.trim())) {
+    throw new ServiceApiError('原文に「.」または「..」は登録できません。', undefined, 400)
   }
 }
 
