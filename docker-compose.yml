@@ -1,0 +1,8 @@
+services:
+  app:
+    build: .
+    environment:
+      PYTHONPATH: /app/src
+    volumes:
+      - ./config:/app/config
+    command: python -m unittest discover -s src/tests

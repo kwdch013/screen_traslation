@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {
+      "source_text": "New Game",
+      "expected_text": "新しいゲーム"
+    },
+    {
+      "source_text": "Important Security Update Available",
+      "expected_text": "重要なセキュリティアップデートが利用可能です"
+    },
+    {
+      "source_text": "Game Options",
+      "expected_text": "ゲーム設定"
+    }
+  ]
+}

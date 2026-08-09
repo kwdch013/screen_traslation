@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+# 同じブランチへ連続 push したとき、古い実行を打ち切る
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# デフォルトを read-only にし、必要なジョブでだけ権限を足す
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: フロントエンドインフラ構成テスト (ホスト)
+        run: PYTHONPATH=src python -m unittest src.tests.test_frontend_infrastructure
+
+      - name: 文書整合テスト (ホスト)
+        run: PYTHONPATH=src python -m unittest src.tests.test_web_documentation
+
+      - name: デスクトップ撤去構成テスト (ホスト)
+        run: PYTHONPATH=src python -m unittest src.tests.test_desktop_removal.DesktopRepositoryRemovalTest
+
+      - name: フロントエンド検証 (コンテナ内)
+        run: docker build --target frontend-test --tag frontend-test:ci .
+
+      - name: Lint (ruff)
+        run: |
+          pip install -r requirements-dev.txt
+          ruff check src
+
+      # GitHub Actions キャッシュにレイヤを載せてビルド時間を短縮
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: イメージをビルド
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          load: true
+          tags: app:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ローカルの docker compose run --rm app と同一環境・同一コマンドでテストする
+      - name: テスト実行 (コンテナ内)
+        run: docker run --rm -e PYTHONPATH=/app/src app:ci python -m unittest discover -s src/tests
