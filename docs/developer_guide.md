@@ -160,6 +160,41 @@ docker compose run --rm app
 
 ワークフローは `concurrency` と `cancel-in-progress: true` で古い実行を中止し、トップレベル権限を `contents: read` に限定します。`.github/workflows/codeql.yml` は PR、対象ブランチへの push、週次スケジュールで Python を解析します。`.github/dependabot.yml` は GitHub Actions、pip、npm、Docker の依存更新を週次で `dev` 宛てに作成します。
 
+## リリース (dev → main)
+
+`main` はリリース済みの内容のみを反映する既定ブランチです。`.github/dependabot.yml` と CodeQL の週次 `schedule` は `main` 上の設定ファイルを参照するため、`main` へ反映するまで両方とも有効になりません。
+
+リポジトリ設定は通常 **squash マージのみ** を許可しています。`dev` から `main` へそのまま squash マージすると `main` が単一コミットになり、以後 `dev` と履歴が分岐して毎回のリリースでコンフリクトの温床になります。これを避けるため、リリース時のみ merge commit を一時的に許可し、履歴を保ったままマージします。
+
+1. `dev` の CI (`test` ステータスチェック) が緑であることを確認する。
+2. リリース時のみ merge commit を許可する。
+
+   ```bash
+   gh repo edit --enable-merge-commit
+   ```
+
+3. `dev` を base、`main` を対象としたリリース PR を作成する (Ruleset により PR 必須)。
+
+   ```bash
+   gh pr create --base main --head dev --title "release: <内容の要約>" --body "<変更内容の要約>"
+   ```
+
+4. CI 通過を確認し、**merge commit** でマージする (squash や rebase は使わない)。
+
+   ```bash
+   gh pr merge <PR番号> --merge
+   ```
+
+5. リポジトリ設定を squash 限定へ戻す。
+
+   ```bash
+   gh repo edit --enable-merge-commit=false
+   ```
+
+6. マージ後、GitHub の Insights → Dependency graph → Dependabot と Security → Code scanning で、週次スケジュール実行が有効になっていることを確認する。
+
+以後のリリースは `dev` と `main` の共通祖先からの差分のみが対象になるため、通常は手順 1〜6 の繰り返しで済みます。
+
 ## Issue / PR 運用
 
 1. ユーザー要件を背景、要件、受け入れ条件、対象外を含む GitHub Issue にします。
