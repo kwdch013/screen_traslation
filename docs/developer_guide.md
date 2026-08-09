@@ -160,6 +160,46 @@ docker compose run --rm app
 
 ワークフローは `concurrency` と `cancel-in-progress: true` で古い実行を中止し、トップレベル権限を `contents: read` に限定します。`.github/workflows/codeql.yml` は PR、対象ブランチへの push、週次スケジュールで Python を解析します。`.github/dependabot.yml` は GitHub Actions、pip、npm、Docker の依存更新を週次で `dev` 宛てに作成します。
 
+## リリース (dev → main)
+
+`main` はリリース済みの内容のみを反映する既定ブランチです。`.github/dependabot.yml` と CodeQL の週次 `schedule` は `main` 上の設定ファイルを参照するため、`main` へ反映するまで両方とも有効になりません。
+
+リポジトリ設定は通常 **squash マージのみ** を許可しています。`dev` から `main` へそのまま squash マージすると `main` が単一コミットになり、以後 `dev` と履歴が分岐して毎回のリリースでコンフリクトの温床になります。これを避けるため、リリース時のみ merge commit を一時的に許可し、履歴を保ったままマージします。
+
+1. `dev` の CI (`test` ステータスチェック) が緑であることを確認する。
+2. `main` の Ruleset (`protect-dev-main`) が merge commit を許可しているか確認する。
+
+   ```bash
+   gh api repos/kwdch013/screen_traslation/rulesets/<ID> --jq '.rules[] | select(.type=="pull_request") | .parameters.allowed_merge_methods'
+   ```
+
+   `merge` が含まれていない場合、先に Ruleset を変更し、リリース後に元へ戻す (手順5に追加する)。
+
+3. `dev` を base、`main` を対象としたリリース PR を作成する (Ruleset により PR 必須)。
+
+   ```bash
+   gh pr create --base main --head dev --title "release: <内容の要約>" --body "<変更内容の要約>"
+   ```
+
+4. CI 通過を確認してから、マージ直前にリポジトリ設定で merge commit を一時許可し、**merge commit** でマージする (squash や rebase は使わない)。マージの成否にかかわらず、直後に設定を戻す (手順5)。
+
+   ```bash
+   gh repo edit --enable-merge-commit
+   gh pr merge <PR番号> --merge
+   ```
+
+5. リポジトリ設定を squash 限定へ戻す。マージが失敗した場合も必ず実行する。
+
+   ```bash
+   gh repo edit --enable-merge-commit=false
+   ```
+
+6. マージ後、GitHub の Insights → Dependency graph → Dependabot と Security → Code scanning で、週次スケジュール実行が有効になっていることを確認する。
+
+以後のリリースは `dev` と `main` の共通祖先からの差分のみが対象になるため、通常は手順 1〜6 の繰り返しで済みます。
+
+**注意:** merge commit の一時許可は CI 待ちの間ずっと有効にしておかない。PR 作成と CI 確認までは通常の (squash 限定の) 設定のまま進め、マージ直前にのみ許可する。
+
 ## Issue / PR 運用
 
 1. ユーザー要件を背景、要件、受け入れ条件、対象外を含む GitHub Issue にします。
@@ -169,6 +209,8 @@ docker compose run --rm app
 5. prefix と日本語のメッセージでコミットし、`gh` コマンドで `dev` 宛ての詳細な PR を作成します。PR 本文には Issue を関連付けます。
 6. Issue（要件）と PR（変更）をセットでレビューし、指摘を検証して反映します。
 7. 承認後に squash merge します。
+
+通常のタスク PR は上記のとおり `dev` 宛て・squash merge です。「リリース (dev → main)」節のリリース PR のみ例外として `main` 宛て・merge commit を使います。
 
 1タスクを1つの責任に保ち、別要件を同じ PR に混ぜません。
 
