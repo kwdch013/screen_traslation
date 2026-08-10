@@ -3,10 +3,15 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .atomic_file import atomic_write_text
 from .contracts import Rect
+from .file_lock import (
+    DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
+    InterProcessFileLock,
+    lock_path_for,
+)
 
 
 @dataclass(frozen=True)
@@ -64,7 +69,35 @@ def load_config(path: Path) -> PipelineConfig:
     return _config_from_dict(data)
 
 
-def save_config(config: PipelineConfig, path: Path) -> None:
+def save_config(
+    config: PipelineConfig,
+    path: Path,
+    *,
+    lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
+) -> None:
+    update_config_file(
+        path,
+        lambda _current: config,
+        lock_timeout_seconds=lock_timeout_seconds,
+    )
+
+
+def update_config_file(
+    path: Path,
+    update: Callable[[PipelineConfig], PipelineConfig],
+    *,
+    lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
+) -> PipelineConfig:
+    with InterProcessFileLock(
+        lock_path_for(path), timeout_seconds=lock_timeout_seconds
+    ):
+        current = load_config(path) if path.exists() else PipelineConfig()
+        updated = update(current)
+        _save_config_unlocked(updated, path)
+        return updated
+
+
+def _save_config_unlocked(config: PipelineConfig, path: Path) -> None:
     atomic_write_text(
         path,
         json.dumps(

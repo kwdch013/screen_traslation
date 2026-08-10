@@ -7,6 +7,11 @@ import re
 import threading
 
 from .atomic_file import atomic_write_text
+from .file_lock import (
+    DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
+    InterProcessFileLock,
+    lock_path_for,
+)
 
 
 @dataclass(frozen=True)
@@ -40,27 +45,49 @@ class Glossary:
         with self._lock:
             self._terms[term.source.casefold()] = term
 
-    def register_and_save(self, source: str, target: str, path: Path) -> GlossaryTerm:
+    def register_and_save(
+        self,
+        source: str,
+        target: str,
+        path: Path,
+        *,
+        lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
+    ) -> GlossaryTerm:
         term = _validated_term(source, target)
         key = term.source.casefold()
         with self._lock:
-            if key in self._terms:
-                raise GlossaryTermExistsError(f"用語は既に登録されています: {term.source}")
-            updated_terms = {**self._terms, key: term}
-            _save_terms(updated_terms.values(), path)
-            self._terms = updated_terms
+            with InterProcessFileLock(
+                lock_path_for(path), timeout_seconds=lock_timeout_seconds
+            ):
+                current_terms = _load_terms(path)
+                if key in current_terms:
+                    raise GlossaryTermExistsError(
+                        f"用語は既に登録されています: {term.source}"
+                    )
+                updated_terms = {**current_terms, key: term}
+                _save_terms(updated_terms.values(), path)
+                self._terms = updated_terms
         return term
 
-    def delete_and_save(self, source: str, path: Path) -> None:
+    def delete_and_save(
+        self,
+        source: str,
+        path: Path,
+        *,
+        lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
+    ) -> None:
         normalized_source = source.strip()
         key = normalized_source.casefold()
         with self._lock:
-            if not normalized_source or key not in self._terms:
-                raise GlossaryTermNotFoundError(source)
-            updated_terms = dict(self._terms)
-            del updated_terms[key]
-            _save_terms(updated_terms.values(), path)
-            self._terms = updated_terms
+            with InterProcessFileLock(
+                lock_path_for(path), timeout_seconds=lock_timeout_seconds
+            ):
+                current_terms = _load_terms(path)
+                if not normalized_source or key not in current_terms:
+                    raise GlossaryTermNotFoundError(source)
+                del current_terms[key]
+                _save_terms(current_terms.values(), path)
+                self._terms = current_terms
 
     def translate_exact(self, text: str) -> str | None:
         with self._lock:
@@ -84,9 +111,20 @@ class Glossary:
         terms = [GlossaryTerm(source=item["source"], target=item["target"]) for item in data]
         return cls(terms)
 
-    def save(self, path: Path) -> None:
+    def save(
+        self,
+        path: Path,
+        *,
+        lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
+    ) -> None:
         with self._lock:
-            _save_terms(self._terms.values(), path)
+            with InterProcessFileLock(
+                lock_path_for(path), timeout_seconds=lock_timeout_seconds
+            ):
+                current_terms = _load_terms(path)
+                updated_terms = {**current_terms, **self._terms}
+                _save_terms(updated_terms.values(), path)
+                self._terms = updated_terms
 
     def _sorted_terms_unlocked(self) -> list[GlossaryTerm]:
         return sorted(self._terms.values(), key=lambda term: term.source.casefold())
@@ -108,3 +146,11 @@ def _save_terms(terms, path: Path) -> None:
     sorted_terms = sorted(terms, key=lambda term: term.source.casefold())
     data = [{"source": term.source, "target": term.target} for term in sorted_terms]
     atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def _load_terms(path: Path) -> dict[str, GlossaryTerm]:
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    terms = [_validated_term(item["source"], item["target"]) for item in data]
+    return {term.source.casefold(): term for term in terms}

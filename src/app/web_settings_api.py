@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
+from .file_lock import FileLockTimeoutError
 from .glossary import GlossaryTermExistsError, GlossaryTermNotFoundError
 from .web_capture_security import origin_allowed
 
@@ -34,6 +35,8 @@ def install_settings_routes(app: FastAPI, service: SettingsService) -> None:
         try:
             changes = await _json_object(request)
             body = await run_in_threadpool(service.update_config, changes)
+        except FileLockTimeoutError as error:
+            return JSONResponse({"detail": str(error)}, status_code=503)
         except ValueError as error:
             return JSONResponse({"detail": str(error)}, status_code=400)
         return JSONResponse(body)
@@ -50,6 +53,8 @@ def install_settings_routes(app: FastAPI, service: SettingsService) -> None:
             payload = await _json_object(request)
             source, target = _glossary_values(payload)
             body = await run_in_threadpool(service.register_glossary_term, source, target)
+        except FileLockTimeoutError as error:
+            return JSONResponse({"detail": str(error)}, status_code=503)
         except GlossaryTermExistsError as error:
             return JSONResponse({"detail": str(error)}, status_code=409)
         except ValueError as error:
@@ -62,6 +67,8 @@ def install_settings_routes(app: FastAPI, service: SettingsService) -> None:
             return JSONResponse({}, status_code=403)
         try:
             await run_in_threadpool(service.delete_glossary_term, source)
+        except FileLockTimeoutError as error:
+            return JSONResponse({"detail": str(error)}, status_code=503)
         except GlossaryTermNotFoundError:
             return JSONResponse({"detail": f"用語が見つかりません: {source}"}, status_code=404)
         return Response(status_code=204)

@@ -54,7 +54,6 @@ def main() -> int:
     if args.add_term:
         glossary.register(args.add_term[0], args.add_term[1])
         glossary.save(args.glossary)
-        save_config(config, args.config)
         return 0
 
     if args.run_once:
