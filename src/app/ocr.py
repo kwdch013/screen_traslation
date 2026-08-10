@@ -146,8 +146,10 @@ class LlmOcrEngine:
         )
         if not text:
             return []
-        regions = parse_llm_ocr_regions(text, image_pixel_size(frame.image))
-        if regions:
+        decoded, regions = parse_llm_ocr_regions(
+            text, image_pixel_size(frame.image)
+        )
+        if decoded:
             return regions
         region = text_to_region(text)
         return [

@@ -41,7 +41,7 @@ class LlmBackendsTest(unittest.TestCase):
         self.assertIn("top-left", requests[0]["messages"][0]["content"])
         self.assertNotIn("response_format", requests[0])
 
-    def test_llm_ocr_discards_only_invalid_json_elements(self) -> None:
+    def test_llm_ocr_preserves_text_when_only_coordinates_are_invalid(self) -> None:
         content = json.dumps(
             [
                 {"text": "Valid", "x": 1, "y": 2, "width": 30, "height": 10},
@@ -58,9 +58,18 @@ class LlmBackendsTest(unittest.TestCase):
             Frame(image=Image.new("RGB", (100, 50), color="white"), captured_at=0.0)
         )
 
-        self.assertEqual(len(regions), 1)
-        self.assertEqual(regions[0].text, "Valid")
-        self.assertEqual(regions[0].positioning, "available")
+        self.assertEqual(
+            [region.text for region in regions],
+            ["Valid", "Out", "Missing", "Zero"],
+        )
+        self.assertEqual(
+            [region.positioning for region in regions],
+            ["available", "unavailable", "unavailable", "unavailable"],
+        )
+        self.assertEqual(
+            [region.bounds for region in regions[1:]],
+            [Rect(0, 0, 800, 80)] * 3,
+        )
 
     def test_llm_ocr_expands_fractional_coordinates_to_outer_pixels(self) -> None:
         response = json.dumps(
@@ -72,6 +81,16 @@ class LlmBackendsTest(unittest.TestCase):
         self.assertEqual(regions[0].bounds, Rect(1, 2, 31, 11))
         self.assertEqual(regions[0].positioning, "available")
 
+    def test_llm_ocr_accepts_rectangle_exactly_on_image_boundaries(self) -> None:
+        response = json.dumps(
+            [{"text": "Full", "x": 0, "y": 0, "width": 100, "height": 50}]
+        )
+
+        regions = self._recognize(response, image_size=(100, 50))
+
+        self.assertEqual(regions[0].bounds, Rect(0, 0, 100, 50))
+        self.assertEqual(regions[0].positioning, "available")
+
     def test_llm_ocr_falls_back_to_unavailable_for_non_json_response(self) -> None:
         regions = self._recognize("New Game", image_size=(100, 50))
 
@@ -80,7 +99,9 @@ class LlmBackendsTest(unittest.TestCase):
         self.assertEqual(regions[0].bounds, Rect(0, 0, 800, 80))
         self.assertEqual(regions[0].positioning, "unavailable")
 
-    def test_llm_ocr_falls_back_when_all_coordinates_are_out_of_bounds(self) -> None:
+    def test_llm_ocr_preserves_text_when_all_coordinates_are_out_of_bounds(
+        self,
+    ) -> None:
         response = json.dumps(
             [{"text": "Out", "x": 90, "y": 2, "width": 20, "height": 10}]
         )
@@ -88,17 +109,36 @@ class LlmBackendsTest(unittest.TestCase):
         regions = self._recognize(response, image_size=(100, 50))
 
         self.assertEqual(len(regions), 1)
-        self.assertEqual(regions[0].text, response)
+        self.assertEqual(regions[0].text, "Out")
+        self.assertEqual(regions[0].bounds, Rect(0, 0, 800, 80))
         self.assertEqual(regions[0].positioning, "unavailable")
 
-    def test_llm_ocr_falls_back_when_all_elements_have_missing_fields(self) -> None:
+    def test_llm_ocr_preserves_text_when_all_elements_have_missing_coordinates(
+        self,
+    ) -> None:
         response = json.dumps([{"text": "Missing", "x": 1, "y": 2, "width": 30}])
 
         regions = self._recognize(response, image_size=(100, 50))
 
         self.assertEqual(len(regions), 1)
-        self.assertEqual(regions[0].text, response)
+        self.assertEqual(regions[0].text, "Missing")
+        self.assertEqual(regions[0].bounds, Rect(0, 0, 800, 80))
         self.assertEqual(regions[0].positioning, "unavailable")
+
+    def test_llm_ocr_returns_no_regions_for_empty_json_array(self) -> None:
+        self.assertEqual(self._recognize("[]", image_size=(100, 50)), [])
+
+    def test_llm_ocr_skips_unrelated_array_before_regions(self) -> None:
+        response = (
+            'Coordinates use [0, 0] as origin. Regions: '
+            '[{"text": "New Game", "x": 1, "y": 2, "width": 30, "height": 10}]'
+        )
+
+        regions = self._recognize(response, image_size=(100, 50))
+
+        self.assertEqual([region.text for region in regions], ["New Game"])
+        self.assertEqual(regions[0].bounds, Rect(1, 2, 30, 10))
+        self.assertEqual(regions[0].positioning, "available")
 
     def test_llm_ocr_returns_no_regions_for_empty_response(self) -> None:
         self.assertEqual(self._recognize("", image_size=(100, 50)), [])
