@@ -1,4 +1,4 @@
-FROM node:24-slim AS frontend-deps
+FROM node:26-slim AS frontend-deps
 
 WORKDIR /frontend
 
