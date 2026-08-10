@@ -45,3 +45,7 @@
 - High の核心テストは修正前に、旧結果「遅延した旧訳文」が新しい選択位置 `left: 400px; top: 300px` へ重畳されて失敗することを確認し、修正後は成功した。
 - 2回目のレビュー修正後、`npm run lint`、`npx vitest run`（9ファイル・81件）、`npm run build`、`mypy src`、`mypy --platform win32 src`、`ruff check src` はすべて成功した。
 - Python で個別実行できた変更関連テスト41件は成功した。指定の全件 `unittest discover` は、このsandboxで実ソケット生成が `PermissionError: [Errno 1] Operation not permitted` になる12件に加え、FastAPI `TestClient` の最初の要求が停止したため完走せず、中断した。個別実行でも同じ要求が90秒でタイムアウトすることを確認した。
+- PR #50 の3回目のCodexレビュー修正として、旧クロップで安定化した領域がクロップ変更直後に新しい `crop_revision` 付きで配信される問題を pipeline 結合テストで再現した。実装前は新リビジョン `"2"` の結果に旧領域 `Old Menu` が残って失敗し、実装後は空の領域になって成功した。
+- `TranslationPipeline` は初回のクロップリビジョンを記録し、以後の変更時に `OcrStabilizer` と重畳フィードバック判定用テキストをリセットする。`None` を正当な初回値として扱うため、観測済みかを専用のbool値で管理する。
+- 提示された再現スクリプト相当の実行結果は `{'crop_revision': '2', 'regions': []}` となり、旧領域が新リビジョンへ持ち越されないことを確認した。
+- 3回目のレビュー修正後、pipeline関連18件、`mypy src`、`mypy --platform win32 src`、`ruff check src` はすべて成功した。指定の全件 `unittest discover` は、既存記録と同じく実ソケット生成を伴う12件がエラーになった後、FastAPI `TestClient` の要求で停止したため中断した。

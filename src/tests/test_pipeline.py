@@ -168,6 +168,58 @@ class PipelineTest(unittest.TestCase):
 
         self.assertEqual(publisher.results[0].regions, ())
 
+    def test_pipeline_clears_stabilizer_when_crop_revision_changes(self) -> None:
+        image = type("Image", (), {"size": (256, 144)})()
+        capture_source = FixedFrameCaptureSource(
+            Frame(
+                image=image,
+                captured_at=1.0,
+                frame_id=1,
+                crop_revision="1",
+            )
+        )
+        old_region = TextRegion(
+            text="Old Menu",
+            bounds=Rect(x=10, y=10, width=80, height=20),
+            confidence=1.0,
+        )
+        new_region = TextRegion(
+            text="New Menu",
+            bounds=Rect(x=100, y=80, width=80, height=20),
+            confidence=1.0,
+        )
+        publisher = RecordingResultPublisher()
+        pipeline = TranslationPipeline(
+            capture_source=capture_source,
+            ocr_engine=SequenceOcrEngine([[old_region], [old_region], [new_region]]),
+            translator=CountingTranslator(),
+            overlay_renderer=InMemoryOverlayRenderer(),
+            config=PipelineConfig(ocr_fps=10.0),
+            stabilizer=OcrStabilizer(required_repeats=2),
+            result_publisher=publisher,
+            generation_provider=lambda: 1,
+        )
+
+        pipeline.tick(now=0.0)
+        capture_source.frame = Frame(
+            image=image,
+            captured_at=2.0,
+            frame_id=2,
+            crop_revision="1",
+        )
+        pipeline.tick(now=0.2)
+        capture_source.frame = Frame(
+            image=image,
+            captured_at=3.0,
+            frame_id=3,
+            crop_revision="2",
+        )
+        pipeline.tick(now=0.4)
+
+        result = publisher.results[-1]
+        self.assertEqual(result.crop_revision, "2")
+        self.assertEqual(result.regions, ())
+
     def test_pipeline_reprocesses_frame_when_generation_changes_during_ocr(
         self,
     ) -> None:
