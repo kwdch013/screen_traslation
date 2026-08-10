@@ -1,3 +1,6 @@
+import { clampCropRect } from './cropSelection'
+import type { CropRect } from './cropSelection'
+
 interface ActiveFrameSend {
   controller: AbortController
   generation: number
@@ -18,6 +21,7 @@ export class CaptureFrameSender {
     canvas: HTMLCanvasElement,
     token: string | undefined,
     onForbidden: () => void,
+    crop?: CropRect | null,
   ): Promise<void> {
     const generation = this.generation
     if (
@@ -32,11 +36,28 @@ export class CaptureFrameSender {
     const controller = new AbortController()
     this.active = { controller, generation }
     try {
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
+      const boundedCrop = crop
+        ? clampCropRect(crop, { width: video.videoWidth, height: video.videoHeight })
+        : null
+      canvas.width = boundedCrop?.width ?? video.videoWidth
+      canvas.height = boundedCrop?.height ?? video.videoHeight
       const context = canvas.getContext('2d')
       if (!context) return
-      context.drawImage(video, 0, 0, canvas.width, canvas.height)
+      if (boundedCrop) {
+        context.drawImage(
+          video,
+          boundedCrop.x,
+          boundedCrop.y,
+          boundedCrop.width,
+          boundedCrop.height,
+          0,
+          0,
+          boundedCrop.width,
+          boundedCrop.height,
+        )
+      } else {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height)
+      }
       const blob = await canvasToJpeg(canvas)
       if (!blob || controller.signal.aborted || this.generation !== generation) return
       const response = await fetch('/frame', {

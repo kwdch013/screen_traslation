@@ -35,8 +35,9 @@
 `frontend/src/` の React アプリが次を担当する。
 
 - `useScreenCapture.ts`: 制御 API、`getDisplayMedia`、500ミリ秒間隔のフレーム送信、共有ストリームの停止を管理する。
+- `useCropSelection.ts` / `cropSelection.ts`: 単一クロップ領域の状態、表示座標から動画座標への変換、解像度を含むブラウザ保存を管理する。
 - `useTranslationEvents.ts`: SSE を購読し、世代と `frame_id` で古い結果を除外して、履歴を新しい順に最大100件へ制限する。
-- `TranslationPreview.tsx`: 共有映像を `contain` 表示し、画像座標を映像内座標へ変換して訳文を重ねる。
+- `TranslationPreview.tsx` / `CropOverlay.tsx`: 共有映像を `contain` 表示し、クロップ選択と訳文の重畳を行う。
 - `SubtitleList.tsx`: 字幕履歴を表示する。
 - `ConfigEditor.tsx` / `GlossaryEditor.tsx`: 設定と辞書を編集する。
 
@@ -159,7 +160,9 @@ data: {"generation":1,"frame_id":42,"captured_at":123.4,"processed_at":123.5,"fr
 
 - Tesseract の前処理画像を2倍へ拡大した場合、左上を切り下げ、右下を切り上げて元画像スケールへ戻す。
 - `frame_width` と `frame_height` は座標の基準画像寸法である。
-- フロントエンドは共有映像をアスペクト比を保った `contain` で表示し、余白を含む変換後の位置へ `available` の領域を重ねる。
+- クロップ時の送信画像は選択矩形だけを含み、`frame_width` と `frame_height` はクロップ後の寸法になる。サーバーはクロップ処理を行わない。
+- フロントエンドは共有映像をアスペクト比を保った `contain` で表示する。重畳変換は共有動画の実解像度を基準とし、クロップ時は翻訳領域へ選択矩形の左上オフセットを加えてから変換する。
+- クロップ矩形は動画実解像度ピクセルと選択時の実解像度をブラウザへ保存する。次回共有時はメタデータ読込後に解像度が一致した場合だけ復元し、不一致時は動画全体を送信する。
 - LLM OCR の構造化応答から画像内の矩形を検証できた領域は `positioning: available` とする。JSONを解釈できない場合、または妥当な領域が1件もない場合は `positioning: unavailable` とし、推測した位置を付けずプレビュー下部と字幕リストへ表示する。
 
 ## セキュリティ

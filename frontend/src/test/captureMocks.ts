@@ -21,14 +21,22 @@ export function createStream() {
   }
 }
 
-export function installCaptureElementMocks(): void {
+export function installCaptureElementMocks(): {
+  drawImage: ReturnType<typeof vi.fn>
+  encodedSizes: { width: number; height: number }[]
+} {
+  const drawImage = vi.fn()
+  const encodedSizes: { width: number; height: number }[] = []
   Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
     configurable: true,
-    value: vi.fn(() => ({ drawImage: vi.fn() })),
+    value: vi.fn(() => ({ drawImage })),
   })
   Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {
     configurable: true,
-    value: vi.fn((callback: BlobCallback) => callback(new Blob(['jpeg'], { type: 'image/jpeg' }))),
+    value: vi.fn(function (this: HTMLCanvasElement, callback: BlobCallback) {
+      encodedSizes.push({ width: this.width, height: this.height })
+      callback(new Blob(['jpeg'], { type: 'image/jpeg' }))
+    }),
   })
   Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', {
     configurable: true,
@@ -38,4 +46,5 @@ export function installCaptureElementMocks(): void {
     configurable: true,
     value: 720,
   })
+  return { drawImage, encodedSizes }
 }

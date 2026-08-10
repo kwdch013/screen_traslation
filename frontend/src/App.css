@@ -133,6 +133,55 @@ video {
   pointer-events: none;
 }
 
+.crop-selection-layer {
+  position: absolute;
+  z-index: 2;
+  inset: 1px;
+  overflow: hidden;
+  border-radius: 10px;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.crop-selection-layer.is-enabled {
+  cursor: crosshair;
+  pointer-events: auto;
+}
+
+.crop-selection-rect {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid #68a9ff;
+  background: rgb(104 169 255 / 18%);
+  box-shadow: 0 0 0 1px rgb(7 17 31 / 80%);
+  pointer-events: none;
+}
+
+.crop-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.crop-controls p {
+  margin: 0;
+  color: #9ba7b8;
+  font-size: 0.86rem;
+}
+
+.crop-controls button {
+  flex: none;
+  padding: 8px 12px;
+  border: 1px solid #3a4a60;
+  border-radius: 8px;
+  color: #e8edf5;
+  background: #202c3c;
+  font: inherit;
+  cursor: pointer;
+}
+
 .translation-overlay {
   position: absolute;
   display: flex;
@@ -223,5 +272,10 @@ video {
 
   .panel {
     padding: 18px;
+  }
+
+  .crop-controls {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

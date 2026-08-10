@@ -24,8 +24,8 @@ function resultEvent(frameId: number, regions: object[], generation = 1) {
 		frame_id: frameId,
 		captured_at: 10,
 		processed_at: 11,
-		frame_width: 1920,
-		frame_height: 1080,
+		frame_width: 1280,
+		frame_height: 720,
 		regions,
 	}
 }
@@ -68,9 +68,9 @@ describe('翻訳表示UI', () => {
 		const overlays = screen.getAllByTestId('translation-overlay')
 		expect(overlays).toHaveLength(2)
 		expect(overlays[0]).toHaveTextContent('ニューゲーム')
-		expect(overlays[0]).toHaveStyle({ left: '100px', top: '175px', width: '200px', minHeight: '112.5px' })
+		expect(overlays[0]).toHaveStyle({ left: '150px', top: '203.125px', width: '300px', minHeight: '168.75px' })
 		expect(overlays[1]).toHaveTextContent('設定')
-		expect(overlays[1]).toHaveStyle({ left: '500px', top: '400px', width: '100px', minHeight: '56.25px' })
+		expect(overlays[1]).toHaveStyle({ left: '750px', top: '540.625px', width: '150px', minHeight: '84.375px' })
 		expect(screen.getByLabelText('位置情報のない翻訳')).toHaveTextContent('続ける')
 		expect(screen.getByLabelText('位置情報のない翻訳')).not.toHaveTextContent('ニューゲーム')
 	})
@@ -138,7 +138,7 @@ describe('翻訳表示UI', () => {
 		expect(screen.getByText('ニューゲーム')).toBeInTheDocument()
 	})
 
-	it('プレビュー寸法とイベントのフレーム解像度変更時に座標を再計算する', () => {
+	it('プレビュー寸法の変更時に動画実解像度を基準として座標を再計算する', () => {
 		let previewWidth = 1000
 		let previewHeight = 800
 		Object.defineProperty(HTMLVideoElement.prototype, 'clientWidth', {
@@ -157,14 +157,7 @@ describe('翻訳表示UI', () => {
 		previewWidth = 500
 		previewHeight = 500
 		fireEvent.resize(video)
-		expect(screen.getByTestId('translation-overlay')).toHaveStyle({ left: '50px', top: '137.5px' })
-
-		act(() => events.emitJson('translation_result', {
-			...resultEvent(2, [availableRegion]),
-			frame_width: 1000,
-			frame_height: 1000,
-		}))
-		expect(screen.getByTestId('translation-overlay')).toHaveStyle({ left: '96px', top: '54px' })
+		expect(screen.getByTestId('translation-overlay')).toHaveStyle({ left: '75px', top: '151.5625px' })
 	})
 
 	it('videoの境界線を内寸へ含めて重畳レイヤーと座標変換の寸法基準を揃える', () => {

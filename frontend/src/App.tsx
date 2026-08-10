@@ -98,7 +98,14 @@ function App() {
         <p className="status" role="status" aria-live="polite">
           {capture.statusText}
         </p>
-        <TranslationPreview videoRef={capture.videoRef} result={translation.currentResult} />
+        <TranslationPreview
+          videoRef={capture.videoRef}
+          result={translation.currentResult}
+          crop={capture.crop}
+          cropEnabled={capture.cropEnabled}
+          onCropChange={capture.setCropSelection}
+          onVideoMetadata={capture.restoreCropForVideo}
+        />
       </section>
 
       <section id="subtitles-panel" className="panel" role="tabpanel" hidden={activeTab !== 'subtitles'}>

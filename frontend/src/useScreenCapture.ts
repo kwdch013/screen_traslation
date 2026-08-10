@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { control, getStatus, ServiceApiError, stopWithKeepalive } from './api'
 import type { ServiceState, ServiceStatus } from './api'
 import { CaptureFrameSender } from './captureFrameSender'
+import { useCropSelection } from './useCropSelection'
 
 const SEND_INTERVAL_MS = 500
 const STATUS_POLL_INTERVAL_MS = 200
@@ -12,6 +13,15 @@ export function useScreenCapture() {
   const [operationInProgress, setOperationInProgress] = useState(false)
   const [statusText, setStatusText] = useState('翻訳処理の状態を確認しています。')
   const videoRef = useRef<HTMLVideoElement>(null)
+  const {
+    crop,
+    cropEnabled,
+    cropRef,
+    disableSelection,
+    prepareForStream,
+    restoreForVideo,
+    setCropSelection,
+  } = useCropSelection(videoRef)
   const canvasRef = useRef(document.createElement('canvas'))
   const streamRef = useRef<MediaStream | null>(null)
   const sendTimerRef = useRef<number | null>(null)
@@ -59,7 +69,8 @@ export function useScreenCapture() {
     if (videoRef.current) {
       videoRef.current.srcObject = null
     }
-  }, [])
+    disableSelection()
+  }, [disableSelection])
 
   const sendFrame = useCallback(async () => {
     await frameSenderRef.current.send(
@@ -71,8 +82,9 @@ export function useScreenCapture() {
         sessionTokenRef.current = undefined
         setStatusText('このタブのセッションは終了しました。画面を選び直してください。')
       },
+      cropRef.current,
     )
-  }, [stopSharing])
+  }, [cropRef, stopSharing])
 
   const stopWithKeepaliveAndSync = useCallback((sessionToken?: string) => {
     if (!sessionToken) return
@@ -117,6 +129,7 @@ export function useScreenCapture() {
         return false
       }
       streamRef.current = selectedStream
+      prepareForStream()
       if (videoRef.current) {
         videoRef.current.srcObject = selectedStream
       }
@@ -129,7 +142,7 @@ export function useScreenCapture() {
       setStatusText('送信中です。このタブは翻訳中も開いたままにしてください。')
       return true
     },
-    [applyStatus, isOperationValid, sendFrame, stopWithKeepaliveAndSync],
+    [applyStatus, isOperationValid, prepareForStream, sendFrame, stopWithKeepaliveAndSync],
   )
 
   const beginOperation = useCallback(() => {
@@ -298,6 +311,10 @@ export function useScreenCapture() {
   const locked = operationInProgress || ['loading', 'starting', 'stopping'].includes(serviceState)
   return {
     videoRef,
+    crop,
+    cropEnabled,
+    restoreCropForVideo: restoreForVideo,
+    setCropSelection,
     statusText,
     startSharing,
     stopByUser,
