@@ -18,6 +18,7 @@ class ModelSetupTest(unittest.TestCase):
         )
 
         self.assertIsNotNone(selected)
+        assert selected is not None
         self.assertEqual(selected.to_code, "ja")
 
 

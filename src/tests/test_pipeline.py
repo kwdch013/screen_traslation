@@ -5,7 +5,7 @@ import unittest
 
 from app.capture import BlankCaptureSource
 from app.config import PipelineConfig
-from app.contracts import Frame, Rect, TextRegion
+from app.contracts import Frame, Rect, TextRegion, TranslationResult
 from app.ocr import StaticOcrEngine
 from app.overlay import InMemoryOverlayRenderer
 from app.pipeline import (
@@ -60,9 +60,9 @@ class RecordingOcrEngine:
 
 class RecordingResultPublisher:
     def __init__(self) -> None:
-        self.results = []
+        self.results: list[TranslationResult] = []
 
-    def publish(self, result) -> None:
+    def publish(self, result: TranslationResult) -> None:
         self.results.append(result)
 
 
@@ -100,7 +100,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(translator.calls, 1)
         self.assertEqual(renderer.last_regions[0].translated, "訳:New Game")
 
-    def test_pipeline_publishes_result_contract_and_skips_duplicate_web_frame(self) -> None:
+    def test_pipeline_publishes_result_contract_and_skips_duplicate_web_frame(
+        self,
+    ) -> None:
         frame = Frame(
             image=type("Image", (), {"size": (640, 360)})(),
             captured_at=12.5,
@@ -164,7 +166,9 @@ class PipelineTest(unittest.TestCase):
 
         self.assertEqual(publisher.results[0].regions, ())
 
-    def test_pipeline_reprocesses_frame_when_generation_changes_during_ocr(self) -> None:
+    def test_pipeline_reprocesses_frame_when_generation_changes_during_ocr(
+        self,
+    ) -> None:
         generation = {"value": 1}
         frame = Frame(
             image=type("Image", (), {"size": (320, 180)})(),
@@ -245,7 +249,11 @@ class PipelineTest(unittest.TestCase):
 
     def test_should_translate_source_text_requires_english_letters(self) -> None:
         self.assertTrue(should_translate_source_text("Press E to open inventory."))
-        self.assertFalse(should_translate_source_text("完了しました。コミットしてoriginへプッシュ済みです。"))
+        self.assertFalse(
+            should_translate_source_text(
+                "完了しました。コミットしてoriginへプッシュ済みです。"
+            )
+        )
         self.assertFalse(should_translate_source_text("2026-06-05"))
 
     def test_pipeline_waits_for_stable_ocr_before_rendering(self) -> None:
@@ -255,9 +263,21 @@ class PipelineTest(unittest.TestCase):
             capture_source=BlankCaptureSource(),
             ocr_engine=SequenceOcrEngine(
                 [
-                    [TextRegion(text="Noise", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
-                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
-                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
+                    [
+                        TextRegion(
+                            text="Noise", bounds=Rect(0, 0, 100, 20), confidence=0.9
+                        )
+                    ],
+                    [
+                        TextRegion(
+                            text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9
+                        )
+                    ],
+                    [
+                        TextRegion(
+                            text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9
+                        )
+                    ],
                 ]
             ),
             translator=translator,
@@ -274,16 +294,32 @@ class PipelineTest(unittest.TestCase):
 
         self.assertEqual(renderer.last_regions[0].source, "New Game")
 
-    def test_pipeline_clears_stale_text_when_only_overlay_feedback_is_seen(self) -> None:
+    def test_pipeline_clears_stale_text_when_only_overlay_feedback_is_seen(
+        self,
+    ) -> None:
         translator = CountingTranslator()
         renderer = InMemoryOverlayRenderer()
         pipeline = TranslationPipeline(
             capture_source=BlankCaptureSource(),
             ocr_engine=SequenceOcrEngine(
                 [
-                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
-                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
-                    [TextRegion(text="New Game -> 險ｳ:New Game", bounds=Rect(0, 0, 200, 20), confidence=0.9)],
+                    [
+                        TextRegion(
+                            text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9
+                        )
+                    ],
+                    [
+                        TextRegion(
+                            text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9
+                        )
+                    ],
+                    [
+                        TextRegion(
+                            text="New Game -> 險ｳ:New Game",
+                            bounds=Rect(0, 0, 200, 20),
+                            confidence=0.9,
+                        )
+                    ],
                 ]
             ),
             translator=translator,
@@ -307,10 +343,30 @@ class PipelineTest(unittest.TestCase):
             capture_source=BlankCaptureSource(),
             ocr_engine=SequenceOcrEngine(
                 [
-                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
-                    [TextRegion(text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9)],
-                    [TextRegion(text="New Game -> 訳:New Game", bounds=Rect(0, 0, 200, 20), confidence=0.9)],
-                    [TextRegion(text="New Game -> 訳:New Game", bounds=Rect(0, 0, 200, 20), confidence=0.9)],
+                    [
+                        TextRegion(
+                            text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9
+                        )
+                    ],
+                    [
+                        TextRegion(
+                            text="New Game", bounds=Rect(0, 0, 100, 20), confidence=0.9
+                        )
+                    ],
+                    [
+                        TextRegion(
+                            text="New Game -> 訳:New Game",
+                            bounds=Rect(0, 0, 200, 20),
+                            confidence=0.9,
+                        )
+                    ],
+                    [
+                        TextRegion(
+                            text="New Game -> 訳:New Game",
+                            bounds=Rect(0, 0, 200, 20),
+                            confidence=0.9,
+                        )
+                    ],
                 ]
             ),
             translator=translator,
@@ -326,7 +382,9 @@ class PipelineTest(unittest.TestCase):
 
         self.assertEqual(renderer.last_regions, [])
 
-    def test_pipeline_writes_jsonl_translation_log_when_translations_change(self) -> None:
+    def test_pipeline_writes_jsonl_translation_log_when_translations_change(
+        self,
+    ) -> None:
         translator = CountingTranslator()
         renderer = InMemoryOverlayRenderer()
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -360,7 +418,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(entry["target_language"], "ja")
         self.assertEqual(entry["source_text"], "New Game")
         self.assertEqual(entry["translated_text"], renderer.last_regions[0].translated)
-        self.assertEqual(entry["bounds"], {"x": 10, "y": 20, "width": 120, "height": 30})
+        self.assertEqual(
+            entry["bounds"], {"x": 10, "y": 20, "width": 120, "height": 30}
+        )
 
 
 if __name__ == "__main__":

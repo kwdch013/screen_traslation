@@ -5,6 +5,7 @@ from dataclasses import replace
 import math
 from pathlib import Path
 import threading
+from typing import Any
 
 from .config import OverlayStyle, PipelineConfig, save_config
 from .glossary import Glossary, GlossaryTerm
@@ -131,13 +132,18 @@ class WebSettings:
         self._invalidate_translation_cache()
 
 
-def _updated_config(config: PipelineConfig, changes: Mapping[str, object]) -> PipelineConfig:
-    values = dict(changes)
+def _updated_config(
+    config: PipelineConfig, changes: Mapping[str, object]
+) -> PipelineConfig:
+    # 公開項目と値の型は直前の検証で保証されているため、replaceへ渡す局所辞書のみ動的型とする。
+    values: dict[str, Any] = dict(changes)
     if "priority_order" in values:
         priority_order = values["priority_order"]
         values["priority_order"] = tuple(priority_order)
     if "overlay_style" in values:
-        values["overlay_style"] = _updated_overlay_style(config.overlay_style, values["overlay_style"])
+        values["overlay_style"] = _updated_overlay_style(
+            config.overlay_style, values["overlay_style"]
+        )
     try:
         return replace(config, **values)
     except (TypeError, ValueError) as error:
@@ -159,7 +165,9 @@ def _updated_overlay_style(style: OverlayStyle, changes: object) -> OverlayStyle
 
 def _validate_config_consistency(config: PipelineConfig) -> None:
     if config.ocr_backend in {"llm", "tesseract_llm_fallback"} and not config.llm_model:
-        raise ValueError(f"{config.ocr_backend}には空でないllm_modelを指定してください。")
+        raise ValueError(
+            f"{config.ocr_backend}には空でないllm_modelを指定してください。"
+        )
 
 
 def _validate_public_changes(changes: Mapping[str, object]) -> None:

@@ -9,11 +9,12 @@ from pathlib import Path
 import sys
 from time import perf_counter
 from time import process_time
+from typing import Protocol
 import unicodedata
 
 from PIL import Image
 
-from .contracts import Frame, Rect, TextRegion
+from .contracts import Frame, OcrEngine, Rect, TextRegion
 from .ocr import LlmOcrEngine, TesseractOcrEngine
 
 
@@ -24,15 +25,26 @@ class EvaluationCase:
     crop: Rect | None = None
 
 
+class EvaluationOcrEngine(OcrEngine, Protocol):
+    def validate(self) -> None: ...
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    parser = argparse.ArgumentParser(description="テスト画像のOCR速度と正解テキスト一致率を測定します。")
-    parser.add_argument("--expected", type=Path, default=Path("src/tests/test_images/expected_ocr.json"))
+    parser = argparse.ArgumentParser(
+        description="テスト画像のOCR速度と正解テキスト一致率を測定します。"
+    )
+    parser.add_argument(
+        "--expected", type=Path, default=Path("src/tests/test_images/expected_ocr.json")
+    )
     parser.add_argument("--engine", choices=("tesseract", "llm"), default="tesseract")
     parser.add_argument("--language", default="eng")
     parser.add_argument("--min-confidence", type=float, default=0.0)
-    parser.add_argument("--llm-base-url", default=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8000/v1"))
+    parser.add_argument(
+        "--llm-base-url",
+        default=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8000/v1"),
+    )
     parser.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", ""))
     parser.add_argument("--llm-timeout", type=float, default=120.0)
     args = parser.parse_args()
@@ -56,7 +68,21 @@ def main() -> int:
         end_memory = current_memory_bytes()
         actual_text = regions_text(regions)
         score = similarity(actual_text, case.expected_text)
-        print(json.dumps(_result(case, elapsed, cpu_seconds, start_memory, end_memory, score, regions, actual_text), ensure_ascii=False))
+        print(
+            json.dumps(
+                _result(
+                    case,
+                    elapsed,
+                    cpu_seconds,
+                    start_memory,
+                    end_memory,
+                    score,
+                    regions,
+                    actual_text,
+                ),
+                ensure_ascii=False,
+            )
+        )
     return 0
 
 
@@ -67,11 +93,13 @@ def build_engine(
     llm_base_url: str = "http://127.0.0.1:8000/v1",
     llm_model: str = "",
     llm_timeout: float = 120.0,
-) -> object:
+) -> EvaluationOcrEngine:
     if engine == "tesseract":
         return TesseractOcrEngine(language=language, min_confidence=min_confidence)
     if engine == "llm":
-        return LlmOcrEngine(model=llm_model, base_url=llm_base_url, timeout_seconds=llm_timeout)
+        return LlmOcrEngine(
+            model=llm_model, base_url=llm_base_url, timeout_seconds=llm_timeout
+        )
     raise ValueError(f"未対応のOCR評価エンジンです: {engine}")
 
 
@@ -92,10 +120,17 @@ def load_cases(path: Path) -> list[EvaluationCase]:
     return cases
 
 
-def recognize_case(engine: object, case: EvaluationCase) -> list[TextRegion]:
-    image = Image.open(case.image)
+def recognize_case(engine: OcrEngine, case: EvaluationCase) -> list[TextRegion]:
+    image: Image.Image = Image.open(case.image)
     if case.crop is not None:
-        image = image.crop((case.crop.x, case.crop.y, case.crop.x + case.crop.width, case.crop.y + case.crop.height))
+        image = image.crop(
+            (
+                case.crop.x,
+                case.crop.y,
+                case.crop.x + case.crop.width,
+                case.crop.y + case.crop.height,
+            )
+        )
     regions = engine.recognize(Frame(image=image, captured_at=0.0))
     return list(regions)
 
@@ -105,7 +140,9 @@ def regions_text(regions: list[TextRegion]) -> str:
 
 
 def similarity(actual: str, expected: str) -> float:
-    return SequenceMatcher(a=normalize_text(actual), b=normalize_text(expected), autojunk=False).ratio()
+    return SequenceMatcher(
+        a=normalize_text(actual), b=normalize_text(expected), autojunk=False
+    ).ratio()
 
 
 def normalize_text(text: str) -> str:
@@ -124,7 +161,11 @@ def _result(
     regions: list[TextRegion],
     actual_text: str,
 ) -> dict[str, object]:
-    memory_delta = None if start_memory is None or end_memory is None else end_memory - start_memory
+    memory_delta = (
+        None
+        if start_memory is None or end_memory is None
+        else end_memory - start_memory
+    )
     return {
         "image": case.image.name,
         "seconds": round(elapsed, 3),
@@ -133,7 +174,11 @@ def _result(
         "memory_delta_bytes": memory_delta,
         "similarity": round(score, 4),
         "regions": len(regions),
-        "mean_confidence": round(sum(region.confidence for region in regions) / len(regions), 4) if regions else 0.0,
+        "mean_confidence": round(
+            sum(region.confidence for region in regions) / len(regions), 4
+        )
+        if regions
+        else 0.0,
         "actual_text": actual_text,
     }
 
@@ -147,7 +192,7 @@ def current_memory_bytes() -> int | None:
 
 
 def _windows_current_memory_bytes() -> int | None:
-    if os.name != "nt":
+    if sys.platform != "win32":
         return None
     try:
         import ctypes
@@ -174,7 +219,11 @@ def _windows_current_memory_bytes() -> int | None:
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     psapi = ctypes.WinDLL("psapi", use_last_error=True)
     handle = kernel32.GetCurrentProcess()
-    psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessMemoryCounters), wintypes.DWORD]
+    psapi.GetProcessMemoryInfo.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(ProcessMemoryCounters),
+        wintypes.DWORD,
+    ]
     psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
     ok = psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb)
     if not ok:

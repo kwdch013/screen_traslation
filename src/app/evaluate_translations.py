@@ -9,6 +9,7 @@ import sys
 from time import perf_counter, process_time
 import unicodedata
 
+from .contracts import Translator
 from .evaluate_test_images import current_memory_bytes
 from .translator import ArgosTranslator, PassthroughTranslator
 
@@ -53,7 +54,7 @@ def main() -> int:
     return 0
 
 
-def build_translator(engine: str) -> object:
+def build_translator(engine: str) -> Translator:
     if engine == "passthrough":
         return PassthroughTranslator()
     if engine == "argos":

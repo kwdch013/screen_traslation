@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 
 from starlette.requests import Request
+from starlette.routing import Route
+from typing import cast
 
 from app.contracts import TranslationResult
 from app.result_events import TranslationEventPublisher
@@ -37,7 +39,9 @@ class WebEventsApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"frame_id":4', result)
         self.assertEqual(heartbeat, ": heartbeat\n\n")
 
-    async def test_format_sse_event_serializes_json_without_ascii_escaping(self) -> None:
+    async def test_format_sse_event_serializes_json_without_ascii_escaping(
+        self,
+    ) -> None:
         publisher = TranslationEventPublisher()
         publisher.publish_state(generation=0, state="error", error_message="翻訳失敗")
         subscription = publisher.subscribe()
@@ -51,7 +55,14 @@ class WebEventsApiTest(unittest.IsolatedAsyncioTestCase):
     async def test_events_rejects_foreign_origin(self) -> None:
         server = WebCaptureServer()
         install_event_routes(server.app, TranslationEventPublisher())
-        route = next(route for route in server.app.routes if getattr(route, "path", None) == "/api/events")
+        route = cast(
+            Route,
+            next(
+                route
+                for route in server.app.routes
+                if getattr(route, "path", None) == "/api/events"
+            ),
+        )
         request = Request(
             {
                 "type": "http",

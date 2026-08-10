@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
+from typing import Any
 
 from .atomic_file import atomic_write_text
 from .contracts import Rect
@@ -80,7 +81,7 @@ def _config_to_dict(config: PipelineConfig) -> dict[str, object]:
     return asdict(config)
 
 
-def _config_from_dict(data: dict[str, object]) -> PipelineConfig:
+def _config_from_dict(data: dict[str, Any]) -> PipelineConfig:
     style_data = data.get("overlay_style") or {}
     region_data = data.get("target_region")
     region = Rect(**region_data) if isinstance(region_data, dict) else None

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from threading import Event, Lock, Thread
 from time import sleep
+from typing import Protocol
 
-from collections.abc import Callable
 
-from .pipeline import TranslationPipeline
+class TickingPipeline(Protocol):
+    def tick(self) -> bool: ...
 
 
 class PipelineRunner:
     def __init__(
         self,
-        pipeline: TranslationPipeline,
+        pipeline: TickingPipeline,
         poll_interval_seconds: float = 0.01,
         on_error: Callable[[Exception], None] | None = None,
     ) -> None:

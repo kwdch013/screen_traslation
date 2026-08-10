@@ -1,6 +1,7 @@
 from io import BytesIO
 import socket
 from time import monotonic
+from typing import cast
 import unittest
 import urllib.error
 import urllib.request
@@ -43,6 +44,8 @@ class WebCaptureFrameStoreTest(unittest.TestCase):
         store = WebCaptureFrameStore()
         store.update(Image.new("RGB", (2, 2), color="red"))
         first_id = store.latest().frame_id
+        self.assertIsNotNone(first_id)
+        assert first_id is not None
 
         store.clear()
         store.update(Image.new("RGB", (2, 2), color="blue"))
@@ -178,7 +181,8 @@ class WebCaptureServerTest(unittest.TestCase):
 
         self.assertEqual(status, 204)
         self.assertTrue(server.store.has_frame())
-        self.assertEqual(server.store.latest().image.size, (16, 10))
+        image = cast(Image.Image, server.store.latest().image)
+        self.assertEqual(image.size, (16, 10))
 
     def test_frame_without_token_is_rejected(self) -> None:
         server = self._server()
@@ -201,14 +205,18 @@ class WebCaptureServerTest(unittest.TestCase):
     def test_unsupported_content_type_is_rejected(self) -> None:
         server = self._server()
 
-        status = _post_frame(server, _jpeg_bytes(), token=server.session_token, content_type="text/plain")
+        status = _post_frame(
+            server, _jpeg_bytes(), token=server.session_token, content_type="text/plain"
+        )
 
         self.assertEqual(status, 415)
 
     def test_foreign_host_is_rejected(self) -> None:
         server = self._server()
 
-        status = _post_frame(server, _jpeg_bytes(), token=server.session_token, host="evil.example.com")
+        status = _post_frame(
+            server, _jpeg_bytes(), token=server.session_token, host="evil.example.com"
+        )
 
         self.assertEqual(status, 403)
 

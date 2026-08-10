@@ -1,24 +1,27 @@
 from __future__ import annotations
 
+from _thread import RLock as RLockType
 from dataclasses import dataclass
 from queue import Empty, Full, Queue
 import threading
+from typing import Mapping
 
 from .contracts import TranslationResult
 
 
 DEFAULT_QUEUE_SIZE = 16
-_RLockType = type(threading.RLock())
 
 
 @dataclass(frozen=True)
 class SseEvent:
     event: str
-    data: dict[str, object]
+    data: Mapping[str, object]
 
 
 class EventSubscription:
-    def __init__(self, publisher: "TranslationEventPublisher", event_queue: Queue[SseEvent]) -> None:
+    def __init__(
+        self, publisher: "TranslationEventPublisher", event_queue: Queue[SseEvent]
+    ) -> None:
         self._publisher = publisher
         self._queue = event_queue
         self._closed = False
@@ -46,7 +49,7 @@ class TranslationEventPublisher:
         self,
         queue_size: int = DEFAULT_QUEUE_SIZE,
         *,
-        lock: _RLockType | None = None,
+        lock: RLockType | None = None,
     ) -> None:
         if queue_size <= 0:
             raise ValueError("queue_sizeは1以上である必要があります")
@@ -79,7 +82,9 @@ class TranslationEventPublisher:
             for event_queue in self._subscriptions.values():
                 _offer_latest(event_queue, event)
 
-    def publish_state(self, generation: int, state: str, error_message: str | None) -> None:
+    def publish_state(
+        self, generation: int, state: str, error_message: str | None
+    ) -> None:
         event = SseEvent(
             event="state",
             data={

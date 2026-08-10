@@ -2,10 +2,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import ceil, floor
-from typing import Literal, Protocol, Sequence
+from typing import Literal, Protocol, Sequence, TypedDict
 
 
 Positioning = Literal["available", "unavailable"]
+
+
+class TranslationRegionData(TypedDict):
+    source: str
+    translated: str
+    x: int
+    y: int
+    width: int
+    height: int
+    confidence: float
+    positioning: Positioning
+
+
+class TranslationResultData(TypedDict):
+    generation: int
+    frame_id: int
+    captured_at: float
+    processed_at: float
+    frame_width: int
+    frame_height: int
+    regions: list[TranslationRegionData]
 
 
 @dataclass(frozen=True)
@@ -63,7 +84,7 @@ class TranslationResult:
     frame_height: int
     regions: tuple[TranslationRegion, ...]
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> TranslationResultData:
         return {
             "generation": self.generation,
             "frame_id": self.frame_id,

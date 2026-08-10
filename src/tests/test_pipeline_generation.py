@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 import unittest
 
 from app.config import PipelineConfig
-from app.contracts import Frame, Rect, TextRegion
+from app.contracts import Frame, Rect, TextRegion, TranslationRegion, TranslationResult
 from app.pipeline import OcrStabilizer, TranslationPipeline
 
 
 class CountingTranslator:
-    def __init__(self, on_translate=None) -> None:
+    def __init__(self, on_translate: Callable[[], None] | None = None) -> None:
         self.calls = 0
         self._on_translate = on_translate
 
@@ -21,9 +22,9 @@ class CountingTranslator:
 
 class RecordingRenderer:
     def __init__(self) -> None:
-        self.calls = []
+        self.calls: list[list[TranslationRegion]] = []
 
-    def render(self, regions) -> None:
+    def render(self, regions: Sequence[TranslationRegion]) -> None:
         self.calls.append(list(regions))
 
     def close(self) -> None:
@@ -32,22 +33,26 @@ class RecordingRenderer:
 
 class RecordingPublisher:
     def __init__(self) -> None:
-        self.results = []
+        self.results: list[TranslationResult] = []
 
-    def publish(self, result) -> None:
+    def publish(self, result: TranslationResult) -> None:
         self.results.append(result)
 
 
 class RecordingLogger:
     def __init__(self) -> None:
-        self.calls = []
+        self.calls: list[list[TranslationRegion]] = []
 
-    def log(self, regions, config) -> None:
+    def log(self, regions: list[TranslationRegion], config: PipelineConfig) -> None:
         self.calls.append(list(regions))
 
 
 class SequenceOcrEngine:
-    def __init__(self, frames: list[list[TextRegion]], on_recognize=None) -> None:
+    def __init__(
+        self,
+        frames: list[list[TextRegion]],
+        on_recognize: Callable[[int], None] | None = None,
+    ) -> None:
         self._frames = frames
         self._index = 0
         self._on_recognize = on_recognize
@@ -82,7 +87,9 @@ def _region(text: str, bounds: Rect) -> TextRegion:
 
 
 class PipelineGenerationTest(unittest.TestCase):
-    def test_reselect_clears_stable_regions_before_first_new_generation_frame(self) -> None:
+    def test_reselect_clears_stable_regions_before_first_new_generation_frame(
+        self,
+    ) -> None:
         generation = {"value": 1}
         old_bounds = Rect(10, 20, 100, 20)
         new_bounds = Rect(30, 40, 120, 24)
@@ -111,13 +118,17 @@ class PipelineGenerationTest(unittest.TestCase):
         pipeline.tick(now=0.4)
         pipeline.tick(now=0.6)
 
-        new_generation_results = [result for result in publisher.results if result.generation == 2]
+        new_generation_results = [
+            result for result in publisher.results if result.generation == 2
+        ]
         self.assertEqual(new_generation_results[0].regions, ())
         self.assertEqual(new_generation_results[1].regions[0].source, "New Text")
         self.assertEqual(new_generation_results[1].regions[0].bounds, new_bounds)
         self.assertEqual(renderer.calls[-2], [])
 
-    def test_generation_change_during_ocr_discards_without_counting_repeat(self) -> None:
+    def test_generation_change_during_ocr_discards_without_counting_repeat(
+        self,
+    ) -> None:
         generation = {"value": 1}
         bounds = Rect(10, 20, 100, 20)
         publisher = RecordingPublisher()
@@ -155,7 +166,9 @@ class PipelineGenerationTest(unittest.TestCase):
         self.assertEqual(publisher.results[1].regions[0].source, "New Text")
         self.assertEqual(logger.calls[0][0].source, "New Text")
 
-    def test_generation_change_during_translation_discards_all_old_generation_effects(self) -> None:
+    def test_generation_change_during_translation_discards_all_old_generation_effects(
+        self,
+    ) -> None:
         generation = {"value": 1}
         bounds = Rect(10, 20, 100, 20)
         publisher = RecordingPublisher()

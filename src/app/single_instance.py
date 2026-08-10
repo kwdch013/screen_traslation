@@ -3,13 +3,15 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+import sys
+from typing import BinaryIO
 
 
 class SingleInstanceLock:
     def __init__(self, path: Path) -> None:
         self._path = path
-        self._file = None
-        self._mutex_handle = None
+        self._file: BinaryIO | None = None
+        self._mutex_handle: int | None = None
 
     def acquire(self) -> bool:
         if os.name == "nt":
@@ -62,29 +64,31 @@ class AlreadyRunningError(RuntimeError):
     pass
 
 
-def _lock_file(file_obj: object) -> None:
-    try:
+def _lock_file(file_obj: BinaryIO) -> None:
+    # sys.platformでの分岐はmypyがプラットフォーム別に到達可能性を判定するため、
+    # 実行されない側のtype: ignoreが不要になる (os.nameでは判定できない)。
+    if sys.platform == "win32":
         import msvcrt
-    except ImportError:
-        import fcntl
 
-        fcntl.flock(file_obj.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        msvcrt.locking(file_obj.fileno(), msvcrt.LK_NBLCK, 1)
         return
 
-    msvcrt.locking(file_obj.fileno(), msvcrt.LK_NBLCK, 1)
+    import fcntl
+
+    fcntl.flock(file_obj.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
-def _unlock_file(file_obj: object) -> None:
-    try:
+def _unlock_file(file_obj: BinaryIO) -> None:
+    if sys.platform == "win32":
         import msvcrt
-    except ImportError:
-        import fcntl
 
-        fcntl.flock(file_obj.fileno(), fcntl.LOCK_UN)
+        file_obj.seek(0)
+        msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
         return
 
-    file_obj.seek(0)
-    msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
+    import fcntl
+
+    fcntl.flock(file_obj.fileno(), fcntl.LOCK_UN)
 
 
 def _mutex_name(path: Path) -> str:
@@ -94,6 +98,8 @@ def _mutex_name(path: Path) -> str:
 
 
 def _create_windows_mutex(name: str) -> tuple[int, bool]:
+    if sys.platform != "win32":
+        raise OSError("Windows専用の処理です。")
     import ctypes
 
     kernel32 = ctypes.windll.kernel32
@@ -107,6 +113,8 @@ def _create_windows_mutex(name: str) -> tuple[int, bool]:
 
 
 def _release_windows_mutex(handle: int) -> None:
+    if sys.platform != "win32":
+        raise OSError("Windows専用の処理です。")
     import ctypes
 
     kernel32 = ctypes.windll.kernel32
@@ -117,6 +125,8 @@ def _release_windows_mutex(handle: int) -> None:
 
 
 def _close_windows_handle(handle: int) -> None:
+    if sys.platform != "win32":
+        raise OSError("Windows専用の処理です。")
     import ctypes
 
     kernel32 = ctypes.windll.kernel32
