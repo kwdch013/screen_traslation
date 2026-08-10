@@ -69,7 +69,7 @@ export function loadStoredCrop(storage: Storage | null, video: Size, sourceLabel
 		const stored: unknown = JSON.parse(raw)
 		if (!isStoredCrop(stored)) return null
 		if (stored.videoWidth !== video.width || stored.videoHeight !== video.height) return null
-		if (sourceLabel && stored.sourceLabel !== sourceLabel) return null
+		if (!sourceLabel || !stored.sourceLabel || stored.sourceLabel !== sourceLabel) return null
 		return clampCropRect(stored.crop, video)
 	} catch {
 		return null

@@ -74,7 +74,22 @@ function dragCrop(start: { x: number; y: number }, end: { x: number; y: number }
 	fireEvent.pointerUp(selector, { clientX: end.x, clientY: end.y, pointerId: 1 })
 }
 
-function emitCropResult(frameId: number, width: number, height: number, translated: string): void {
+function latestCropRevision(fetchMock: ReturnType<typeof vi.fn>): string {
+	const calls = fetchMock.mock.calls as unknown as [RequestInfo | URL, RequestInit][]
+	const frameCall = calls.findLast(([input]) => input === '/frame')
+	const headers = frameCall?.[1].headers as Record<string, string> | undefined
+	const revision = headers?.['X-Crop-Revision']
+	if (!revision) throw new Error('クロップリビジョン付きのフレーム送信が見つかりません')
+	return revision
+}
+
+function emitCropResult(
+	frameId: number,
+	width: number,
+	height: number,
+	translated: string,
+	cropRevision: string,
+): void {
 	act(() => currentEventSource().emitJson('translation_result', {
 		generation: 1,
 		frame_id: frameId,
@@ -82,6 +97,7 @@ function emitCropResult(frameId: number, width: number, height: number, translat
 		processed_at: 11,
 		frame_width: width,
 		frame_height: height,
+		crop_revision: cropRevision,
 		regions: [{
 			source: `Source ${frameId}`,
 			translated,
@@ -113,24 +129,27 @@ describe('ブラウザ内クロップ', () => {
 		expect(screen.getByRole('button', { name: '選択範囲を解除' })).toBeEnabled()
 	})
 
-	it('選択範囲を解除すると動画全体の送信へ戻り、保存値も削除する', async () => {
-		const { drawImage, encodedSizes } = installRunningCapture()
+	it('選択範囲を解除するとリビジョンを進めて動画全体の送信へ戻り、保存値も削除する', async () => {
+		const { drawImage, encodedSizes, fetchMock } = installRunningCapture()
 		const video = await startAndLoadMetadata()
 		selectCrop()
 		await act(async () => vi.advanceTimersByTime(500))
+		const selectedRevision = latestCropRevision(fetchMock)
 
 		fireEvent.click(screen.getByRole('button', { name: '選択範囲を解除' }))
 		await act(async () => vi.advanceTimersByTime(500))
 
 		expect(drawImage).toHaveBeenLastCalledWith(video, 0, 0, 1280, 720)
 		expect(encodedSizes.at(-1)).toEqual(videoSize)
+		expect(latestCropRevision(fetchMock)).not.toBe(selectedRevision)
 		expect(localStorage).toHaveLength(0)
 	})
 
 	it('クロップオフセットを加算して元映像上へ翻訳領域を重畳する', async () => {
-		installRunningCapture()
+		const { fetchMock } = installRunningCapture()
 		await startAndLoadMetadata()
 		selectCrop()
+		await act(async () => vi.advanceTimersByTime(500))
 
 		act(() => currentEventSource().emitJson('translation_result', {
 			generation: 1,
@@ -139,6 +158,7 @@ describe('ブラウザ内クロップ', () => {
 			processed_at: 11,
 			frame_width: 256,
 			frame_height: 144,
+			crop_revision: latestCropRevision(fetchMock),
 			regions: [{
 				source: 'Crop text',
 				translated: 'クロップ訳文',
@@ -159,24 +179,29 @@ describe('ブラウザ内クロップ', () => {
 		})
 	})
 
-	it('クロップ変更時に現行表示だけを消し、遅延した旧寸法の結果を重畳しない', async () => {
-		installRunningCapture()
+	it('同じ寸法で位置だけ異なるクロップへの変更後は旧リビジョンの結果を誤位置に重畳しない', async () => {
+		const { fetchMock } = installRunningCapture()
 		await startAndLoadMetadata()
 		selectCrop()
-		emitCropResult(1, 256, 144, '変更前の訳文')
+		await act(async () => vi.advanceTimersByTime(500))
+		const previousRevision = latestCropRevision(fetchMock)
+		emitCropResult(1, 256, 144, '変更前の訳文', previousRevision)
 
 		expect(screen.getByTestId('translation-overlay')).toHaveTextContent('変更前の訳文')
-		dragCrop({ x: 400, y: 300 }, { x: 500, y: 400 })
+		dragCrop({ x: 400, y: 300 }, { x: 600, y: 412.5 })
 		expect(screen.queryByTestId('translation-overlay')).not.toBeInTheDocument()
 
 		fireEvent.click(screen.getByRole('tab', { name: '字幕リスト' }))
 		expect(screen.getByText('変更前の訳文')).toBeInTheDocument()
 		fireEvent.click(screen.getByRole('tab', { name: 'プレビュー' }))
 
-		emitCropResult(2, 256, 144, '遅延した旧訳文')
+		emitCropResult(2, 256, 144, '遅延した旧訳文', previousRevision)
 		expect(screen.queryByTestId('translation-overlay')).not.toBeInTheDocument()
 
-		emitCropResult(3, 128, 128, '変更後の訳文')
+		await act(async () => vi.advanceTimersByTime(500))
+		const currentRevision = latestCropRevision(fetchMock)
+		expect(currentRevision).not.toBe(previousRevision)
+		emitCropResult(3, 256, 144, '変更後の訳文', currentRevision)
 		expect(screen.getByTestId('translation-overlay')).toHaveTextContent('変更後の訳文')
 	})
 
@@ -196,8 +221,8 @@ describe('ブラウザ内クロップ', () => {
 		expect(localStorage).toHaveLength(1)
 	})
 
-	it('共有中に動画実解像度が変化した場合はクロップを解除して全体送信へ戻る', async () => {
-		const { drawImage, encodedSizes } = installRunningCapture()
+	it('共有中に動画実解像度が変化した場合はリビジョンを進めてクロップを解除する', async () => {
+		const { drawImage, encodedSizes, fetchMock } = installRunningCapture()
 		let width = 1280
 		let height = 720
 		Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', {
@@ -210,6 +235,8 @@ describe('ブラウザ内クロップ', () => {
 		})
 		const video = await startAndLoadMetadata()
 		selectCrop()
+		await act(async () => vi.advanceTimersByTime(500))
+		const selectedRevision = latestCropRevision(fetchMock)
 
 		width = 640
 		height = 360
@@ -221,11 +248,12 @@ describe('ブラウザ内クロップ', () => {
 		expect(localStorage).toHaveLength(0)
 		expect(drawImage).toHaveBeenLastCalledWith(video, 0, 0, 640, 360)
 		expect(encodedSizes.at(-1)).toEqual({ width: 640, height: 360 })
+		expect(latestCropRevision(fetchMock)).not.toBe(selectedRevision)
 	})
 
-	it('次回共有のメタデータ読込後に同じ解像度の保存領域を復元する', async () => {
-		saveStoredCrop(localStorage, { x: 128, y: 72, width: 256, height: 144 }, videoSize)
-		const { drawImage, encodedSizes } = installRunningCapture()
+	it('次回共有のメタデータ読込後に同じラベルと解像度の保存領域を復元する', async () => {
+		saveStoredCrop(localStorage, { x: 128, y: 72, width: 256, height: 144 }, videoSize, '共有元A')
+		const { drawImage, encodedSizes } = installRunningCapture('共有元A')
 		const video = await startAndLoadMetadata()
 
 		await act(async () => vi.advanceTimersByTime(500))
@@ -233,6 +261,18 @@ describe('ブラウザ内クロップ', () => {
 		expect(drawImage).toHaveBeenLastCalledWith(video, 128, 72, 256, 144, 0, 0, 256, 144)
 		expect(encodedSizes.at(-1)).toEqual({ width: 256, height: 144 })
 		expect(screen.getByTestId('crop-selection')).toBeInTheDocument()
+	})
+
+	it('共有元ラベルを取得できない場合は同じ解像度でも保存領域を復元しない', async () => {
+		saveStoredCrop(localStorage, { x: 128, y: 72, width: 256, height: 144 }, videoSize, '共有元A')
+		const { drawImage, encodedSizes } = installRunningCapture('')
+		const video = await startAndLoadMetadata()
+
+		await act(async () => vi.advanceTimersByTime(500))
+
+		expect(drawImage).toHaveBeenLastCalledWith(video, 0, 0, 1280, 720)
+		expect(encodedSizes.at(-1)).toEqual(videoSize)
+		expect(screen.queryByTestId('crop-selection')).not.toBeInTheDocument()
 	})
 
 	it('同じ解像度でも共有元ラベルが異なる場合は保存領域を復元しない', async () => {
@@ -253,8 +293,8 @@ describe('ブラウザ内クロップ', () => {
 	})
 
 	it('保存時と動画実解像度が異なる場合は復元せず全体を送信する', async () => {
-		saveStoredCrop(localStorage, { x: 128, y: 72, width: 256, height: 144 }, videoSize)
-		const { drawImage, encodedSizes } = installRunningCapture()
+		saveStoredCrop(localStorage, { x: 128, y: 72, width: 256, height: 144 }, videoSize, '共有元A')
+		const { drawImage, encodedSizes } = installRunningCapture('共有元A')
 		Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', {
 			configurable: true,
 			value: 1920,

@@ -22,6 +22,7 @@ export class CaptureFrameSender {
     token: string | undefined,
     onForbidden: () => void,
     crop?: CropRect | null,
+    cropRevision = '',
   ): Promise<void> {
     const generation = this.generation
     if (
@@ -65,6 +66,7 @@ export class CaptureFrameSender {
         headers: {
           'Content-Type': 'image/jpeg',
           'X-Capture-Token': token,
+          'X-Crop-Revision': cropRevision,
         },
         body: blob,
         signal: controller.signal,

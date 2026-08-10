@@ -17,6 +17,8 @@ export function useScreenCapture() {
     crop,
     cropEnabled,
     cropRef,
+    cropRevision,
+    cropRevisionRef,
     disableSelection,
     handleVideoResize,
     prepareForStream,
@@ -84,8 +86,9 @@ export function useScreenCapture() {
         setStatusText('このタブのセッションは終了しました。画面を選び直してください。')
       },
       cropRef.current,
+      cropRevisionRef.current,
     )
-  }, [cropRef, stopSharing])
+  }, [cropRef, cropRevisionRef, stopSharing])
 
   const stopWithKeepaliveAndSync = useCallback((sessionToken?: string) => {
     if (!sessionToken) return
@@ -314,6 +317,7 @@ export function useScreenCapture() {
     videoRef,
     crop,
     cropEnabled,
+    cropRevision,
     handleVideoResize,
     restoreCropForVideo: restoreForVideo,
     setCropSelection,

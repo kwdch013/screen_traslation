@@ -35,7 +35,7 @@
 `frontend/src/` の React アプリが次を担当する。
 
 - `useScreenCapture.ts`: 制御 API、`getDisplayMedia`、500ミリ秒間隔のフレーム送信、共有ストリームの停止を管理する。
-- `useCropSelection.ts` / `cropSelection.ts`: 単一クロップ領域の状態、表示座標から動画座標への変換、解像度を含むブラウザ保存を管理する。
+- `useCropSelection.ts` / `cropSelection.ts`: 単一クロップ領域の状態とリビジョン、表示座標から動画座標への変換、解像度・共有元ラベルを含むブラウザ保存を管理する。
 - `useTranslationEvents.ts`: SSE を購読し、世代と `frame_id` で古い結果を除外して、履歴を新しい順に最大100件へ制限する。
 - `TranslationPreview.tsx` / `CropOverlay.tsx`: 共有映像を `contain` 表示し、クロップ選択と訳文の重畳を行う。
 - `SubtitleList.tsx`: 字幕履歴を表示する。
@@ -94,6 +94,8 @@ API と実装ルートは次のとおりである。
 
 制御 API の応答は `state`、`error_message`、`session_token`、`session_token_valid` を持つ。開始・再選択の応答だけが有効なトークン値を含む。サービスが `error` になった操作は HTTP 500 を返す。
 
+ブラウザは `/frame` へ `X-Capture-Token` と `X-Crop-Revision` を付ける。`X-Crop-Revision` はクロップ状態が変わるたびに進む文字列であり、サーバーは値を解釈せず、受理したフレームとその翻訳結果へそのまま引き継ぐ。ヘッダーがない既存クライアントの値は `null` になる。
+
 ### 公開設定
 
 `GET /api/config` と `PUT /api/config` が扱う項目は次に限定する。
@@ -143,13 +145,14 @@ data: {"generation":1,"state":"awaiting_frame","error_message":null}
 | `processed_at` | number | 結果生成時の単調時計の秒数。 |
 | `frame_width` | integer | OCR 対象画像の幅。 |
 | `frame_height` | integer | OCR 対象画像の高さ。 |
+| `crop_revision` | string / null | 受理時の `X-Crop-Revision`。未指定時は `null`。 |
 | `regions` | array | 翻訳領域。0件の結果は現在のプレビュー表示を消去する。 |
 
 各 `regions[]` は `source`、`translated`、`x`、`y`、`width`、`height`、`confidence`、`positioning` を持つ。`positioning` は `available` または `unavailable` である。
 
 ```text
 event: translation_result
-data: {"generation":1,"frame_id":42,"captured_at":123.4,"processed_at":123.5,"frame_width":1280,"frame_height":720,"regions":[{"source":"New Game","translated":"ニューゲーム","x":10,"y":20,"width":120,"height":30,"confidence":0.9,"positioning":"available"}]}
+data: {"generation":1,"frame_id":42,"captured_at":123.4,"processed_at":123.5,"frame_width":1280,"frame_height":720,"crop_revision":"7","regions":[{"source":"New Game","translated":"ニューゲーム","x":10,"y":20,"width":120,"height":30,"confidence":0.9,"positioning":"available"}]}
 ```
 
 ブラウザは世代が進むと現在表示と字幕履歴を消去し、同じ世代では `frame_id` が新しい結果だけを採用する。現在表示は新しい結果が10秒来なければ消去するが、字幕履歴は保持する。SSE 切断時は EventSource の自動再接続を利用する。
@@ -161,8 +164,8 @@ data: {"generation":1,"frame_id":42,"captured_at":123.4,"processed_at":123.5,"fr
 - Tesseract の前処理画像を2倍へ拡大した場合、左上を切り下げ、右下を切り上げて元画像スケールへ戻す。
 - `frame_width` と `frame_height` は座標の基準画像寸法である。
 - クロップ時の送信画像は選択矩形だけを含み、`frame_width` と `frame_height` はクロップ後の寸法になる。サーバーはクロップ処理を行わない。
-- フロントエンドは共有映像をアスペクト比を保った `contain` で表示する。重畳変換は共有動画の実解像度を基準とし、クロップ時は翻訳領域へ選択矩形の左上オフセットを加えてから変換する。
-- クロップ矩形は動画実解像度ピクセルと選択時の実解像度をブラウザへ保存する。次回共有時はメタデータ読込後に解像度が一致した場合だけ復元し、不一致時は動画全体を送信する。
+- フロントエンドは共有映像をアスペクト比を保った `contain` で表示する。現在のクロップリビジョンと結果の `crop_revision` が完全一致する位置付き領域だけを重畳対象とし、クロップ時は翻訳領域へ選択矩形の左上オフセットを加えてから変換する。同じ寸法で位置だけ異なるクロップへ変更しても、旧リビジョンの結果は重畳しない。
+- クロップ矩形は動画実解像度ピクセル、選択時の実解像度、共有元ラベルをブラウザへ保存する。次回共有時はメタデータ読込後に解像度が一致し、かつ保存時・復元時の共有元ラベルがともに空でなく一致する場合だけ復元する。ラベルを取得できない場合や不一致時は安全側で動画全体を送信する。
 - LLM OCR の構造化応答から画像内の矩形を検証できた領域は `positioning: available` とする。JSONを解釈できない場合、または妥当な領域が1件もない場合は `positioning: unavailable` とし、推測した位置を付けずプレビュー下部と字幕リストへ表示する。
 
 ## セキュリティ

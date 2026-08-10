@@ -38,3 +38,10 @@
 - `useScreenCapture.ts` の責務過多は既存構造に起因するため今回は分割せず、後続Issueでの分割検討が必要な課題として記録する。
 - レビュー修正後の検証では、`npm run lint`、`npx vitest run`（9ファイル・78件）、`npm run build` がすべて成功した。
 - Python回帰は指定コマンドで実行したが、既存記録と同様に `WebCaptureServerTest` 12件がsandboxのソケット生成制限による `PermissionError: [Errno 1] Operation not permitted` となった。
+- PR #50 の2回目のCodexレビュー修正として、同じ寸法で位置だけ異なるクロップの遅延結果と、共有元ラベル欠落時の誤復元をTDDで再現した。
+- クロップ状態の変更ごとに進む文字列リビジョンを `X-Crop-Revision` でフレームへ付与し、サーバーは検証・解釈せず `Frame`、`TranslationResult`、SSE の `crop_revision` へ引き継ぐ最小契約拡張を行った。
+- プレビューの寸法一致ヒューリスティックをクロップリビジョンの完全一致判定へ置き換え、同寸法の別位置へ変更後に旧結果を新しいオフセットで重畳しないようにした。
+- クロップの自動復元は、保存時と復元時の共有元ラベルがともに空でなく一致し、動画実解像度も一致する場合だけ許可する安全側の契約へ変更した。
+- High の核心テストは修正前に、旧結果「遅延した旧訳文」が新しい選択位置 `left: 400px; top: 300px` へ重畳されて失敗することを確認し、修正後は成功した。
+- 2回目のレビュー修正後、`npm run lint`、`npx vitest run`（9ファイル・81件）、`npm run build`、`mypy src`、`mypy --platform win32 src`、`ruff check src` はすべて成功した。
+- Python で個別実行できた変更関連テスト41件は成功した。指定の全件 `unittest discover` は、このsandboxで実ソケット生成が `PermissionError: [Errno 1] Operation not permitted` になる12件に加え、FastAPI `TestClient` の最初の要求が停止したため完走せず、中断した。個別実行でも同じ要求が90秒でタイムアウトすることを確認した。

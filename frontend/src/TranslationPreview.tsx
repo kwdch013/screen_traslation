@@ -11,6 +11,7 @@ interface TranslationPreviewProps {
 	videoRef: RefObject<HTMLVideoElement | null>
 	result: TranslationResult | null
 	crop: CropRect | null
+	cropRevision: string
 	cropEnabled: boolean
 	onCropChange: (crop: CropRect | null) => void
 	onVideoMetadata: () => void
@@ -21,6 +22,7 @@ export function TranslationPreview({
 	videoRef,
 	result,
 	crop,
+	cropRevision,
 	cropEnabled,
 	onCropChange,
 	onVideoMetadata,
@@ -52,18 +54,10 @@ export function TranslationPreview({
 		return () => observer.disconnect()
 	}, [recalculate, videoRef])
 
-	const video = videoRef.current
-	const expectedFrameWidth = crop?.width ?? video?.videoWidth
-	const expectedFrameHeight = crop?.height ?? video?.videoHeight
-	// 同じ寸法で位置だけが異なるクロップは結果の寸法だけでは新旧を区別できない。
-	const resultMatchesCurrentFrame = Boolean(
-		result
-		&& expectedFrameWidth
-		&& expectedFrameHeight
-		&& result.frame_width === expectedFrameWidth
-		&& result.frame_height === expectedFrameHeight,
+	const resultMatchesCurrentCrop = Boolean(
+		result && result.crop_revision === cropRevision,
 	)
-	const positioned = resultMatchesCurrentFrame
+	const positioned = resultMatchesCurrentCrop
 		? result?.regions.filter((region) => region.positioning === 'available') ?? []
 		: []
 	const unpositioned = result?.regions.filter((region) => region.positioning === 'unavailable') ?? []

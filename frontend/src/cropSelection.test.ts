@@ -72,17 +72,34 @@ describe('クロップ設定の永続化', () => {
 		expect(loadStoredCrop(localStorage, videoSize, '共有元B')).toBeNull()
 	})
 
-	it('共有元ラベルを取得できない場合は動画実解像度だけで復元する', () => {
-		const crop = { x: 128, y: 72, width: 256, height: 144 }
-		saveStoredCrop(localStorage, crop, videoSize, '共有元A')
+	it.each([
+		['保存時', '', '共有元A'],
+		['復元時', '共有元A', ''],
+		['保存時と復元時', '', ''],
+	] as const)('%sに共有元ラベルを取得できない場合は自動復元しない', (_case, storedLabel, currentLabel) => {
+		saveStoredCrop(
+			localStorage,
+			{ x: 128, y: 72, width: 256, height: 144 },
+			videoSize,
+			storedLabel,
+		)
 
-		expect(loadStoredCrop(localStorage, videoSize, '')).toEqual(crop)
+		expect(loadStoredCrop(localStorage, videoSize, currentLabel)).toBeNull()
 	})
 
 	it('動画実解像度が保存時と異なる場合は復元しない', () => {
-		saveStoredCrop(localStorage, { x: 128, y: 72, width: 256, height: 144 }, videoSize)
+		saveStoredCrop(
+			localStorage,
+			{ x: 128, y: 72, width: 256, height: 144 },
+			videoSize,
+			'共有元A',
+		)
 
-		expect(loadStoredCrop(localStorage, { width: 1920, height: 1080 })).toBeNull()
+		expect(loadStoredCrop(
+			localStorage,
+			{ width: 1920, height: 1080 },
+			'共有元A',
+		)).toBeNull()
 	})
 
 	it('解除時は保存したクロップ設定を削除する', () => {

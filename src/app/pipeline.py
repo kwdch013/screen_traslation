@@ -255,6 +255,7 @@ class TranslationPipeline:
                 frame_width=frame_width,
                 frame_height=frame_height,
                 regions=tuple(translations),
+                crop_revision=frame.crop_revision,
             )
         )
 

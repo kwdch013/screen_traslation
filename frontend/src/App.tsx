@@ -112,6 +112,7 @@ function App() {
           videoRef={capture.videoRef}
           result={translation.currentResult}
           crop={capture.crop}
+          cropRevision={capture.cropRevision}
           cropEnabled={capture.cropEnabled}
           onCropChange={setCropSelection}
           onVideoMetadata={capture.restoreCropForVideo}

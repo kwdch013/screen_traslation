@@ -26,6 +26,7 @@ function resultEvent(frameId: number, regions: object[], generation = 1) {
 		processed_at: 11,
 		frame_width: 1280,
 		frame_height: 720,
+		crop_revision: '0',
 		regions,
 	}
 }

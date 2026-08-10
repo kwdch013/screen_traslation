@@ -107,6 +107,7 @@ class PipelineTest(unittest.TestCase):
             image=type("Image", (), {"size": (640, 360)})(),
             captured_at=12.5,
             frame_id=7,
+            crop_revision="crop-9",
         )
         ocr_engine = RecordingOcrEngine(
             [
@@ -141,6 +142,7 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(result.captured_at, 12.5)
         self.assertGreaterEqual(result.processed_at, result.captured_at)
         self.assertEqual((result.frame_width, result.frame_height), (640, 360))
+        self.assertEqual(result.crop_revision, "crop-9")
         self.assertEqual(result.regions[0].positioning, "available")
 
     def test_pipeline_publishes_empty_result_to_clear_display(self) -> None:

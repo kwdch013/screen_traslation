@@ -23,6 +23,7 @@ def _result(generation: int = 1, frame_id: int = 1) -> TranslationResult:
                 positioning="available",
             ),
         ),
+        crop_revision="crop-10",
     )
 
 
@@ -34,6 +35,7 @@ class TranslationResultTest(unittest.TestCase):
         self.assertEqual(body["frame_id"], 1)
         self.assertEqual(body["frame_width"], 1280)
         self.assertEqual(body["frame_height"], 720)
+        self.assertEqual(body["crop_revision"], "crop-10")
         self.assertEqual(
             body["regions"][0],
             {
