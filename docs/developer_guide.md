@@ -107,10 +107,17 @@ lint:
 .venv/bin/mypy src
 ```
 
+本番実行環境 (Windows) 向けの型定義でも確認します。`msvcrt` / `ctypes.windll` など Windows 専用 API の分岐は `sys.platform` での判定に統一しており、mypy が対象外側の分岐を到達不能として扱うため、プラットフォームごとに `# type: ignore` を出し分ける必要はありません。
+
+```bash
+.venv/bin/mypy --platform win32 src
+```
+
 コンテナ内で CI と同じ設定・対象を確認する場合は、次を実行します。
 
 ```bash
 docker compose run --rm app mypy src
+docker compose run --rm app mypy --platform win32 src
 ```
 
 ### フロントエンド
@@ -171,7 +178,8 @@ docker compose run --rm app
 4. `ruff check src` を行う。
 5. 最終 Docker イメージをビルドし、リポジトリをマウントした同イメージ内で mypy 構成テストを行う。
 6. `mypy src` で型チェックを行う。
-7. 全 Python テストを同じ最終 Docker イメージ内で行う。
+7. `mypy --platform win32 src` で、本番実行環境 (Windows) 向けの型定義でも型チェックを行う。
+8. 全 Python テストを同じ最終 Docker イメージ内で行う。
 
 ワークフローは `concurrency` と `cancel-in-progress: true` で古い実行を中止し、トップレベル権限を `contents: read` に限定します。`.github/workflows/codeql.yml` は PR、対象ブランチへの push、週次スケジュールで Python を解析します。`.github/dependabot.yml` は GitHub Actions、pip、npm、Docker の依存更新を週次で `dev` 宛てに作成します。
 

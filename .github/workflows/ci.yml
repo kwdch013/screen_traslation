@@ -59,6 +59,10 @@ jobs:
       - name: 型チェック (mypy)
         run: docker run --rm -e PYTHONPATH=/app/src app:ci mypy src
 
+      # 本番実行環境 (Windows) 向けの型定義でも整合することを確認する
+      - name: 型チェック (mypy, Windows向け)
+        run: docker run --rm -e PYTHONPATH=/app/src app:ci mypy --platform win32 src
+
       # ローカルの docker compose run --rm app と同一環境・同一コマンドでテストする
       - name: テスト実行 (コンテナ内)
         run: docker run --rm -e PYTHONPATH=/app/src app:ci python -m unittest discover -s src/tests

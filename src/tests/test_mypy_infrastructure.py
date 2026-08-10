@@ -48,10 +48,24 @@ class MypyInfrastructureTest(unittest.TestCase):
             ),
         )
 
+    def test_ci_runs_mypy_for_the_windows_target_platform(self) -> None:
+        # 本番実行環境はWindowsのため、msvcrt/ctypes.windll側の型定義でも
+        # 型エラーが無いことをCIで確認する (Issue #22 codexレビュー指摘対応)。
+        workflow = self._read(".github/workflows/ci.yml")
+
+        self.assertRegex(
+            workflow,
+            re.compile(
+                r"- name: 型チェック \(mypy, Windows向け\)\n"
+                r"\s+run: docker run --rm -e PYTHONPATH=/app/src app:ci mypy --platform win32 src",
+            ),
+        )
+
     def test_developer_guide_documents_containerized_mypy(self) -> None:
         guide = self._read("docs/developer_guide.md")
 
         self.assertIn("docker compose run --rm app mypy src", guide)
+        self.assertIn("docker compose run --rm app mypy --platform win32 src", guide)
 
     def _read(self, relative_path: str) -> str:
         return (self.repository_root / relative_path).read_text(encoding="utf-8")

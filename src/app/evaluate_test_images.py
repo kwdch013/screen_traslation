@@ -192,7 +192,7 @@ def current_memory_bytes() -> int | None:
 
 
 def _windows_current_memory_bytes() -> int | None:
-    if os.name != "nt":
+    if sys.platform != "win32":
         return None
     try:
         import ctypes
@@ -216,8 +216,8 @@ def _windows_current_memory_bytes() -> int | None:
 
     counters = ProcessMemoryCounters()
     counters.cb = ctypes.sizeof(ProcessMemoryCounters)
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
-    psapi = ctypes.WinDLL("psapi", use_last_error=True)  # type: ignore[attr-defined]
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    psapi = ctypes.WinDLL("psapi", use_last_error=True)
     handle = kernel32.GetCurrentProcess()
     psapi.GetProcessMemoryInfo.argtypes = [
         wintypes.HANDLE,
