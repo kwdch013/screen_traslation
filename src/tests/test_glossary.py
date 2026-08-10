@@ -31,6 +31,22 @@ class GlossaryTest(unittest.TestCase):
 
         self.assertEqual(loaded.translate_exact("save"), "セーブ")
 
+    def test_save_replaces_file_without_union_merge(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "glossary.json"
+            seed = Glossary()
+            seed.register("Old", "旧")
+            seed.save(path)
+
+            replacement = Glossary()
+            replacement.register("New", "新")
+            replacement.save(path)
+
+            self.assertEqual(
+                [(term.source, term.target) for term in Glossary.load(path).terms],
+                [("New", "新")],
+            )
+
     def test_register_and_translate_can_run_concurrently(self) -> None:
         glossary = Glossary()
 

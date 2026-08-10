@@ -7,7 +7,8 @@ from pathlib import Path
 import threading
 from typing import Any
 
-from .config import OverlayStyle, PipelineConfig, save_config
+from .config import OverlayStyle, PipelineConfig, update_config_file
+from .file_lock import DEFAULT_FILE_LOCK_TIMEOUT_SECONDS
 from .glossary import Glossary, GlossaryTerm
 
 PUBLIC_CONFIG_FIELDS = frozenset(
@@ -68,12 +69,14 @@ class WebSettings:
         glossary_path: Path,
         *,
         invalidate_translation_cache: Callable[[], None],
+        file_lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
     ) -> None:
         self._config = config
         self._glossary = glossary
         self._config_path = config_path
         self._glossary_path = glossary_path
         self._invalidate_translation_cache = invalidate_translation_cache
+        self._file_lock_timeout_seconds = file_lock_timeout_seconds
         self._lock = threading.RLock()
 
     def config_snapshot(self) -> PipelineConfig:
@@ -112,9 +115,16 @@ class WebSettings:
             raise ValueError(f"公開されていない設定項目は変更できません: {names}")
         _validate_public_changes(changes)
         with self._lock:
-            updated = _updated_config(self._config, changes)
-            _validate_config_consistency(updated)
-            save_config(updated, self._config_path)
+            def apply_changes(current: PipelineConfig) -> PipelineConfig:
+                updated_config = _updated_config(current, changes)
+                _validate_config_consistency(updated_config)
+                return updated_config
+
+            updated = update_config_file(
+                self._config_path,
+                apply_changes,
+                lock_timeout_seconds=self._file_lock_timeout_seconds,
+            )
             self._config = updated
             public_config = self.public_config()
         return {**public_config, "applied": "next_start"}
@@ -123,12 +133,21 @@ class WebSettings:
         return [_term_as_dict(term) for term in self._glossary.terms]
 
     def register_glossary_term(self, source: str, target: str) -> dict[str, str]:
-        term = self._glossary.register_and_save(source, target, self._glossary_path)
+        term = self._glossary.register_and_save(
+            source,
+            target,
+            self._glossary_path,
+            lock_timeout_seconds=self._file_lock_timeout_seconds,
+        )
         self._invalidate_translation_cache()
         return _term_as_dict(term)
 
     def delete_glossary_term(self, source: str) -> None:
-        self._glossary.delete_and_save(source, self._glossary_path)
+        self._glossary.delete_and_save(
+            source,
+            self._glossary_path,
+            lock_timeout_seconds=self._file_lock_timeout_seconds,
+        )
         self._invalidate_translation_cache()
 
 

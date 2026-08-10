@@ -10,7 +10,7 @@ from urllib.request import urlopen
 import webbrowser
 
 from .capture import BlankCaptureSource
-from .config import PipelineConfig, load_config, save_config
+from .config import PipelineConfig, load_config, save_config_if_absent
 from .factory import build_pipeline
 from .glossary import Glossary
 from .ocr import StaticOcrEngine, text_to_region
@@ -52,24 +52,23 @@ def main() -> int:
     glossary = Glossary.load(args.glossary)
 
     if args.add_term:
-        glossary.register(args.add_term[0], args.add_term[1])
-        glossary.save(args.glossary)
-        save_config(config, args.config)
+        glossary.upsert_and_save(args.add_term[0], args.add_term[1], args.glossary)
         return 0
 
     if args.run_once:
+        runtime_config = config
         if args.text:
-            config = replace(
+            runtime_config = replace(
                 config,
                 capture_backend="blank",
                 ocr_backend="static",
                 translator_backend="passthrough",
                 overlay_backend="console",
             )
-        pipeline = build_pipeline(config, glossary, static_text=args.text)
+        pipeline = build_pipeline(runtime_config, glossary, static_text=args.text)
         pipeline.tick()
-        save_config(config, args.config)
-        glossary.save(args.glossary)
+        save_config_if_absent(config, args.config)
+        glossary.save_if_absent(args.glossary)
         return 0
 
     if args.text and not args.web:
@@ -83,8 +82,8 @@ def main() -> int:
             translation_logger=JsonlTranslationLogger(config.translation_log_path),
         )
         pipeline.tick()
-        save_config(config, args.config)
-        glossary.save(args.glossary)
+        save_config_if_absent(config, args.config)
+        glossary.save_if_absent(args.glossary)
         return 0
 
     return _run_web_app(

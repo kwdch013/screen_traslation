@@ -12,6 +12,7 @@ from urllib.parse import quote
 import httpx2
 
 from app.config import PipelineConfig, save_config
+from app.file_lock import InterProcessFileLock, lock_path_for
 from app.glossary import Glossary
 from app.pipeline import TranslationCache
 from app.translator import GlossaryAwareTranslator, PassthroughTranslator
@@ -299,6 +300,38 @@ class WebSettingsApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("空", response.json()["detail"])
+
+    def test_config_lock_timeout_returns_503_with_clear_error(self) -> None:
+        self.service._settings._file_lock_timeout_seconds = 0.01
+
+        with InterProcessFileLock(
+            lock_path_for(self.config_path), timeout_seconds=1.0
+        ):
+            response = self.client.put(
+                "/api/config",
+                json={"ocr_fps": 2.0},
+                headers=self._headers(),
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("app.json", response.json()["detail"])
+        self.assertIn("ロック", response.json()["detail"])
+
+    def test_glossary_lock_timeout_returns_503_with_clear_error(self) -> None:
+        self.service._settings._file_lock_timeout_seconds = 0.01
+
+        with InterProcessFileLock(
+            lock_path_for(self.glossary_path), timeout_seconds=1.0
+        ):
+            response = self.client.post(
+                "/api/glossary",
+                json={"source": "Save", "target": "セーブ"},
+                headers=self._headers(),
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("glossary.json", response.json()["detail"])
+        self.assertIn("ロック", response.json()["detail"])
 
     def test_dot_path_glossary_sources_return_400_without_registration(self) -> None:
         for source in (".", ".."):
