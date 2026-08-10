@@ -65,15 +65,18 @@ class WebAppService:
         self._glossary_revision = MonotonicRevision()
         # 世代進行とPublisherの旧世代無効化の間に結果配信を割り込ませない。
         self._event_publisher = TranslationEventPublisher(lock=self._lock)
+        self._pipeline_factory: PipelineFactory
         if pipeline_factory is None:
-            self._pipeline_factory = lambda built_config, built_glossary, store, overlay: build_web_pipeline(
-                built_config,
-                built_glossary,
-                store,
-                overlay,
-                result_publisher=self._event_publisher,
-                generation_provider=lambda: self.generation,
-                glossary_revision=self._glossary_revision,
+            self._pipeline_factory = (
+                lambda built_config, built_glossary, store, overlay: build_web_pipeline(
+                    built_config,
+                    built_glossary,
+                    store,
+                    overlay,
+                    result_publisher=self._event_publisher,
+                    generation_provider=lambda: self.generation,
+                    glossary_revision=self._glossary_revision,
+                )
             )
         else:
             self._pipeline_factory = pipeline_factory
@@ -148,8 +151,12 @@ class WebAppService:
                     overlay_backend="memory",
                     target_region=None,
                 )
-                pipeline = self._pipeline_factory(config, self._glossary, self._server.store, overlay)
-                runner = self._runner_factory(pipeline, self._error_handler(runner_generation))
+                pipeline = self._pipeline_factory(
+                    config, self._glossary, self._server.store, overlay
+                )
+                runner = self._runner_factory(
+                    pipeline, self._error_handler(runner_generation)
+                )
                 with self._lock:
                     self._overlay = overlay
                     self._pipeline = pipeline
@@ -159,8 +166,15 @@ class WebAppService:
                 self._rollback_failed_start(runner, overlay, error)
                 raise
             with self._lock:
-                if runner_generation == self._runner_generation and self._state == "starting":
-                    self._state = "running" if self._server.store.has_frame() else "awaiting_frame"
+                if (
+                    runner_generation == self._runner_generation
+                    and self._state == "starting"
+                ):
+                    self._state = (
+                        "running"
+                        if self._server.store.has_frame()
+                        else "awaiting_frame"
+                    )
                     self._publish_state_unlocked()
                 return self._status_unlocked()
 
@@ -172,7 +186,9 @@ class WebAppService:
                     self._server.session_token,
                 ):
                     # 409により、旧ページへ停止完了と誤認させず現行セッションを維持する。
-                    raise WebAppConflictError("停止対象のセッションは既に終了しています")
+                    raise WebAppConflictError(
+                        "停止対象のセッションは既に終了しています"
+                    )
                 self._state = "stopping"
                 self._session_generation += 1
                 self._runner_generation += 1
@@ -185,14 +201,18 @@ class WebAppService:
                 except Exception as error:
                     with self._lock:
                         self._state = "error"
-                        self._error_message = f"翻訳パイプラインを停止できませんでした: {error}"
+                        self._error_message = (
+                            f"翻訳パイプラインを停止できませんでした: {error}"
+                        )
                         self._publish_state_unlocked()
                         return self._status_unlocked()
             with self._lock:
                 # join中に別世代へ変わる操作はoperation_lockで排除されている。
                 if runner is not None and runner.is_running:
                     self._state = "error"
-                    self._error_message = "翻訳パイプラインを2秒以内に停止できませんでした"
+                    self._error_message = (
+                        "翻訳パイプラインを2秒以内に停止できませんでした"
+                    )
                     self._publish_state_unlocked()
                     return self._status_unlocked()
                 self._runner = None
@@ -206,8 +226,13 @@ class WebAppService:
     def reselect(self) -> WebAppStatus:
         with self._operation_lock:
             with self._lock:
-                if self._state not in {"awaiting_frame", "running"} or self._runner is None:
-                    raise WebAppConflictError(f"state={self._state}では再選択できません")
+                if (
+                    self._state not in {"awaiting_frame", "running"}
+                    or self._runner is None
+                ):
+                    raise WebAppConflictError(
+                        f"state={self._state}では再選択できません"
+                    )
                 self._session_generation += 1
                 self._server.new_session()
                 self._state = "awaiting_frame"

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Sequence
 from pathlib import Path
 import tempfile
 import threading
 import unittest
 
 from app.config import PipelineConfig
-from app.contracts import Frame, Rect, TextRegion
+from app.contracts import Frame, Rect, TextRegion, TranslationRegion, TranslationResult
 from app.glossary import Glossary
 from app.pipeline import OcrStabilizer, TranslationCache, TranslationPipeline
 from app.revision import MonotonicRevision
@@ -43,25 +44,28 @@ class FixedOcrEngine:
 
 class RecordingPublisher:
     def __init__(self) -> None:
-        self.results = []
+        self.results: list[TranslationResult] = []
 
-    def publish(self, result) -> None:
+    def publish(self, result: TranslationResult) -> None:
         self.results.append(result)
 
 
 class RecordingRenderer:
     def __init__(self) -> None:
-        self.calls = []
+        self.calls: list[list[TranslationRegion]] = []
 
-    def render(self, regions) -> None:
+    def render(self, regions: Sequence[TranslationRegion]) -> None:
         self.calls.append(list(regions))
+
+    def close(self) -> None:
+        pass
 
 
 class RecordingLogger:
     def __init__(self) -> None:
-        self.calls = []
+        self.calls: list[list[TranslationRegion]] = []
 
-    def log(self, regions, config) -> None:
+    def log(self, regions: list[TranslationRegion], config: PipelineConfig) -> None:
         self.calls.append(list(regions))
 
 

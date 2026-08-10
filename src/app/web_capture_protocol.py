@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
@@ -19,8 +20,8 @@ def create_header_timeout_protocol(timeout_seconds: float) -> type[H11Protocol]:
             self._header_timeout_handle: asyncio.TimerHandle | None = None
             self._request_generation = 0
 
-        def connection_made(self, transport: asyncio.Transport) -> None:
-            super().connection_made(transport)
+        def connection_made(self, transport: asyncio.BaseTransport) -> None:
+            super().connection_made(cast(asyncio.Transport, transport))
             # keep-alive期限はリクエスト間にしか効かないため、接続受理時から別の絶対期限を張る。
             self._arm_header_timeout()
 
@@ -75,8 +76,14 @@ def create_header_timeout_protocol(timeout_seconds: float) -> type[H11Protocol]:
         def _verify_uvicorn_internal_api(self) -> None:
             required_attributes = ("loop", "scope", "transport")
             missing = [name for name in required_attributes if not hasattr(self, name)]
-            if missing or self.scope is not None or not callable(getattr(self.loop, "call_later", None)):
-                details = ", ".join(missing) if missing else "初期状態またはイベントループ"
+            if (
+                missing
+                or self.scope is not None
+                or not callable(getattr(self.loop, "call_later", None))
+            ):
+                details = (
+                    ", ".join(missing) if missing else "初期状態またはイベントループ"
+                )
                 raise RuntimeError(f"uvicornの内部APIが想定と異なります: {details}")
 
     return HeaderTimeoutH11Protocol

@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from io import BytesIO
-from typing import Protocol
+from typing import Protocol, TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from .errors import DependencyUnavailableError
+
+if TYPE_CHECKING:
+    from PIL.Image import Image
 
 MAX_FRAME_BYTES = 16 * 1024 * 1024
 MAX_IMAGE_DIMENSION = 10_000
@@ -86,7 +89,9 @@ async def read_request_body(
         raise FrameReadTimeoutError from error
 
 
-def decode_frame_bytes(payload: bytes, expected_content_type: str | None = None) -> object:
+def decode_frame_bytes(
+    payload: bytes, expected_content_type: str | None = None
+) -> Image:
     try:
         from PIL import Image
     except ImportError as error:
@@ -97,11 +102,17 @@ def decode_frame_bytes(payload: bytes, expected_content_type: str | None = None)
         width, height = image.size
         # open()はヘッダのみ読むため、展開前に検証してメモリ枯渇を防ぐ。
         if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
-            raise ValueError(f"画像の辺が大きすぎます(最大{MAX_IMAGE_DIMENSION}px): {width}x{height}")
+            raise ValueError(
+                f"画像の辺が大きすぎます(最大{MAX_IMAGE_DIMENSION}px): {width}x{height}"
+            )
         if width * height > MAX_IMAGE_PIXELS:
-            raise ValueError(f"画像の総画素数が大きすぎます(最大{MAX_IMAGE_PIXELS}px): {width * height}")
+            raise ValueError(
+                f"画像の総画素数が大きすぎます(最大{MAX_IMAGE_PIXELS}px): {width * height}"
+            )
         if expected_content_type is not None:
-            allowed_formats = ALLOWED_CONTENT_TYPE_FORMATS.get(expected_content_type, frozenset())
+            allowed_formats = ALLOWED_CONTENT_TYPE_FORMATS.get(
+                expected_content_type, frozenset()
+            )
             if (image.format or "").upper() not in allowed_formats:
                 raise ValueError(
                     f"Content-Type({expected_content_type})と実フォーマット({image.format})が一致しません。"
@@ -122,7 +133,9 @@ def _host_from_header(host_header: str | None) -> str | None:
             return None
         host = value[1:closing]
         remainder = value[closing + 1 :]
-        if remainder and (not remainder.startswith(":") or not _port_allowed(remainder[1:])):
+        if remainder and (
+            not remainder.startswith(":") or not _port_allowed(remainder[1:])
+        ):
             return None
         return host.lower()
     if value.count(":") == 1:
@@ -141,7 +154,9 @@ def _origin_port_allowed(authority: str) -> bool:
         if closing < 0:
             return False
         remainder = authority[closing + 1 :]
-        return not remainder or (remainder.startswith(":") and _port_allowed(remainder[1:]))
+        return not remainder or (
+            remainder.startswith(":") and _port_allowed(remainder[1:])
+        )
     if ":" not in authority:
         return True
     return _port_allowed(authority.rsplit(":", 1)[1])

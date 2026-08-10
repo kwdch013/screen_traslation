@@ -3,13 +3,14 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+from typing import BinaryIO
 
 
 class SingleInstanceLock:
     def __init__(self, path: Path) -> None:
         self._path = path
-        self._file = None
-        self._mutex_handle = None
+        self._file: BinaryIO | None = None
+        self._mutex_handle: int | None = None
 
     def acquire(self) -> bool:
         if os.name == "nt":
@@ -62,7 +63,7 @@ class AlreadyRunningError(RuntimeError):
     pass
 
 
-def _lock_file(file_obj: object) -> None:
+def _lock_file(file_obj: BinaryIO) -> None:
     try:
         import msvcrt
     except ImportError:
@@ -71,10 +72,10 @@ def _lock_file(file_obj: object) -> None:
         fcntl.flock(file_obj.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         return
 
-    msvcrt.locking(file_obj.fileno(), msvcrt.LK_NBLCK, 1)
+    msvcrt.locking(file_obj.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
 
 
-def _unlock_file(file_obj: object) -> None:
+def _unlock_file(file_obj: BinaryIO) -> None:
     try:
         import msvcrt
     except ImportError:
@@ -84,7 +85,7 @@ def _unlock_file(file_obj: object) -> None:
         return
 
     file_obj.seek(0)
-    msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
+    msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
 
 
 def _mutex_name(path: Path) -> str:
@@ -96,7 +97,7 @@ def _mutex_name(path: Path) -> str:
 def _create_windows_mutex(name: str) -> tuple[int, bool]:
     import ctypes
 
-    kernel32 = ctypes.windll.kernel32
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
     kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
     kernel32.CreateMutexW.restype = ctypes.c_void_p
     kernel32.GetLastError.restype = ctypes.c_ulong
@@ -109,7 +110,7 @@ def _create_windows_mutex(name: str) -> tuple[int, bool]:
 def _release_windows_mutex(handle: int) -> None:
     import ctypes
 
-    kernel32 = ctypes.windll.kernel32
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
     kernel32.ReleaseMutex.argtypes = [ctypes.c_void_p]
     kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
     kernel32.ReleaseMutex(handle)
@@ -119,6 +120,6 @@ def _release_windows_mutex(handle: int) -> None:
 def _close_windows_handle(handle: int) -> None:
     import ctypes
 
-    kernel32 = ctypes.windll.kernel32
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
     kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
     kernel32.CloseHandle(handle)

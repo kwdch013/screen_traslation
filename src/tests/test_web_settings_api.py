@@ -49,7 +49,7 @@ class AsgiClient:
 
 class FakeRunner:
     def __init__(self, on_error: Callable[[Exception], None]) -> None:
-        self.on_error = on_error
+        self.on_error: Callable[[Exception], None] | None = on_error
         self.running = False
 
     @property
@@ -199,7 +199,10 @@ class WebSettingsApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("ocr_fps", response.json()["detail"])
         self.assertEqual(self.config_path.read_bytes(), before)
-        self.assertEqual(self.client.get("/api/config", headers=self._headers()).json()["ocr_fps"], 5.0)
+        self.assertEqual(
+            self.client.get("/api/config", headers=self._headers()).json()["ocr_fps"],
+            5.0,
+        )
 
     def test_llm_ocr_backend_requires_model_without_changing_config(self) -> None:
         invalid_changes = [
@@ -276,8 +279,12 @@ class WebSettingsApiTest(unittest.TestCase):
             [{"source": "Save", "target": "セーブ"}],
         )
 
-        deleted = self.client.delete(f"/api/glossary/{quote('Save', safe='')}", headers=self._headers())
-        missing = self.client.delete(f"/api/glossary/{quote('Save', safe='')}", headers=self._headers())
+        deleted = self.client.delete(
+            f"/api/glossary/{quote('Save', safe='')}", headers=self._headers()
+        )
+        missing = self.client.delete(
+            f"/api/glossary/{quote('Save', safe='')}", headers=self._headers()
+        )
 
         self.assertEqual(deleted.status_code, 204)
         self.assertEqual(missing.status_code, 404)
@@ -305,7 +312,9 @@ class WebSettingsApiTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertIn("登録できません", response.json()["detail"])
                 self.assertEqual(self.glossary.terms, [])
-                self.assertEqual(json.loads(self.glossary_path.read_text(encoding="utf-8")), [])
+                self.assertEqual(
+                    json.loads(self.glossary_path.read_text(encoding="utf-8")), []
+                )
 
     def test_glossary_update_invalidates_running_pipeline_cache(self) -> None:
         self.service.start()
@@ -343,7 +352,9 @@ class WebSettingsApiTest(unittest.TestCase):
             ),
         ]
 
-        self.assertEqual([response.status_code for response in requests], [403, 403, 403])
+        self.assertEqual(
+            [response.status_code for response in requests], [403, 403, 403]
+        )
 
 
 if __name__ == "__main__":

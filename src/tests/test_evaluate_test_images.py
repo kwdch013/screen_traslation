@@ -2,7 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.evaluate_test_images import build_engine, load_cases, normalize_text, similarity
+from app.evaluate_test_images import (
+    build_engine,
+    load_cases,
+    normalize_text,
+    similarity,
+)
 from app.ocr import LlmOcrEngine, TesseractOcrEngine
 
 
@@ -11,7 +16,9 @@ class EvaluateTestImagesTest(unittest.TestCase):
         self.assertEqual(similarity("New   Game", "new game"), 1.0)
 
     def test_similarity_handles_long_repeated_ocr_text(self) -> None:
-        expected = " ".join("alpha beta gamma delta epsilon zeta eta theta iota kappa".split() * 80)
+        expected = " ".join(
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa".split() * 80
+        )
         actual = expected.replace("gamma ", "", 20)
 
         self.assertGreater(similarity(actual, expected), 0.7)
@@ -30,14 +37,19 @@ class EvaluateTestImagesTest(unittest.TestCase):
             cases = load_cases(expected)
 
         self.assertEqual(cases[0].image.name, "image.png")
-        self.assertEqual(cases[0].crop.width, 3)
+        crop = cases[0].crop
+        self.assertIsNotNone(crop)
+        assert crop is not None
+        self.assertEqual(crop.width, 3)
         self.assertEqual(cases[0].expected_text, "Text")
 
     def test_build_engine_defaults_to_tesseract(self) -> None:
         self.assertIsInstance(build_engine("tesseract", "eng", 0.0), TesseractOcrEngine)
 
     def test_build_engine_supports_llm_ocr(self) -> None:
-        self.assertIsInstance(build_engine("llm", "eng", 0.0, llm_model="local-model"), LlmOcrEngine)
+        self.assertIsInstance(
+            build_engine("llm", "eng", 0.0, llm_model="local-model"), LlmOcrEngine
+        )
 
 
 if __name__ == "__main__":

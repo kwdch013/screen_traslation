@@ -53,6 +53,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: mypy 構成テスト (コンテナ内)
+        run: docker run --rm -e PYTHONPATH=/workspace/src -v "$PWD:/workspace" -w /workspace app:ci python -m unittest src.tests.test_mypy_infrastructure
+
+      - name: 型チェック (mypy)
+        run: docker run --rm -e PYTHONPATH=/app/src app:ci mypy src
+
       # ローカルの docker compose run --rm app と同一環境・同一コマンドでテストする
       - name: テスト実行 (コンテナ内)
         run: docker run --rm -e PYTHONPATH=/app/src app:ci python -m unittest discover -s src/tests

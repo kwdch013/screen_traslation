@@ -99,7 +99,9 @@ class WebCaptureServer:
         frontend_dist: Path = DEFAULT_FRONTEND_DIST,
     ) -> None:
         if host != DEFAULT_HOST:
-            raise ValueError(f"WebCaptureServerは{DEFAULT_HOST}でのみ待ち受けできます: {host}")
+            raise ValueError(
+                f"WebCaptureServerは{DEFAULT_HOST}でのみ待ち受けできます: {host}"
+            )
         if read_timeout_seconds <= 0:
             raise ValueError("読み取りタイムアウトは0より大きい値を指定してください")
         self._host = host
@@ -161,7 +163,9 @@ class WebCaptureServer:
             callback(token)
         return True
 
-    def set_frame_accepted_callback(self, callback: Callable[[str], None] | None) -> None:
+    def set_frame_accepted_callback(
+        self, callback: Callable[[str], None] | None
+    ) -> None:
         with self._session_lock:
             self._frame_accepted_callback = callback
 
@@ -170,7 +174,9 @@ class WebCaptureServer:
             if self._is_running_unlocked():
                 return
             if self._thread is not None and self._thread.is_alive():
-                raise RuntimeError("前回のローカルサーバースレッドが終了していないため再起動できません")
+                raise RuntimeError(
+                    "前回のローカルサーバースレッドが終了していないため再起動できません"
+                )
             config = self._uvicorn_config()
             server = uvicorn.Server(config)
             thread = threading.Thread(
@@ -192,7 +198,9 @@ class WebCaptureServer:
                 server.should_exit = True
                 thread.join(timeout=SERVER_START_STOP_TIMEOUT_SECONDS)
                 if thread.is_alive():
-                    raise RuntimeError("起動に失敗したローカルサーバースレッドを停止できません")
+                    raise RuntimeError(
+                        "起動に失敗したローカルサーバースレッドを停止できません"
+                    )
                 self._uvicorn_server = None
                 self._thread = None
                 detail = f": {error}" if error is not None else ""
@@ -230,7 +238,8 @@ class WebCaptureServer:
             http=create_header_timeout_protocol(self._read_timeout_seconds),
             log_level="warning",
             access_log=False,
-            timeout_keep_alive=self._read_timeout_seconds,
+            # uvicornは実行時に秒数のfloatを扱えるが、型注釈だけがintに限定されている。
+            timeout_keep_alive=self._read_timeout_seconds,  # type: ignore[arg-type]
             timeout_graceful_shutdown=2,
             # 状態をメモリ内で一元管理するため、複数ワーカーでは起動しない。
             workers=1,
