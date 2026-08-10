@@ -205,6 +205,37 @@ class OcrTest(unittest.TestCase):
 
         self.assertEqual(regions[0].text, "Important Security Update")
 
+    def test_fallback_ocr_cleans_positioned_llm_regions_without_losing_bounds(
+        self,
+    ) -> None:
+        primary = _StaticEngine([])
+        fallback = _StaticEngine(
+            [
+                TextRegion(
+                    "Title: New Game",
+                    Rect(10, 20, 120, 30),
+                    1.0,
+                    positioning="available",
+                ),
+                TextRegion(
+                    "Body Text: Continue",
+                    Rect(160, 70, 90, 24),
+                    1.0,
+                    positioning="available",
+                ),
+            ]
+        )
+        engine = FallbackOcrEngine(primary, fallback)
+
+        regions = list(engine.recognize(Frame(image=None, captured_at=0.0)))
+
+        self.assertEqual([region.text for region in regions], ["New Game", "Continue"])
+        self.assertEqual(
+            [region.bounds for region in regions],
+            [Rect(10, 20, 120, 30), Rect(160, 70, 90, 24)],
+        )
+        self.assertTrue(all(region.positioning == "available" for region in regions))
+
 
 class _StaticEngine:
     def __init__(self, regions: list[TextRegion]) -> None:
