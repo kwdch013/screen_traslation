@@ -44,7 +44,7 @@ describe('翻訳表示UI', () => {
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ state: 'idle' })))
 	})
 
-	it('SSE結果を重畳し、位置情報なしの訳文はプレビュー下部へ表示する', async () => {
+	it('SSEの複数領域を重畳し、位置情報なしの訳文はプレビュー下部へ表示する', async () => {
 		render(<App />)
 		const events = currentEventSource()
 
@@ -52,13 +52,25 @@ describe('翻訳表示UI', () => {
 			events.emitJson('state', { generation: 1, state: 'running', error_message: null })
 			events.emitJson('translation_result', resultEvent(1, [
 				availableRegion,
+				{
+					...availableRegion,
+					source: 'Options',
+					translated: '設定',
+					x: 960,
+					y: 540,
+					width: 192,
+					height: 108,
+				},
 				{ ...availableRegion, source: 'Continue', translated: '続ける', positioning: 'unavailable' },
 			]))
 		})
 
-		const overlay = screen.getByTestId('translation-overlay')
-		expect(overlay).toHaveTextContent('ニューゲーム')
-		expect(overlay).toHaveStyle({ left: '100px', top: '175px', width: '200px', minHeight: '112.5px' })
+		const overlays = screen.getAllByTestId('translation-overlay')
+		expect(overlays).toHaveLength(2)
+		expect(overlays[0]).toHaveTextContent('ニューゲーム')
+		expect(overlays[0]).toHaveStyle({ left: '100px', top: '175px', width: '200px', minHeight: '112.5px' })
+		expect(overlays[1]).toHaveTextContent('設定')
+		expect(overlays[1]).toHaveStyle({ left: '500px', top: '400px', width: '100px', minHeight: '56.25px' })
 		expect(screen.getByLabelText('位置情報のない翻訳')).toHaveTextContent('続ける')
 		expect(screen.getByLabelText('位置情報のない翻訳')).not.toHaveTextContent('ニューゲーム')
 	})

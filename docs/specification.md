@@ -160,7 +160,7 @@ data: {"generation":1,"frame_id":42,"captured_at":123.4,"processed_at":123.5,"fr
 - Tesseract の前処理画像を2倍へ拡大した場合、左上を切り下げ、右下を切り上げて元画像スケールへ戻す。
 - `frame_width` と `frame_height` は座標の基準画像寸法である。
 - フロントエンドは共有映像をアスペクト比を保った `contain` で表示し、余白を含む変換後の位置へ `available` の領域を重ねる。
-- 座標を特定できない LLM OCR の結果は `positioning: unavailable` とし、映像へ重ねずプレビュー下部と字幕リストへ表示する。
+- LLM OCR の構造化応答から画像内の矩形を検証できた領域は `positioning: available` とする。JSONを解釈できない場合、または妥当な領域が1件もない場合は `positioning: unavailable` とし、推測した位置を付けずプレビュー下部と字幕リストへ表示する。
 
 ## セキュリティ
 
@@ -191,6 +191,6 @@ data: {"generation":1,"frame_id":42,"captured_at":123.4,"processed_at":123.5,"fr
 - 共有可否はブラウザ、OS、対象アプリの制約に従う。
 - OCR 精度はフォント、背景、解像度、動きに影響される。
 - 既定翻訳を使うには Argos Translate の英日モデルが必要である。
-- LLM OCR は既定でローカルの OpenAI 互換 API `http://127.0.0.1:8000/v1` を参照し、座標を返さない。
+- LLM OCR は既定でローカルの OpenAI 互換 API `http://127.0.0.1:8000/v1` を参照する。矩形付きJSON配列をプロンプトで要求するが、API固有のJSONモードには依存しない。
 - 設定・辞書のプロセス間排他は同じ端末内を対象とし、複数マシン間やネットワークファイルシステム上の同期は保証しない。
 - 現行 Docker Compose はコンテナ内テスト用であり、ホストブラウザ向けのポート公開を定義しない。

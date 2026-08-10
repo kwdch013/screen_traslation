@@ -3,11 +3,14 @@ import unittest
 from pathlib import Path
 
 from app.evaluate_test_images import (
+    EvaluationCase,
+    _result,
     build_engine,
     load_cases,
     normalize_text,
     similarity,
 )
+from app.contracts import Rect, TextRegion
 from app.ocr import LlmOcrEngine, TesseractOcrEngine
 
 
@@ -50,6 +53,28 @@ class EvaluateTestImagesTest(unittest.TestCase):
         self.assertIsInstance(
             build_engine("llm", "eng", 0.0, llm_model="local-model"), LlmOcrEngine
         )
+
+    def test_result_includes_positioning_counts_and_region_bounds(self) -> None:
+        case = EvaluationCase(image=Path("sample.png"), expected_text="Text")
+        regions = [
+            TextRegion("First", Rect(1, 2, 30, 10), 0.8, "available"),
+            TextRegion("Second", Rect(0, 0, 800, 80), 0.6, "unavailable"),
+        ]
+
+        result = _result(
+            case,
+            elapsed=1.2345,
+            cpu_seconds=0.5,
+            start_memory=100,
+            end_memory=120,
+            score=0.75,
+            regions=regions,
+            actual_text="First\nSecond",
+        )
+
+        self.assertEqual(result["positioning_available"], 1)
+        self.assertEqual(result["positioning_unavailable"], 1)
+        self.assertEqual(result["bounds"], [[1, 2, 30, 10], [0, 0, 800, 80]])
 
 
 if __name__ == "__main__":

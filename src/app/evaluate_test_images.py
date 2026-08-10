@@ -174,6 +174,21 @@ def _result(
         "memory_delta_bytes": memory_delta,
         "similarity": round(score, 4),
         "regions": len(regions),
+        "positioning_available": sum(
+            region.positioning == "available" for region in regions
+        ),
+        "positioning_unavailable": sum(
+            region.positioning == "unavailable" for region in regions
+        ),
+        "bounds": [
+            [
+                region.bounds.x,
+                region.bounds.y,
+                region.bounds.width,
+                region.bounds.height,
+            ]
+            for region in regions
+        ],
         "mean_confidence": round(
             sum(region.confidence for region in regions) / len(regions), 4
         )
