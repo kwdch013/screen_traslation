@@ -18,6 +18,7 @@ export function useScreenCapture() {
     cropEnabled,
     cropRef,
     disableSelection,
+    handleVideoResize,
     prepareForStream,
     restoreForVideo,
     setCropSelection,
@@ -129,7 +130,7 @@ export function useScreenCapture() {
         return false
       }
       streamRef.current = selectedStream
-      prepareForStream()
+      prepareForStream(selectedStream.getVideoTracks()[0]?.label ?? '')
       if (videoRef.current) {
         videoRef.current.srcObject = selectedStream
       }
@@ -313,6 +314,7 @@ export function useScreenCapture() {
     videoRef,
     crop,
     cropEnabled,
+    handleVideoResize,
     restoreCropForVideo: restoreForVideo,
     setCropSelection,
     statusText,

@@ -9,6 +9,7 @@ interface StoredCrop {
 	crop: CropRect
 	videoWidth: number
 	videoHeight: number
+	sourceLabel?: string
 }
 
 export function clampCropRect(crop: CropRect, video: Size): CropRect | null {
@@ -39,13 +40,19 @@ export function previewSelectionToCrop(
 	return crop
 }
 
-export function saveStoredCrop(storage: Storage | null, crop: CropRect, video: Size): void {
+export function saveStoredCrop(
+	storage: Storage | null,
+	crop: CropRect,
+	video: Size,
+	sourceLabel = '',
+): void {
 	const bounded = clampCropRect(crop, video)
 	if (!storage || !bounded) return
 	const stored: StoredCrop = {
 		crop: bounded,
 		videoWidth: video.width,
 		videoHeight: video.height,
+		sourceLabel,
 	}
 	try {
 		storage.setItem(CROP_STORAGE_KEY, JSON.stringify(stored))
@@ -54,7 +61,7 @@ export function saveStoredCrop(storage: Storage | null, crop: CropRect, video: S
 	}
 }
 
-export function loadStoredCrop(storage: Storage | null, video: Size): CropRect | null {
+export function loadStoredCrop(storage: Storage | null, video: Size, sourceLabel = ''): CropRect | null {
 	if (!storage || !isValidSize(video)) return null
 	try {
 		const raw = storage.getItem(CROP_STORAGE_KEY)
@@ -62,6 +69,7 @@ export function loadStoredCrop(storage: Storage | null, video: Size): CropRect |
 		const stored: unknown = JSON.parse(raw)
 		if (!isStoredCrop(stored)) return null
 		if (stored.videoWidth !== video.width || stored.videoHeight !== video.height) return null
+		if (sourceLabel && stored.sourceLabel !== sourceLabel) return null
 		return clampCropRect(stored.crop, video)
 	} catch {
 		return null
@@ -90,6 +98,7 @@ function isStoredCrop(value: unknown): value is StoredCrop {
 	const candidate = value as Partial<StoredCrop>
 	return Number.isFinite(candidate.videoWidth)
 		&& Number.isFinite(candidate.videoHeight)
+		&& (candidate.sourceLabel === undefined || typeof candidate.sourceLabel === 'string')
 		&& Boolean(candidate.crop)
 		&& isFiniteRect(candidate.crop as CropRect)
 }

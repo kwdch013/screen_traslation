@@ -4,6 +4,7 @@ import './App.css'
 import { SettingsPanel } from './SettingsPanel'
 import { SubtitleList } from './SubtitleList'
 import { TranslationPreview } from './TranslationPreview'
+import type { CropRect } from './cropSelection'
 import { useScreenCapture } from './useScreenCapture'
 import { useTranslationEvents } from './useTranslationEvents'
 
@@ -34,6 +35,15 @@ function App() {
   const stopSharing = () => {
     translation.clearForSessionChange()
     void capture.stopByUser()
+  }
+
+  const setCropSelection = (crop: CropRect | null) => {
+    translation.clearCurrentResult()
+    capture.setCropSelection(crop)
+  }
+
+  const handleVideoResize = () => {
+    if (capture.handleVideoResize()) translation.clearCurrentResult()
   }
 
   const selectTab = (tab: Tab) => {
@@ -103,8 +113,9 @@ function App() {
           result={translation.currentResult}
           crop={capture.crop}
           cropEnabled={capture.cropEnabled}
-          onCropChange={capture.setCropSelection}
+          onCropChange={setCropSelection}
           onVideoMetadata={capture.restoreCropForVideo}
+          onVideoResize={handleVideoResize}
         />
       </section>
 

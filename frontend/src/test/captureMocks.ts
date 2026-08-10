@@ -7,10 +7,10 @@ export function jsonResponse(body: object, status = 200): Response {
   })
 }
 
-export function createStream() {
+export function createStream(label = '') {
   const stop = vi.fn()
   const addEventListener = vi.fn()
-  const track = { addEventListener, stop }
+  const track = { addEventListener, label, stop }
   return {
     addEventListener,
     stop,

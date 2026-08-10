@@ -14,6 +14,7 @@ interface TranslationPreviewProps {
 	cropEnabled: boolean
 	onCropChange: (crop: CropRect | null) => void
 	onVideoMetadata: () => void
+	onVideoResize: () => void
 }
 
 export function TranslationPreview({
@@ -23,6 +24,7 @@ export function TranslationPreview({
 	cropEnabled,
 	onCropChange,
 	onVideoMetadata,
+	onVideoResize,
 }: TranslationPreviewProps) {
 	const [transform, setTransform] = useState<ContainTransform | null>(null)
 	const recalculate = useCallback(() => {
@@ -50,7 +52,20 @@ export function TranslationPreview({
 		return () => observer.disconnect()
 	}, [recalculate, videoRef])
 
-	const positioned = result?.regions.filter((region) => region.positioning === 'available') ?? []
+	const video = videoRef.current
+	const expectedFrameWidth = crop?.width ?? video?.videoWidth
+	const expectedFrameHeight = crop?.height ?? video?.videoHeight
+	// 同じ寸法で位置だけが異なるクロップは結果の寸法だけでは新旧を区別できない。
+	const resultMatchesCurrentFrame = Boolean(
+		result
+		&& expectedFrameWidth
+		&& expectedFrameHeight
+		&& result.frame_width === expectedFrameWidth
+		&& result.frame_height === expectedFrameHeight,
+	)
+	const positioned = resultMatchesCurrentFrame
+		? result?.regions.filter((region) => region.positioning === 'available') ?? []
+		: []
 	const unpositioned = result?.regions.filter((region) => region.positioning === 'unavailable') ?? []
 
 	return (
@@ -66,7 +81,10 @@ export function TranslationPreview({
 						onVideoMetadata()
 						recalculate()
 					}}
-					onResize={recalculate}
+					onResize={() => {
+						onVideoResize()
+						recalculate()
+					}}
 				/>
 				<div className="translation-overlay-layer" aria-hidden={positioned.length === 0}>
 					{transform && positioned.map((region, index) => {

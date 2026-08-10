@@ -52,11 +52,12 @@ export function CropOverlay({ videoRef, transform, crop, enabled, onChange }: Cr
 		setDrag(null)
 		const video = videoRef.current
 		if (!point || !video || !transform) return
-		onChange(previewSelectionToCrop(
+		const nextCrop = previewSelectionToCrop(
 			normalizeDrag({ ...drag, currentX: point.x, currentY: point.y }),
 			transform,
 			{ width: video.videoWidth, height: video.videoHeight },
-		))
+		)
+		if (nextCrop) onChange(nextCrop)
 	}
 
 	const selectedRect = transform && crop ? mapRegionToPreview(crop, transform) : null

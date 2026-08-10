@@ -54,11 +54,29 @@ describe('クロップ座標', () => {
 describe('クロップ設定の永続化', () => {
 	beforeEach(() => localStorage.clear())
 
-	it('同じ動画実解像度なら保存したクロップ矩形を復元する', () => {
+	it('同じ動画実解像度かつ同じ共有元ラベルなら保存したクロップ矩形を復元する', () => {
 		const crop = { x: 128, y: 72, width: 256, height: 144 }
-		saveStoredCrop(localStorage, crop, videoSize)
+		saveStoredCrop(localStorage, crop, videoSize, '共有元A')
 
-		expect(loadStoredCrop(localStorage, videoSize)).toEqual(crop)
+		expect(loadStoredCrop(localStorage, videoSize, '共有元A')).toEqual(crop)
+	})
+
+	it('同じ動画実解像度でも共有元ラベルが異なる場合は復元しない', () => {
+		saveStoredCrop(
+			localStorage,
+			{ x: 128, y: 72, width: 256, height: 144 },
+			videoSize,
+			'共有元A',
+		)
+
+		expect(loadStoredCrop(localStorage, videoSize, '共有元B')).toBeNull()
+	})
+
+	it('共有元ラベルを取得できない場合は動画実解像度だけで復元する', () => {
+		const crop = { x: 128, y: 72, width: 256, height: 144 }
+		saveStoredCrop(localStorage, crop, videoSize, '共有元A')
+
+		expect(loadStoredCrop(localStorage, videoSize, '')).toEqual(crop)
 	})
 
 	it('動画実解像度が保存時と異なる場合は復元しない', () => {
