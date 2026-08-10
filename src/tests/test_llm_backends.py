@@ -38,6 +38,10 @@ class LlmBackendsTest(unittest.TestCase):
         self.assertTrue(all(region.positioning == "available" for region in regions))
         self.assertIn("Do not translate", requests[0]["messages"][0]["content"])
         self.assertIn("JSON array", requests[0]["messages"][0]["content"])
+        self.assertIn(
+            "Return ONLY the JSON array and nothing else.",
+            requests[0]["messages"][0]["content"],
+        )
         self.assertIn("top-left", requests[0]["messages"][0]["content"])
         self.assertNotIn("response_format", requests[0])
 
@@ -91,11 +95,73 @@ class LlmBackendsTest(unittest.TestCase):
         self.assertEqual(regions[0].bounds, Rect(0, 0, 100, 50))
         self.assertEqual(regions[0].positioning, "available")
 
+    def test_llm_ocr_validates_coordinate_boundary_values(self) -> None:
+        valid_cases = [
+            ("xの上限", {"x": 90, "y": 1, "width": 10, "height": 10}),
+            ("yの上限", {"x": 1, "y": 40, "width": 10, "height": 10}),
+            ("widthの上限", {"x": 1, "y": 1, "width": 99, "height": 10}),
+            ("heightの上限", {"x": 1, "y": 1, "width": 10, "height": 49}),
+            ("xの下限", {"x": 0, "y": 1, "width": 10, "height": 10}),
+            ("yの下限", {"x": 1, "y": 0, "width": 10, "height": 10}),
+        ]
+        invalid_cases: list[tuple[str, dict[str, int | float | bool]]] = [
+            ("xが上限を1超過", {"x": 91, "y": 1, "width": 10, "height": 10}),
+            ("yが上限を1超過", {"x": 1, "y": 41, "width": 10, "height": 10}),
+            ("widthが上限を1超過", {"x": 1, "y": 1, "width": 100, "height": 10}),
+            ("heightが上限を1超過", {"x": 1, "y": 1, "width": 10, "height": 50}),
+            ("xが負数", {"x": -1, "y": 1, "width": 10, "height": 10}),
+            ("yが負数", {"x": 1, "y": -1, "width": 10, "height": 10}),
+            ("widthが負数", {"x": 1, "y": 1, "width": -1, "height": 10}),
+            ("heightが負数", {"x": 1, "y": 1, "width": 10, "height": -1}),
+            ("widthがゼロ", {"x": 1, "y": 1, "width": 0, "height": 10}),
+            ("heightがゼロ", {"x": 1, "y": 1, "width": 10, "height": 0}),
+        ]
+        special_values = [
+            ("NaN", float("nan")),
+            ("Infinity", float("inf")),
+            ("bool", True),
+        ]
+        base = {"x": 1, "y": 1, "width": 10, "height": 10}
+        for field in ("x", "y", "width", "height"):
+            for label, value in special_values:
+                invalid_cases.append(
+                    (f"{field}が{label}", {**base, field: value})
+                )
+
+        for label, valid_coordinates in valid_cases:
+            with self.subTest(case=label):
+                regions = self._recognize(
+                    json.dumps([{"text": "Text", **valid_coordinates}]),
+                    image_size=(100, 50),
+                )
+                self.assertEqual(regions[0].positioning, "available")
+
+        for label, invalid_coordinates in invalid_cases:
+            with self.subTest(case=label):
+                regions = self._recognize(
+                    json.dumps([{"text": "Text", **invalid_coordinates}]),
+                    image_size=(100, 50),
+                )
+                self.assertEqual(regions[0].positioning, "unavailable")
+                self.assertEqual(regions[0].bounds, Rect(0, 0, 800, 80))
+
     def test_llm_ocr_falls_back_to_unavailable_for_non_json_response(self) -> None:
         regions = self._recognize("New Game", image_size=(100, 50))
 
         self.assertEqual(len(regions), 1)
         self.assertEqual(regions[0].text, "New Game")
+        self.assertEqual(regions[0].bounds, Rect(0, 0, 800, 80))
+        self.assertEqual(regions[0].positioning, "unavailable")
+
+    def test_llm_ocr_preserves_non_json_response_containing_numeric_array(
+        self,
+    ) -> None:
+        response = "Version [1, 2] released"
+
+        regions = self._recognize(response, image_size=(100, 50))
+
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(regions[0].text, response)
         self.assertEqual(regions[0].bounds, Rect(0, 0, 800, 80))
         self.assertEqual(regions[0].positioning, "unavailable")
 

@@ -1,4 +1,4 @@
-# LLM OCR 文字領域座標の評価計画
+# LLM OCR 文字領域座標の評価対応状況
 
 ## 評価対象
 
@@ -9,7 +9,7 @@
 
 ## 本来実行すべき評価コマンド
 
-既存の `evaluate_test_images.py` と `src/tests/test_images/expected_ocr.json` を使い、候補モデルごとにOCR精度、処理時間、CPU時間、メモリ使用量、領域数を記録する。
+既存の `evaluate_test_images.py` と `src/tests/test_images/expected_ocr.json` を使い、候補モデルごとにOCR精度、処理時間、CPU時間、メモリ使用量、領域数、座標取得可否の件数、各領域の矩形を記録する。
 
 ```bash
 mkdir -p verification/2026-08-10_llm_ocr_positioning/results
@@ -23,9 +23,19 @@ PYTHONPATH=src .venv/bin/python -m app.evaluate_test_images \
 
 利用するOpenAI互換APIとモデルに合わせて `--llm-base-url` と `--llm-model` を変更し、同じテスト画像で変更前後を比較する。
 
+## 評価ツール側の対応
+
+評価JSONLには次の項目を出力する。矩形の記録を含むツール側の対応と単体テストは完了した。
+
+- `positioning_available`: `positioning == "available"` の領域数
+- `positioning_unavailable`: `positioning == "unavailable"` の領域数
+- `bounds`: 各領域の `[x, y, width, height]` のリスト
+
 ## 今回実行できなかった理由
 
-2026-08-10時点の作業環境では、画像入力に対応したローカルLLMのOpenAI互換APIが起動していない。そのため、実モデルから矩形付き構造化出力を取得する精度評価は実行していない。応答解析の契約は、HTTP transportをモックした自動テストで検証した。
+2026-08-10時点の作業環境では、画像入力に対応したローカルLLMのOpenAI互換APIが起動しておらず、契約上・セキュリティ上の理由からネットワーク上のLLMサービスも利用できない。そのため、実モデルから矩形付き構造化出力を取得する精度評価そのものは未実施である。実行済みとは扱わず、応答解析と評価出力の契約のみを自動テストで検証した。
+
+実モデルを利用できる環境での評価は、後続の Issue #49 (LLM OCR位置情報の実モデルでの精度評価を実施する) として実施する。
 
 ## 後続の人手確認
 

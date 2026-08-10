@@ -45,8 +45,8 @@ def _extract_json_array(response: str) -> list[Any] | None:
             continue
         if any(isinstance(item, dict) and "text" in item for item in value):
             return value
-        # 空配列を含む構造化応答も成功として扱いつつ、後続の領域配列を優先する。
-        if fallback is None:
+        # 正常な空応答だけを候補にし、数値リストなどで生テキストを失わないようにする。
+        if not value and fallback is None:
             fallback = value
     return fallback
 

@@ -139,7 +139,8 @@ class LlmOcrEngine:
                 '"height": number}. Coordinates must be image pixel coordinates with the top-left of the '
                 "provided image at (0, 0), and every rectangle must stay within the image. Preserve line "
                 "breaks inside text. Do not translate, summarize, correct, add labels, add explanations, "
-                "use Markdown fences, or infer missing text. Return [] when no English text is visible."
+                "use Markdown fences, or infer missing text. Return [] when no English text is visible. "
+                "Return ONLY the JSON array and nothing else."
             ),
             frame.image,
             "Return the visible English text regions and their bounding rectangles as the JSON array.",
