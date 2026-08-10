@@ -4,6 +4,7 @@ import './App.css'
 import { SettingsPanel } from './SettingsPanel'
 import { SubtitleList } from './SubtitleList'
 import { TranslationPreview } from './TranslationPreview'
+import type { CropRect } from './cropSelection'
 import { useScreenCapture } from './useScreenCapture'
 import { useTranslationEvents } from './useTranslationEvents'
 
@@ -34,6 +35,15 @@ function App() {
   const stopSharing = () => {
     translation.clearForSessionChange()
     void capture.stopByUser()
+  }
+
+  const setCropSelection = (crop: CropRect | null) => {
+    translation.clearCurrentResult()
+    capture.setCropSelection(crop)
+  }
+
+  const handleVideoResize = () => {
+    if (capture.handleVideoResize()) translation.clearCurrentResult()
   }
 
   const selectTab = (tab: Tab) => {
@@ -98,7 +108,16 @@ function App() {
         <p className="status" role="status" aria-live="polite">
           {capture.statusText}
         </p>
-        <TranslationPreview videoRef={capture.videoRef} result={translation.currentResult} />
+        <TranslationPreview
+          videoRef={capture.videoRef}
+          result={translation.currentResult}
+          crop={capture.crop}
+          cropRevision={capture.cropRevision}
+          cropEnabled={capture.cropEnabled}
+          onCropChange={setCropSelection}
+          onVideoMetadata={capture.restoreCropForVideo}
+          onVideoResize={handleVideoResize}
+        />
       </section>
 
       <section id="subtitles-panel" className="panel" role="tabpanel" hidden={activeTab !== 'subtitles'}>

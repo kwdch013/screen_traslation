@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
 
 from .web_capture_security import (
+    CROP_REVISION_HEADER,
     MAX_FRAME_BYTES,
     TOKEN_HEADER,
     FrameBodyTooLargeError,
@@ -26,7 +27,12 @@ class CaptureSession(Protocol):
     @property
     def session_token(self) -> str: ...
 
-    def accept_frame(self, token: str, image: object) -> bool: ...
+    def accept_frame(
+        self,
+        token: str,
+        image: object,
+        crop_revision: str | None = None,
+    ) -> bool: ...
 
 
 def create_capture_app(
@@ -55,6 +61,7 @@ def create_capture_app(
         if content_length_status is not None:
             return _status_response(content_length_status)
         token = request.headers.get(TOKEN_HEADER, "")
+        crop_revision = request.headers.get(CROP_REVISION_HEADER)
         # 巨大・低速な本文を読む前に失効済みセッションを早期拒否する。
         if not token or not secrets.compare_digest(token, server.session_token):
             return _status_response(403)
@@ -73,7 +80,7 @@ def create_capture_app(
         except Exception:
             return _status_response(400)
         # デコード中のセッション更新を考慮し、保存直前にロック下で再検証する。
-        if not server.accept_frame(token, image):
+        if not server.accept_frame(token, image, crop_revision):
             return _status_response(403)
         return _status_response(204)
 

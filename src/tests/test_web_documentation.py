@@ -115,6 +115,8 @@ class WebDocumentationTest(unittest.TestCase):
 			"state",
 			"heartbeat",
 			"frame_id",
+			"crop_revision",
+			"X-Crop-Revision",
 			"positioning",
 			"(0, 0)",
 			"Host",

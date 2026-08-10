@@ -41,6 +41,7 @@ class WebEventsApiTest(unittest.IsolatedAsyncioTestCase):
                             positioning="available",
                         ),
                     ),
+                    crop_revision="crop-11",
                 )
             )
             result = await anext(stream)
@@ -50,6 +51,7 @@ class WebEventsApiTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("event: state", state)
         self.assertIn('"frame_id":4', result)
+        self.assertIn('"crop_revision":"crop-11"', result)
         self.assertEqual(result.count('"positioning":"available"'), 2)
         self.assertIn('"x":160,"y":70,"width":90,"height":24', result)
         self.assertEqual(heartbeat, ": heartbeat\n\n")

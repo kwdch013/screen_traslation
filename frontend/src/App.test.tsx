@@ -90,6 +90,7 @@ describe('App', () => {
       headers: {
         'Content-Type': 'image/jpeg',
         'X-Capture-Token': 'start-token',
+        'X-Crop-Revision': '1',
       },
       method: 'POST',
       signal: expect.any(AbortSignal),

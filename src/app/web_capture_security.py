@@ -22,6 +22,7 @@ ALLOWED_CONTENT_TYPES = frozenset(ALLOWED_CONTENT_TYPE_FORMATS)
 ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 READ_TIMEOUT_SECONDS = 15
 TOKEN_HEADER = "X-Capture-Token"
+CROP_REVISION_HEADER = "X-Crop-Revision"
 
 
 class FrameReadTimeoutError(TimeoutError):
