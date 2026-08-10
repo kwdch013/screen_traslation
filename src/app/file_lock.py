@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import os
 from pathlib import Path
 import sys
@@ -40,6 +41,8 @@ class InterProcessFileLock:
                 try:
                     _lock_file(lock_file)
                 except OSError as error:
+                    if not _is_lock_contention_error(error):
+                        raise
                     remaining = deadline - monotonic()
                     if remaining <= 0:
                         raise FileLockTimeoutError(
@@ -86,6 +89,12 @@ def _prepare_lock_byte(lock_file: BinaryIO) -> None:
         lock_file.flush()
         os.fsync(lock_file.fileno())
     lock_file.seek(0)
+
+
+def _is_lock_contention_error(error: OSError) -> bool:
+    if sys.platform == "win32":
+        return error.errno == errno.EACCES
+    return error.errno in {errno.EAGAIN, errno.EWOULDBLOCK}
 
 
 def _lock_file(lock_file: BinaryIO) -> None:

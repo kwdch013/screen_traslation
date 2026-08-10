@@ -82,6 +82,21 @@ def save_config(
     )
 
 
+def save_config_if_absent(
+    config: PipelineConfig,
+    path: Path,
+    *,
+    lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
+) -> bool:
+    with InterProcessFileLock(
+        lock_path_for(path), timeout_seconds=lock_timeout_seconds
+    ):
+        if path.exists():
+            return False
+        _save_config_unlocked(config, path)
+        return True
+
+
 def update_config_file(
     path: Path,
     update: Callable[[PipelineConfig], PipelineConfig],

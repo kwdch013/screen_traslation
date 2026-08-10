@@ -69,6 +69,26 @@ class Glossary:
                 self._terms = updated_terms
         return term
 
+    def upsert_and_save(
+        self,
+        source: str,
+        target: str,
+        path: Path,
+        *,
+        lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
+    ) -> GlossaryTerm:
+        term = _validated_term(source, target)
+        key = term.source.casefold()
+        with self._lock:
+            with InterProcessFileLock(
+                lock_path_for(path), timeout_seconds=lock_timeout_seconds
+            ):
+                current_terms = _load_terms(path)
+                current_terms[key] = term
+                _save_terms(current_terms.values(), path)
+                self._terms = current_terms
+        return term
+
     def delete_and_save(
         self,
         source: str,
@@ -121,10 +141,22 @@ class Glossary:
             with InterProcessFileLock(
                 lock_path_for(path), timeout_seconds=lock_timeout_seconds
             ):
-                current_terms = _load_terms(path)
-                updated_terms = {**current_terms, **self._terms}
-                _save_terms(updated_terms.values(), path)
-                self._terms = updated_terms
+                _save_terms(self._terms.values(), path)
+
+    def save_if_absent(
+        self,
+        path: Path,
+        *,
+        lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
+    ) -> bool:
+        with self._lock:
+            with InterProcessFileLock(
+                lock_path_for(path), timeout_seconds=lock_timeout_seconds
+            ):
+                if path.exists():
+                    return False
+                _save_terms(self._terms.values(), path)
+                return True
 
     def _sorted_terms_unlocked(self) -> list[GlossaryTerm]:
         return sorted(self._terms.values(), key=lambda term: term.source.casefold())

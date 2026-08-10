@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import multiprocessing
 from multiprocessing.process import BaseProcess
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
+from time import monotonic, sleep
 import unittest
 from typing import Protocol
 from unittest import mock
@@ -27,6 +31,31 @@ class _ReadyQueue(Protocol):
 
 class _StartEvent(Protocol):
     def wait(self, timeout: float | None = None) -> bool: ...
+
+
+_PAUSED_CLI_SCRIPT = """
+import os
+from pathlib import Path
+from time import sleep
+
+from app.glossary import Glossary
+
+original_load = Glossary.load
+
+def load_after_pause(cls, path):
+    glossary = original_load(path)
+    Path(os.environ["SCREEN_TRANSLATION_TEST_READY"]).write_text("ready", encoding="utf-8")
+    resume_path = Path(os.environ["SCREEN_TRANSLATION_TEST_RESUME"])
+    while not resume_path.exists():
+        sleep(0.01)
+    return glossary
+
+Glossary.load = classmethod(load_after_pause)
+
+from app.main import main
+
+raise SystemExit(main())
+"""
 
 
 def _api_post(
@@ -82,6 +111,68 @@ def _update_config_after_start(
 
 
 class ConfigGlossaryFileLockTest(unittest.TestCase):
+    def test_cli_upsert_does_not_revive_term_deleted_after_load(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            glossary_path = root / "config" / "glossary.json"
+            seed = Glossary()
+            seed.register("Old", "旧")
+            seed.save(glossary_path)
+            process, resume_path = self._start_paused_cli(
+                root,
+                [
+                    "--add-term",
+                    "New",
+                    "新",
+                    "--glossary",
+                    str(glossary_path),
+                ],
+            )
+
+            Glossary.load(glossary_path).delete_and_save("Old", glossary_path)
+            resume_path.write_text("resume", encoding="utf-8")
+            self._assert_process_succeeded(process)
+
+            self.assertEqual(
+                [
+                    (term.source, term.target)
+                    for term in Glossary.load(glossary_path).terms
+                ],
+                [("New", "新")],
+            )
+
+    def test_cli_create_if_absent_preserves_web_updates_after_load(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config" / "app.json"
+            glossary_path = root / "config" / "glossary.json"
+            process, resume_path = self._start_paused_cli(
+                root,
+                [
+                    "--run-once",
+                    "--text",
+                    "New Game",
+                    "--config",
+                    str(config_path),
+                    "--glossary",
+                    str(glossary_path),
+                ],
+            )
+            settings = self._web_settings(
+                PipelineConfig(), config_path, glossary_path
+            )
+
+            settings.update_config({"ocr_fps": 2.0})
+            settings.register_glossary_term("New Game", "ニューゲーム")
+            resume_path.write_text("resume", encoding="utf-8")
+            self._assert_process_succeeded(process)
+
+            self.assertEqual(load_config(config_path).ocr_fps, 2.0)
+            self.assertEqual(
+                Glossary.load(glossary_path).translate_exact("New Game"),
+                "ニューゲーム",
+            )
+
     def test_two_processes_do_not_lose_concurrent_glossary_updates(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             glossary_path = Path(temp_dir) / "config" / "glossary.json"
@@ -274,6 +365,47 @@ class ConfigGlossaryFileLockTest(unittest.TestCase):
                 process.terminate()
                 process.join(timeout=2)
 
+    def _start_paused_cli(
+        self, root: Path, arguments: list[str]
+    ) -> tuple[subprocess.Popen[str], Path]:
+        ready_path = root / "cli-ready"
+        resume_path = root / "cli-resume"
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(Path(__file__).parents[2] / "src")
+        environment["SCREEN_TRANSLATION_TEST_READY"] = str(ready_path)
+        environment["SCREEN_TRANSLATION_TEST_RESUME"] = str(resume_path)
+        process = subprocess.Popen(
+            [sys.executable, "-c", _PAUSED_CLI_SCRIPT, *arguments],
+            cwd=root,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.addCleanup(self._terminate_subprocess, process)
+        deadline = monotonic() + 5
+        while not ready_path.exists():
+            if process.poll() is not None:
+                self._assert_process_succeeded(process)
+            if monotonic() >= deadline:
+                self.fail("CLIが辞書読込後の待機地点へ到達しませんでした。")
+            sleep(0.01)
+        return process, resume_path
+
+    def _assert_process_succeeded(self, process: subprocess.Popen[str]) -> None:
+        stdout, stderr = process.communicate(timeout=5)
+        self.assertEqual(
+            process.returncode,
+            0,
+            f"CLI subprocess failed.\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        )
+
+    @staticmethod
+    def _terminate_subprocess(process: subprocess.Popen[str]) -> None:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=2)
+
 
 class InterProcessFileLockTest(unittest.TestCase):
     def test_second_lock_times_out_with_clear_error(self) -> None:
@@ -288,6 +420,42 @@ class InterProcessFileLockTest(unittest.TestCase):
                     r"app\.json.*ロック.*0\.01秒以内に取得できませんでした",
                 ):
                     second.acquire()
+
+    def test_non_contention_os_error_is_raised_immediately(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_path = Path(temp_dir) / "config" / "app.json"
+            lock = InterProcessFileLock(
+                lock_path_for(data_path), timeout_seconds=1.0
+            )
+            error = OSError(errno.EBADF, "無効なファイル記述子")
+
+            with mock.patch("app.file_lock._lock_file", side_effect=error) as lock_file:
+                with self.assertRaises(OSError) as raised:
+                    lock.acquire()
+
+            self.assertIs(raised.exception, error)
+            lock_file.assert_called_once()
+
+    def test_windows_contention_error_is_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_path = Path(temp_dir) / "config" / "app.json"
+            lock = InterProcessFileLock(
+                lock_path_for(data_path), timeout_seconds=1.0
+            )
+            contention = OSError(errno.EACCES, "ロック競合")
+
+            with (
+                mock.patch("app.file_lock.sys.platform", "win32"),
+                mock.patch(
+                    "app.file_lock._lock_file", side_effect=[contention, None]
+                ) as lock_file,
+                mock.patch("app.file_lock._unlock_file"),
+                mock.patch("app.file_lock.sleep"),
+            ):
+                lock.acquire()
+                lock.release()
+
+            self.assertEqual(lock_file.call_count, 2)
 
 
 if __name__ == "__main__":

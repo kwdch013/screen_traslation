@@ -18,7 +18,9 @@ Web API と CLI が同じ設定・辞書ファイルを更新しても、先行�
 - [x] 古い状態を持つ Web 設定更新が、先行更新を保持する。
 - [x] CLI と Web API の交互更新がすべて保持される。
 - [x] ロック取得タイムアウト時に API が HTTP 503 を返す。
-- [ ] 既存テスト、ruff、Linux / Windows 向け mypy が成功する。
+- [x] 既存テストがすべて成功する。
+- [x] ruff が成功する。
+- [x] Linux / Windows 向け mypy が成功する。
 
 ## 対象外
 
@@ -31,16 +33,23 @@ Web API と CLI が同じ設定・辞書ファイルを更新しても、先行�
 - Issue #25 の本文と既存の保存経路を確認した。
 - 更新消失とタイムアウトを表すテストを実装より先に追加し、未実装時の失敗を確認した。
 - 設定・辞書と同じディレクトリに専用ロックファイルを置く共通実装を追加した。
-- Web 設定はロック内で最新版へ API 差分を適用し、辞書は登録・削除・保存時に最新版とマージするよう変更した。
+- Web 設定はロック内で最新版へ API 差分を適用し、辞書の登録・削除は最新版へ要求された1件だけを適用するよう変更した。
 - ロック取得タイムアウトを設定・辞書 API の HTTP 503 へ変換した。
 - `--add-term` が変更していない設定ファイルを保存し直す処理を除去した。
 - README、仕様書、利用者ガイドを実装後の保証内容へ更新した。
+- Codex レビューの High 2件・Medium 2件を再現するテストを実装より先に追加し、6件の失敗を確認した。
+- CLI の `--add-term` を、ロック内で最新版へ指定された1件だけを追加・上書きする `upsert_and_save()` へ変更した。
+- `--run-once` と `--text` は既存ファイルを保存し直さず、ロック内の存在確認で未作成時だけ設定・辞書を作成するよう変更した。
+- テストシード以外から使われていない `Glossary.save()` は union マージを廃止し、メモリ内容をそのまま保存するバルク置換へ戻した。
+- ファイルロックは Linux の `EAGAIN` / `EWOULDBLOCK` と Windows の `EACCES` だけを競合として再試行し、それ以外の `OSError` は直ちに再送出するよう変更した。
 
 ## 検証結果
 
-- 対象領域と周辺の unittest: 58件成功
-- ruff: 成功
-- mypy (Linux向け): 71ファイル、エラー0件
-- mypy (Windows向け): 71ファイル、エラー0件
-- 全 unittest は sandbox が実ソケット生成を拒否するため完走できなかった。既存の `WebCaptureServerTest` 12件で `PermissionError: [Errno 1] Operation not permitted` を確認した。
-- Docker は `/var/run/docker.sock` へのアクセス権限がなく使用できなかった。
+- レビュー修正の TDD 対象 unittest: 実装前に6件失敗、実装後に17件成功。
+- 全228件のうち、変更対象を含む180件を分割実行して成功。
+- High 1 相当の削除競合: `[('New', '新')]` となり、削除済み `Old` が復活しないことを確認した。
+- High 2 相当の create-if-absent: `created=False, ocr_fps=2.0` となり、先行設定更新を保持することを確認した。
+- `RUFF_CACHE_DIR=/tmp/ruff_cache .venv/bin/ruff check src`: `All checks passed!`
+- `PYTHONPATH=src .venv/bin/mypy src`: 71ファイル、エラー0件。
+- `PYTHONPATH=src .venv/bin/mypy --platform win32 src`: 71ファイル、エラー0件。
+- 依頼者側 (ホストvenv、Dockerコンテナ両方) で全228件のunittestが成功することを確認した (実ソケット系テストを含む。sandbox制約はホスト/コンテナ実行では発生しない)。
