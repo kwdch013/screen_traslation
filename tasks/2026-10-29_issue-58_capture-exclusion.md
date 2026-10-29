@@ -10,6 +10,7 @@
 - Base / Merge target: `develop`
 - Branch: `task/58-capture-exclusion`
 - Worktree: `tmp/worktrees/issue-58`
+- PR: [#125](https://github.com/kwdch013/screen_traslation/pull/125) (`develop` 宛て、Draft、レビュー・merge 未実施、`Refs #58`)
 - 対象資料: `docs/v1.0/research/capture-exclusion.md`
 - 関連文書: `docs/v1.0/design/adr/0002-windows-client.md` と `docs/v1.0/development.md` から調査資料へリンク。
 - 文書テスト: `src/tests/test_v1_documentation.py` に必須出典、OS 条件、実機手順、未実施表記の検査を追加。
