@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 import json
 from queue import Empty
 from time import monotonic
@@ -34,7 +34,7 @@ def install_event_routes(app: FastAPI, publisher: TranslationEventPublisher) -> 
 async def event_stream(
     publisher: TranslationEventPublisher,
     heartbeat_seconds: float = HEARTBEAT_SECONDS,
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str]:
     subscription = publisher.subscribe()
     heartbeat_at = monotonic() + heartbeat_seconds
     try:
