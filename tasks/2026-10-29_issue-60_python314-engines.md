@@ -34,4 +34,4 @@
 
 ## PR
 
-PR作成後に番号を記録する。
+PR #126: https://github.com/kwdch013/screen_traslation/pull/126 (base: `develop`)。レビュー・mergeは未実施。
