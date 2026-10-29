@@ -1,6 +1,6 @@
 pillow>=12.3.0
 pytesseract>=0.3.13
 argostranslate>=1.9.6
-fastapi>=0.116.0
+fastapi>=0.141.1
 uvicorn>=0.52.1,<0.53.0
 httpx2>=2.7.0
