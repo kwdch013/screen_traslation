@@ -133,3 +133,7 @@ npm run build
 - [開発者向け説明書](docs/developer_guide.md)
 - [初期要件（経緯資料）](docs/requirements.md)
 - [初期実現可能性メモ（経緯資料）](docs/feasibility.md)
+
+## v1.0 の要件計画
+
+WindowsクライアントとLinuxバックエンドによる次版は、[要件書](requirements/version_1/requirements.md)、[受入計画](docs/v1.0/acceptance.md)、[ロードマップ](plan/version_1/roadmap.md)を参照してください。2026-10-29にOwnerが要求と受入計画を承認済みです。実装・実測・本人受入は後続Taskで行います。現在のWeb版の起動・利用方法は本文のとおりです。
