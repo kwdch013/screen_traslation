@@ -18,6 +18,7 @@ export interface TranslationResult {
 	processed_at: number
 	frame_width: number
 	frame_height: number
+	crop_revision: string | null
 	regions: TranslationRegion[]
 }
 
@@ -43,6 +44,7 @@ export function parseTranslationResult(data: string): TranslationResult | null {
 		|| !isFiniteNumber(value.processed_at)
 		|| !isPositiveInteger(value.frame_width)
 		|| !isPositiveInteger(value.frame_height)
+		|| !(value.crop_revision === null || typeof value.crop_revision === 'string')
 	) return null
 	const regions = value.regions.map(parseRegion)
 	if (regions.some((region) => region === null)) return null
@@ -53,6 +55,7 @@ export function parseTranslationResult(data: string): TranslationResult | null {
 		processed_at: value.processed_at,
 		frame_width: value.frame_width,
 		frame_height: value.frame_height,
+		crop_revision: value.crop_revision,
 		regions: regions as TranslationRegion[],
 	}
 }
