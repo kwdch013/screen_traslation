@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app.web_capture import MAX_FRAME_BYTES, TOKEN_HEADER, WebCaptureServer
+from app.web_capture import CROP_REVISION_HEADER, MAX_FRAME_BYTES, TOKEN_HEADER, WebCaptureServer
 from app.web_capture_api import create_capture_app
 from app.web_capture_security import FrameBodyTooLargeError, FrameReadTimeoutError, read_request_body
 
@@ -61,6 +61,7 @@ class WebCaptureApiTest(unittest.TestCase):
         content_type: str | None = "image/jpeg",
         origin: str | None = None,
         host: str | None = None,
+        crop_revision: str | None = None,
     ) -> dict[str, str]:
         headers: dict[str, str] = {}
         if token is not None:
@@ -71,6 +72,8 @@ class WebCaptureApiTest(unittest.TestCase):
             headers["Origin"] = origin
         if host is not None:
             headers["Host"] = host
+        if crop_revision is not None:
+            headers[CROP_REVISION_HEADER] = crop_revision
         return headers
 
     def test_create_capture_app_returns_fastapi_app(self) -> None:
@@ -94,6 +97,20 @@ class WebCaptureApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 204)
         self.assertTrue(self.server.store.has_frame())
+        self.assertIsNone(self.server.store.latest().crop_revision)
+
+    def test_crop_revision_header_is_stored_with_frame(self) -> None:
+        response = self.client.post(
+            "/frame",
+            content=_image_bytes(),
+            headers=self._headers(
+                token=self.server.session_token,
+                crop_revision="crop-8",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.server.store.latest().crop_revision, "crop-8")
 
     def test_valid_png_frame_is_accepted(self) -> None:
         response = self.client.post(
