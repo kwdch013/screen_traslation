@@ -58,7 +58,7 @@ GitHubのrename動作は[公式のブランチ名変更手順](https://docs.gith
 
 ## Rulesetとrequired checkの導入順
 
-このTaskは方針・ファイルの変更までです。GitHub上のRuleset・merge方式設定・既定ブランチは変更しません。後続 #67 で以下を実施します。
+以下は #66 で確定した段階導入手順です。#67 の今回の依頼範囲もPR作成までであり、GitHub上のRuleset・merge方式設定・既定ブランチは変更していません。独立レビュー・developへの統合・mainへの反映・検証PRでの実稼働確認後に、担当者が順に実施します。
 
 1. 現在のRuleset JSON、リポジトリのmerge設定、branch SHA、open PR一覧をgit管理外の `tmp/` へ保存する。Ruleset名・対象・required contextを読み、既存の `test` 保護を保持する。
 2. rename後に残った旧 `refs/heads/dev` をdevelopへ切り替える。developとmainを別Rulesetへ分離し、PR必須・force push禁止・削除禁止を維持する。developはsquash限定、mainはmerge commit限定とする。Phaseを使う場合は `refs/heads/phase/**` にsquash限定・PR必須・force push禁止を適用し、完了後削除できるよう削除禁止は付けない。
@@ -86,7 +86,102 @@ requiredにするcontextは、[公式のrequired status checkの条件](https://
 | #66 統合先・rename確認 | 決定事項、旧参照移行、復旧手順 | Owner確認・実装記録あり |
 | #66 全TaskのBase / Merge target | GitHubのv1.0 Task本文、旧参照移行手順 | developへ確定。依存とClaimは別に管理 |
 | #66 Ruleset / required導入順 | Rulesetとrequired checkの導入順 | 手順確定。実設定の変更は #67 |
-| #67 Work Unit・独立レビューゲート | scripts・hooks・workflow、検証PR | 後続Task。今回未導入 |
+| #67 Work Unit・Claim・独立レビューゲート | `scripts/ai-work-unit.py`・`scripts/ai-claim.py`・`scripts/ai-review-gate.py`・hooks・workflow、`tests/ai_gate/` | 正常/拒否のコンテナテストを実装。GitHub上でのrequired化・検証PRはmainへの反映後 |
 | #55 要件定義 / #57 設計 | 要件ID対応表 | 未確定のアプリ要件IDは作らず、確定時にこの開発基盤Taskへ対応付ける |
 
-本Taskの独立レビュー・AI Review Gate・squash mergeはPR作成後の工程です。今回の依頼範囲はPR作成までであり、実施済みとして扱いません。
+#67の独立レビュー・AI Review Gateの実PR承認・squash mergeはPR作成後の工程です。今回の依頼範囲はPR作成までであり、実施済みとして扱いません。
+
+
+## Work Unit・Claim・独立レビューの操作
+
+### 初回設定とClaim
+
+cloneごとに `git config core.hooksPath .githooks` を実行します。linked worktreeは通常この設定を共有するため、既存の作業との影響も確認します。hookだけでは強制できないため、ゲートと組み合わせます。
+
+```bash
+git fetch origin
+# Claimを実際の担当worktreeで取得するため、まずdetachedで用意する。
+git worktree add --detach tmp/worktrees/issue-<番号> origin/develop
+cd tmp/worktrees/issue-<番号>
+git rev-parse --show-toplevel
+python3 scripts/ai-work-unit.py
+# Expected filesの競合を確認してから実行する。tokenをファイルやログへ残さない。
+GITHUB_TOKEN="$(gh auth token)" python3 scripts/ai-claim.py \
+  --repo "$(gh repo view --json nameWithOwner --jq .nameWithOwner)" \
+  --issue-number <番号> --base develop --expected-files-checked
+git switch -c task/<番号>-<slug> origin/develop
+```
+
+helperはnative dependency・全Commentを取得し、Claim投稿直後にIssueとCommentを再取得します。`claimed-at` の自己申告時刻ではなくGitHubの `created_at`・Comment IDで競合を判定します。敗者は自分のClaimだけを解放するCommentを投稿し、Labelを変更しません。勝者は依存とIssue状態を再確認してからLabelを更新します。APIエラーや途中中断時は手動で状態を確認し、有効Claimを無断で上書きしません。
+
+手動Claimにも以下のmarkerを使います。UUIDはそれぞれ担当worktreeのIDとClaimごとの新しいIDです。停止時間による自動失効はありません。解放時は同じ `work-unit-id` と `claim-id` を持つ `ai-claim-release` Commentに理由を記録し、担当者が `worker/claimed` を外します。
+
+```markdown
+<!-- ai-claim
+work-unit-id: <担当worktreeのUUID>
+claim-id: <ClaimごとのUUID>
+claimed-at: <UTCのISO 8601>
+-->
+
+AI Claim
+
+- Base: `develop`
+- Merge target: `develop`
+- Expected files checked: yes
+```
+
+### commit・PR・レビュー
+
+`prepare-commit-msg` は既存の他Work Unitを保持して現在のWork Unitを追記します。cherry-pick・amend・revertも同じです。空メッセージはそのままにし、不正・空のtrailerは拒否します。`pre-push` はpush先remoteに存在しないcommitを検査し、全trailerの形式を確認します。既存履歴を移行のためだけに改変しません。
+
+PR先頭には `<!-- ai-pr-work-unit: <UUID> -->` を1つ書き、対応Issueを `Closes #<番号>` でリンクします。Draft解除・本文・テストを揃えた時点でIssueを `issue/review-required`、PRを `pr/review-required` とします。
+
+独立Reviewerは最新PR HEADの専用worktreeで自分のWork Unitを取得し、Contributor Setに含まれないことを確認します。IssueとPRをセットで確認しテスト後、本人が以下のCommentと `pr/approved` を投稿します。依頼者による代理投稿はしません。実装したエージェントと同じ種類しか使えない場合でも、別セッション・別worktreeが必要です。
+
+```markdown
+<!-- ai-review-approval
+review-work-unit: <独立ReviewerのUUID>
+head-sha: <レビューした完全なHEAD SHA>
+-->
+
+AI Review: APPROVED
+
+要件照合・実行テスト・結果を記載する。
+```
+
+変更要求は `ai-review-changes-requested` markerと同じ2フィールドを使います。最新の判断が変更要求ならLabelを外しても承認扱いになりません。新commitでHEADが変わると古い承認は無効です。PR作成者・修正担当・squash本文に残った全Contributorは承認元から除外します。レビュー状態Labelは1つだけにします。
+
+```bash
+# 未承認時は非0終了。statusを発行せず読み取りだけで検証する。
+GITHUB_TOKEN="$(gh auth token)" python3 scripts/ai-review-gate.py \
+  --repo "$(gh repo view --json nameWithOwner --jq .nameWithOwner)" --pr-number <PR番号>
+```
+
+`--issue-number <番号>` はclosing keywordで関連付いたOpen PRをまとめて再評価します。ゲートは全commitの証跡・最新判断・HEAD一致・IssueのOpen/review-required・`pr/block` を確認します。commit APIの上限250件に達したPRは検証不足として拒否します。CIの `test` とconversation解決は別途merge条件として確認します。リンクを認識できない場合は警告となるため、`Closes #<番号>` の同一リポジトリIssueを必ず使います。
+
+### workflowの信頼境界と段階導入
+
+`pull_request_target`・PRへの `issue_comment`・`issues`・手動実行で再評価します。PR側の変更scriptを権限付きで実行せず、常にdefault branchをcheckoutします。権限はreadを既定にし、ゲートジョブだけstatus書き込みを許可します。評価中にIssue/PR状態が変われば再評価し、結果は現在のPR HEADへcommit status `AI Review Gate` として発行します。
+
+default branchにscriptがまだ無い場合は導入確認stepが評価を見送り、成功した承認statusを捏造しません。workflowからRulesetを自動作成・変更しません。default branchへの導入後、次の表を検証PRで確認して初めてrequiredにします。**現時点ではmainにゲートが無く、GitHub上の統合拒否/許可は未確認です。** これはローカル正常/拒否テストの成功とは別の受け入れ項目です。
+
+| 検証PRの状態 | ゲート / required化後の期待結果 |
+| --- | --- |
+| 承認Commentなし | failure / 統合不可 |
+| Contributor自身の承認 | failure / 統合不可 |
+| 前HEADへの承認後にpush | failure / 統合不可 |
+| 別Work Unitの最新HEAD承認・CI失敗 | gate success・test failure / 統合不可 |
+| 別Work Unitの最新HEAD承認・CI成功・未解決conversationなし | 両check success / 統合可能（検証のためのmergeは不要） |
+
+Rulesetのrequiredには実在して成功履歴のある `test` と `AI Review Gate` を使い、develop/Phaseのsquashとmainのmerge commitを別々に固定します。初回main反映・履歴にtrailerが無い場合の例外・復旧は前節の手順に従います。ゲート導入だけを理由に未承認PRをmergeしません。
+
+### 基盤テスト
+
+```bash
+docker build -f tests/ai_gate/Dockerfile -t ai-gate-test .
+docker run --rm --cpus=2 -v "$PWD:/workspace:ro" ai-gate-test
+```
+
+標準ライブラリだけで動く専用Python 3.14コンテナを使います。ホスト側のGit設定・tokenを渡さず、テストが作る一時リポジトリでWork Unitとhookを検証します。CIの既存 `test` ジョブも同じコンテナを実行します。アプリコンテナにはGitやゲートを追加しません。
+
+Work Unitとmarkerは同一credential内の論理的証跡です。悪意ある偽装を分離する認証基盤ではなく、必要なら将来Reviewer専用App/tokenを設けます。

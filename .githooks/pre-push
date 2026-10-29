@@ -1,0 +1,36 @@
+#!/bin/sh
+# 新たに push する commit すべてに有効な AI-Work-Unit trailer があることを確認する。
+set -eu
+
+remote="$1"
+. "$(dirname "$0")/work-unit-lib.sh"
+zero_sha="0000000000000000000000000000000000000000"
+failed=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	if [ "$local_sha" = "$zero_sha" ]; then
+		continue
+	fi
+	# push 先 remote に既にある commit (GitHub 上の squash commit 等) はゲートで検証済みなので除外する
+	set -- "$local_sha" --not --remotes="$remote"
+	if [ "$remote_sha" != "$zero_sha" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+		set -- "$@" "$remote_sha"
+	fi
+	# $(...) 内の失敗は set -e で止まらないため、明示的に検出する
+	if ! commits="$(git rev-list "$@")"; then
+		echo "ERROR: failed to list commits for $local_ref." >&2
+		exit 1
+	fi
+	for sha in $commits; do
+		units="$(git log -1 --format=%B "$sha" | work_units_from_message)"
+		if [ -z "$units" ]; then
+			echo "ERROR: commit $sha has no AI-Work-Unit trailer." >&2
+			failed=1
+		elif ! work_units_are_valid "$units"; then
+			echo "ERROR: commit $sha has an invalid AI-Work-Unit trailer." >&2
+			failed=1
+		fi
+	done
+done
+
+exit "$failed"

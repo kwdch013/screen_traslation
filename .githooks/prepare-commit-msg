@@ -1,0 +1,31 @@
+#!/bin/sh
+# commit message に現在 worktree の AI-Work-Unit trailer を付与する。
+set -eu
+
+message_file="$1"
+hook_dir="$(dirname "$0")"
+. "$hook_dir/work-unit-lib.sh"
+
+# 空メッセージに trailer を足すと git が commit を中止できなくなるため、何もしない
+if ! sed '/^# -\{24\} >8 -\{24\}$/,$d' "$message_file" | grep -Evq '^[[:space:]]*(#.*)?$'; then
+	exit 0
+fi
+
+# hooksPath 経由でもテストでも同じ helper を使うため、cwd ではなく hook 自身の位置から探す
+if ! work_unit="$(python3 "$hook_dir/../scripts/ai-work-unit.py")"; then
+	echo "ERROR: failed to get AI Work Unit ID." >&2
+	exit 1
+fi
+
+existing="$(work_units_from_message < "$message_file")"
+if [ -n "$existing" ] && ! work_units_are_valid "$existing"; then
+	echo "ERROR: commit message has an invalid AI-Work-Unit trailer." >&2
+	exit 1
+fi
+
+# cherry-pick・amend・revert で他 worktree の ID が含まれていても、現在の worktree も
+# Contributor なので追記する (Contributor が増える方向なので安全側)
+if printf '%s\n' "$existing" | grep -Fixq "$work_unit"; then
+	exit 0
+fi
+git interpret-trailers --in-place --trailer "AI-Work-Unit: $work_unit" "$message_file"

@@ -33,13 +33,18 @@ jobs:
       - name: デスクトップ撤去構成テスト (ホスト)
         run: PYTHONPATH=src python -m unittest src.tests.test_desktop_removal.DesktopRepositoryRemovalTest
 
+      - name: Work Unit・Claim・AIレビューゲート検証 (Python 3.14コンテナ内)
+        run: |
+          docker build -f tests/ai_gate/Dockerfile -t ai-gate-test:ci .
+          docker run --rm --cpus=2 -v "$PWD:/workspace:ro" ai-gate-test:ci
+
       - name: フロントエンド検証 (コンテナ内)
         run: docker build --target frontend-test --tag frontend-test:ci .
 
       - name: Lint (ruff)
         run: |
           pip install -r requirements-dev.txt
-          ruff check src
+          ruff check src scripts tests/ai_gate
 
       # GitHub Actions キャッシュにレイヤを載せてビルド時間を短縮
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1

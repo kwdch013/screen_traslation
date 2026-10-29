@@ -1,0 +1,62 @@
+name: AI Review Gate
+
+# PR 内で改変された script を実行しないよう、pull_request ではなく pull_request_target を使い
+# default branch の信頼済み script だけを checkout する。
+# PR Review 提出イベントも PR の merge ref 上の workflow 定義で動くため購読しない (ゲートは Review を参照しない)。
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled, ready_for_review]
+  issue_comment:
+    types: [created, edited, deleted]
+  issues:
+    types: [labeled, unlabeled, closed, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 再評価する PR 番号
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-review-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    # 通常 Issue へのコメントは評価対象外
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      statuses: write
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      # 導入時にdefault branchへscriptが未反映でも、存在しないcheckをrequired化しない。
+      # 稼働確認後のrequired設定は開発手順に従い別途行う。
+      - name: 信頼済みゲートの導入確認
+        id: installed
+        run: |
+          if test -f scripts/ai-review-gate.py && test -f scripts/ai_review_gate_github.py; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "default branchへの反映待ち。required checkはまだ追加しないでください。"
+          fi
+
+      - name: Evaluate AI review gate
+        if: steps.installed.outputs.ready == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || (github.event_name == 'issue_comment' && github.event.issue.number) || inputs.pr_number || '' }}
+          ISSUE_NUMBER: ${{ github.event_name == 'issues' && github.event.issue.number || '' }}
+        run: python3 scripts/ai-review-gate.py --publish-status
