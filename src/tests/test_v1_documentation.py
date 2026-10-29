@@ -278,3 +278,10 @@ class CaptureExclusionResearchTest(unittest.TestCase):
 			with self.subTest(expected=expected):
 				self.assertIn(expected, text)
 		self.assertNotRegex(text, r"実測結果: (?:成功|合格)")
+
+	def test_related_design_and_development_guides_link_to_research(self) -> None:
+		text = self.document.read_text(encoding="utf-8")
+		self.assertIn("REQ-F-001 / ACC-03", text)
+		self.assertIn("REQ-F-005 / ACC-07", text)
+		self.assertIn("capture-exclusion.md", (self.root / "docs/v1.0/design/adr/0002-windows-client.md").read_text(encoding="utf-8"))
+		self.assertIn("capture-exclusion.md", (self.root / "docs/v1.0/development.md").read_text(encoding="utf-8"))
