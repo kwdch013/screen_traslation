@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,9 @@ def install_frontend_route(app: FastAPI, frontend_dist: Path) -> None:
 class FrontendRoute(Route):
     """API予約パスを除外し、後から登録されたAPIルートへ処理を渡す。"""
 
-    def matches(self, scope: dict[str, Any]) -> tuple[Match, dict[str, Any]]:
+    def matches(
+        self, scope: MutableMapping[str, Any]
+    ) -> tuple[Match, MutableMapping[str, Any]]:
         if _is_reserved_path(scope.get("path", "")):
             return Match.NONE, {}
         return super().matches(scope)

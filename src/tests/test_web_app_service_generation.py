@@ -43,7 +43,9 @@ def _result(generation: int) -> TranslationResult:
 
 
 class WebAppServiceGenerationTest(unittest.TestCase):
-    def test_generation_advance_cannot_be_interleaved_by_old_result_publish(self) -> None:
+    def test_generation_advance_cannot_be_interleaved_by_old_result_publish(
+        self,
+    ) -> None:
         server = WebCaptureServer()
         service = WebAppService(
             PipelineConfig(),
@@ -65,12 +67,14 @@ class WebAppServiceGenerationTest(unittest.TestCase):
         received_events = []
         original_publish_state = service.event_publisher.publish_state
 
-        def delayed_publish_state(generation: int, state: str, error_message: str | None) -> None:
+        def delayed_publish_state(
+            generation: int, state: str, error_message: str | None
+        ) -> None:
             transition_reached.set()
             release_transition.wait(timeout=2)
             original_publish_state(generation, state, error_message)
 
-        service.event_publisher.publish_state = delayed_publish_state
+        setattr(service.event_publisher, "publish_state", delayed_publish_state)
 
         def receive_event() -> None:
             received_events.append(subscription.get(timeout=2))

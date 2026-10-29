@@ -22,7 +22,9 @@ class AsgiClient:
     def put(self, url: str, **kwargs):
         async def execute():
             transport = httpx2.ASGITransport(app=self._app)
-            async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as client:
+            async with httpx2.AsyncClient(
+                transport=transport, base_url="http://127.0.0.1:8765"
+            ) as client:
                 return await client.put(url, **kwargs)
 
         return asyncio.run(execute())
@@ -86,7 +88,7 @@ class WebSettingsValidationTest(unittest.TestCase):
         self.assertEqual(saved["overlay_style"]["overlay_opacity"], 1)
 
     def test_bool_is_rejected_for_every_numeric_field_without_mutation(self) -> None:
-        invalid_changes = [
+        invalid_changes: list[dict[str, object]] = [
             {"ocr_fps": True},
             {"min_confidence": False},
             {"ocr_fallback_min_confidence": True},
@@ -100,10 +102,17 @@ class WebSettingsValidationTest(unittest.TestCase):
                 self._assert_rejected_without_mutation(changes)
 
     def test_non_finite_numbers_are_rejected_without_mutation(self) -> None:
-        for field in ("ocr_fps", "min_confidence", "ocr_fallback_min_confidence", "llm_timeout_seconds"):
+        for field in (
+            "ocr_fps",
+            "min_confidence",
+            "ocr_fallback_min_confidence",
+            "llm_timeout_seconds",
+        ):
             for value in (float("nan"), float("inf"), float("-inf")):
                 with self.subTest(field=field, value=value):
-                    self._assert_rejected_without_mutation({field: value}, raw_json=True)
+                    self._assert_rejected_without_mutation(
+                        {field: value}, raw_json=True
+                    )
         for value in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(field="overlay_opacity", value=value):
                 self._assert_rejected_without_mutation(
@@ -111,12 +120,18 @@ class WebSettingsValidationTest(unittest.TestCase):
                     raw_json=True,
                 )
 
-        for changes in ({"ocr_fps": 10**1000}, {"overlay_style": {"font_size": 10**1000}}):
+        invalid_changes: list[dict[str, object]] = [
+            {"ocr_fps": 10**1000},
+            {"overlay_style": {"font_size": 10**1000}},
+        ]
+        for changes in invalid_changes:
             with self.subTest(changes=changes):
                 self._assert_rejected_without_mutation(changes)
 
-    def test_values_outside_public_boundaries_are_rejected_without_mutation(self) -> None:
-        invalid_changes = [
+    def test_values_outside_public_boundaries_are_rejected_without_mutation(
+        self,
+    ) -> None:
+        invalid_changes: list[dict[str, object]] = [
             {"ocr_fps": 0},
             {"llm_timeout_seconds": 0},
             {"min_confidence": -5e-324},
@@ -132,8 +147,10 @@ class WebSettingsValidationTest(unittest.TestCase):
             with self.subTest(changes=changes):
                 self._assert_rejected_without_mutation(changes)
 
-    def test_invalid_string_types_and_choices_are_rejected_without_mutation(self) -> None:
-        invalid_changes = [
+    def test_invalid_string_types_and_choices_are_rejected_without_mutation(
+        self,
+    ) -> None:
+        invalid_changes: list[dict[str, object]] = [
             {"ocr_backend": "unsupported"},
             {"translator_backend": "unsupported"},
             {"source_language": "fr"},

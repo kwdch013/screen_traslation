@@ -12,6 +12,7 @@ from urllib.parse import quote
 import httpx2
 
 from app.config import PipelineConfig, save_config
+from app.file_lock import InterProcessFileLock, lock_path_for
 from app.glossary import Glossary
 from app.pipeline import TranslationCache
 from app.translator import GlossaryAwareTranslator, PassthroughTranslator
@@ -49,7 +50,7 @@ class AsgiClient:
 
 class FakeRunner:
     def __init__(self, on_error: Callable[[Exception], None]) -> None:
-        self.on_error = on_error
+        self.on_error: Callable[[Exception], None] | None = on_error
         self.running = False
 
     @property
@@ -199,7 +200,10 @@ class WebSettingsApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("ocr_fps", response.json()["detail"])
         self.assertEqual(self.config_path.read_bytes(), before)
-        self.assertEqual(self.client.get("/api/config", headers=self._headers()).json()["ocr_fps"], 5.0)
+        self.assertEqual(
+            self.client.get("/api/config", headers=self._headers()).json()["ocr_fps"],
+            5.0,
+        )
 
     def test_llm_ocr_backend_requires_model_without_changing_config(self) -> None:
         invalid_changes = [
@@ -276,8 +280,12 @@ class WebSettingsApiTest(unittest.TestCase):
             [{"source": "Save", "target": "セーブ"}],
         )
 
-        deleted = self.client.delete(f"/api/glossary/{quote('Save', safe='')}", headers=self._headers())
-        missing = self.client.delete(f"/api/glossary/{quote('Save', safe='')}", headers=self._headers())
+        deleted = self.client.delete(
+            f"/api/glossary/{quote('Save', safe='')}", headers=self._headers()
+        )
+        missing = self.client.delete(
+            f"/api/glossary/{quote('Save', safe='')}", headers=self._headers()
+        )
 
         self.assertEqual(deleted.status_code, 204)
         self.assertEqual(missing.status_code, 404)
@@ -293,6 +301,38 @@ class WebSettingsApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("空", response.json()["detail"])
 
+    def test_config_lock_timeout_returns_503_with_clear_error(self) -> None:
+        self.service._settings._file_lock_timeout_seconds = 0.01
+
+        with InterProcessFileLock(
+            lock_path_for(self.config_path), timeout_seconds=1.0
+        ):
+            response = self.client.put(
+                "/api/config",
+                json={"ocr_fps": 2.0},
+                headers=self._headers(),
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("app.json", response.json()["detail"])
+        self.assertIn("ロック", response.json()["detail"])
+
+    def test_glossary_lock_timeout_returns_503_with_clear_error(self) -> None:
+        self.service._settings._file_lock_timeout_seconds = 0.01
+
+        with InterProcessFileLock(
+            lock_path_for(self.glossary_path), timeout_seconds=1.0
+        ):
+            response = self.client.post(
+                "/api/glossary",
+                json={"source": "Save", "target": "セーブ"},
+                headers=self._headers(),
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("glossary.json", response.json()["detail"])
+        self.assertIn("ロック", response.json()["detail"])
+
     def test_dot_path_glossary_sources_return_400_without_registration(self) -> None:
         for source in (".", ".."):
             with self.subTest(source=source):
@@ -305,7 +345,9 @@ class WebSettingsApiTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertIn("登録できません", response.json()["detail"])
                 self.assertEqual(self.glossary.terms, [])
-                self.assertEqual(json.loads(self.glossary_path.read_text(encoding="utf-8")), [])
+                self.assertEqual(
+                    json.loads(self.glossary_path.read_text(encoding="utf-8")), []
+                )
 
     def test_glossary_update_invalidates_running_pipeline_cache(self) -> None:
         self.service.start()
@@ -343,7 +385,9 @@ class WebSettingsApiTest(unittest.TestCase):
             ),
         ]
 
-        self.assertEqual([response.status_code for response in requests], [403, 403, 403])
+        self.assertEqual(
+            [response.status_code for response in requests], [403, 403, 403]
+        )
 
 
 if __name__ == "__main__":
