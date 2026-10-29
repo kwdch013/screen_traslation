@@ -153,6 +153,7 @@ docker compose run --rm app
 
 - フレーム座標は送信画像を基準にし、`frame_width` / `frame_height` と同じスケールで返します。
 - OCR の前処理で拡大した座標は元画像へ戻してから `TranslationResult` を作ります。
+- LLM OCR はプロンプトで矩形付きJSON配列を要求し、API固有のJSONモードには依存しません。妥当な要素だけを画像寸法に照らして採用します。
 - 座標がない OCR 結果は `positioning: unavailable` とし、推測した位置を付けません。
 - 遅い SSE 購読者がパイプラインを止めないよう、有界キューの最古のイベントを捨てます。
 
