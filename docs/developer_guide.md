@@ -101,6 +101,12 @@ lint:
 .venv/bin/ruff check src
 ```
 
+Ruff 0.16系は既定の検査ルールが増えたため、`ruff.toml` で従来の `E4`・`E7`・`E9`・`F` を明示しています。依存更新による検査範囲の変更を避け、未定義変数や未使用importの検出を維持します。同じ設定を実行イメージにも含めています。
+
+```bash
+docker compose run --rm app ruff check src
+```
+
 型チェック:
 
 ```bash
