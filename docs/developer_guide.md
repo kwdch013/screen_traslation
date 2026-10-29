@@ -253,3 +253,7 @@ merge commitを継続して使い、developのコミットをmainの祖先に保
 ## v1.0 の要件・検証への入口
 
 次版は[要件書](../requirements/version_1/requirements.md)、[受入計画](v1.0/acceptance.md)、[要件ID→Phase/Task対応表](../plan/version_1/roadmap.md)、[開発運用](v1.0/development.md)を参照してください。要求と受入計画は2026-10-29にOwner承認済みです。数値への合意と後続Taskでの実装・実測・本人受入を区別し、現在のWeb版の検証を維持します。
+
+## v1.0 の方式候補と脅威モデル
+
+次版の[技術選定ADR・要件ID対応表](v1.0/design/adr/README.md)と[脅威モデル](v1.0/design/security.md)は #56 の提案です。自己取得除外・混在DPI・Python 3.14依存は #58/#59/#60 で検証し、#57で最終採否・TLS/資格情報の運用を確定します。実機検証・性能合格は未実施で、現行Web版の起動/利用契約は維持します。新版の利用時には、設定で与える接続先・信頼情報と管理者が発行する端末資格情報が必要になる候補です。現段階で新版を導入済みとは扱いません。
