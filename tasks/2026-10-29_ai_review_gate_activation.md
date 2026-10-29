@@ -1,6 +1,6 @@
-# Issue #118: AI Review Gate有効化の承認前調査・検証準備
+# Issue #118: AI Review Gate有効化調査・段階Aのリリース準備
 
-- 実施日: 2026-10-29。状態: **承認待ち。有効化・GitHub実証は未実施**。
+- 実施日: 2026-10-29。状態: **Ownerの実行承認を受領し、段階Aのみ実施。有効化・GitHub実証は未実施**。
 - Issue: [#118](https://github.com/kwdch013/screen_traslation/issues/118)、親Phase: #65、依存: #67（Closed）。
 - Base / Merge target: develop。branch: `task/118-ai-gate-activation`。
 - Work Unit: `f6ccf728-d243-4189-be37-915204ff5b3b`。
@@ -41,17 +41,17 @@ trailerが無い7コミット（完全SHAはtmpの `release-preflight.json` に�
 | d2dce3a | #47 設定・辞書排他 |
 | 4c4c80c | #46 mypy CI |
 
-#66・#67の新しいsquash commitにも欠落があるため、導入前履歴だけの不足と説明しない。通常のゲートPASSを見込まず、この7件を明示した初回リリース1回の例外判断をOwnerへ求める。過去履歴を書き換えたり、Contributor IDを推測して補ったりしない。
+#66・#67の新しいsquash commitにも欠落があるため、導入前履歴だけの不足と説明しない。通常のゲートPASSを見込まず、この7件を初回リリース1回の例外範囲としてPR #121に明示する。過去履歴を書き換えたり、Contributor IDを推測して補ったりしない。
 
-## 承認待ちの操作一覧
+## 後続の設定・反映計画（段階Aでは実行しない）
 
-詳細は [開発文書](../docs/v1.0/development.md#承認を待つ操作と順序) を参照。全て未実行。
+詳細は [開発文書](../docs/v1.0/development.md#後続の設定反映計画段階aでは実行しない) を参照。以下は前回の計画区分で、最新指示の段階Aとは異なる。全て未実行。2026-10-29のセッションでリリース・Ruleset変更の実行承認を受領したが、最新指示により今回はPR作成・レビュー依頼準備までで停止する。
 
 | 段階 | 承認対象 / ローカルJSON案 |
 | --- | --- |
 | A | merge commitを有効、自動branch削除を無効。squash有効・rebase無効を維持。`proposed-repository-patch.json` |
 | B | protect-developを新規作成しread-back後、既存19132355をprotect-mainへ更新。developはsquash/strict=false、mainはmerge/strict=true、test required保持。PR必須・削除禁止・force push禁止・conversation解決必須、bypassなし。`proposed-{develop,main}-bootstrap.json` |
-| C | develop → main基盤導入。固定SHAの全差分・trailer欠落7件の初回例外を明示承認し、独立レビュー/CIを実施。mergeは今回の禁止を解除する別指示が必要。今回リリースPRのmergeはしない |
+| C | develop → main基盤導入。固定SHAの全差分・trailer欠落7件の初回例外を明示承認し、独立レビュー/CIを実施。リリース実行承認は受領済み。独立レビュー・必須CI確認後の後続段階で具体的な操作を報告する。今回リリースPRのmergeはしない |
 | D | C後に実際の検証PRで5ケースを実行。両contextの発行元・直近7日以内の成功を提示して改めて承認後、testとAI Review Gateをrequired化。`proposed-{develop,main}-required.json`は条件付き案であり現時点では適用しない |
 
 新Rulesetの保護確認前に旧保護を削除しない。Phase branchは無いため今回対象外。CodeQL analyzeのrequired追加・default branch名変更・main/develop直接pushは行わない。復旧操作も設定変更に当たるため、必要な変更内容を提示して承認を得る。
@@ -91,6 +91,17 @@ git diff --check
 
 初回は専用gate imageで文書/構成24件を実行し22成功・Ruff不在による2skip。Ruff入りimageで再実行してskipを解消した。ローカルの成功はGitHubでの有効化・拒否/受理成功の代用ではない。
 
-## 停止時点
+## 段階Aの実施結果と停止時点
 
-文書・証跡準備のDraft PRをdevelop向けに作成して停止する。Issue #118は全受入条件が未完了のためOpen・in-progressを維持し、PRを独立承認済み・完了と扱わない。設定変更・default branch反映・required化・直接push・全PRのmergeは未実施。承認後は対象SHA/設定の変化を再取得し、必要な独立レビューと段階ごとの承認を経て進める。
+Ownerは2026-10-29のセッションで「develop→mainのリリースとRuleset変更を今すぐ実行してよい」と承認した。最新指示は各段階のコマンド・対象・差分を実行前に報告し、今回は段階Aだけ進めて停止すること。前回の包括的な承認待ち状態からこの制約へ更新した。
+
+- [リリースPR #121](https://github.com/kwdch013/screen_traslation/pull/121) を作成。`develop → main`、merge commit方式を明記。HEAD `ee453ccbf7f8c67ae1425d68ac2fb2f40f9c5b32`、base `504a16dfc1cac6511f16938dec87256dc57f21f9`。
+- 再取得した差分は21コミット・109ファイル・5,921追加・739削除。trailer欠落7件も不変。PR本文に全21コミットと欠落7件の完全SHA、初回1回の例外、未実施の完了確認を明記した。
+- pr-writingのリリーステンプレートを使用。v1.0全体の完成として扱わず、#118を早期に閉じる完了キーワードは付けていない。文書・証跡の完了リンクは#119に残す。
+- 固定HEADの別worktreeをレビュー用に作成済み。別codexによる全差分レビューと必須CI確認を依頼できる状態。独立レビューはまだ起動・実施していない。
+- PR #119の旧HEAD `4d20b5d3cdfa6329ea7b188255dbfba6c2e62943` は [CI test](https://github.com/kwdch013/screen_traslation/actions/runs/40894267961/job/123518988235)・CodeQL成功。今回の追加文書commitは新HEADのCIで別に確認する。
+- PR #121の [必須test](https://github.com/kwdch013/screen_traslation/actions/runs/40895597046/job/123523701295) は作成後の初回確認時に実行中。APIのテストmerge SHAは `aa6d5d30f0e7633f8ce2246be43bdb18a3f4f043`、mainはstrict=trueで `mergeStateStatus=BEHIND`。成功や統合可能とは扱わず、後続で最新状態を照合する。固定21コミットを保つため、段階Aではdevelopへのmain取り込みをしない。
+- 今回の文書更新をPython 3.14コンテナの構成/文書5モジュールで再確認し、24件成功・skipなし。`git diff --check` も実施。
+- 変更前snapshotはgit管理外の `tmp/issue-118/stage-a/`。repo・Ruleset・main/develop SHAを停止時に再取得し、設定変更・共有branch反映がないことを照合する。
+
+Issue #118は6受入条件が未完了のためOpen・in-progressとClaimを維持し、Draft PR #119は解除しない。調査・計画の文書は最新化したが、受入条件未充足のため実際のmerge準備完了とは扱わない。repo設定変更・Ruleset変更・default branch反映・required化・直接push・全PRのmergeは未実施。後続の操作はこの停止報告後に進める。

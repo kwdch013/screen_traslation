@@ -188,9 +188,9 @@ docker run --rm --cpus=2 -v "$PWD:/workspace:ro" ai-gate-test
 Work Unitとmarkerは同一credential内の論理的証跡です。悪意ある偽装を分離する認証基盤ではなく、必要なら将来Reviewer専用App/tokenを設けます。
 
 
-## Issue #118の承認前調査と実行計画
+## Issue #118の有効化調査と段階実行計画
 
-本節と [作業記録](../../tasks/2026-10-29_ai_review_gate_activation.md) は承認前の準備です。有効化やGitHub上の統合制御が成功した記録ではありません。2026-10-29のOwner指示により、設定変更・default branchへの反映・required化は具体案を報告して承認を待ちます。今回の作業では全PRのmergeを行いません。以後もmerge禁止の解除が別途必要です。
+本節と [作業記録](../../tasks/2026-10-29_ai_review_gate_activation.md) は調査・段階実行の記録です。有効化やGitHub上の統合制御が成功した記録ではありません。2026-10-29のセッションでOwnerからdevelop → mainのリリースとRuleset変更の実行承認を受領しました。最新指示に従い、各段階の具体的な操作・対象・差分を実行前に報告し、今回は**段階A（リリースPR作成とレビュー依頼準備）だけ**で停止します。merge・repo設定変更・Ruleset変更・required化は今回実施しません。
 
 ### 読み戻した現状
 
@@ -209,16 +209,28 @@ Work Unitとmarkerは同一credential内の論理的証跡です。悪意ある�
 
 全JSON・取得日時・欠落commit一覧・設定変更案はgit管理外の `tmp/issue-118/` に保存します。token・接続情報を記録しません。保存済みSHAや設定が実行時と変わった場合は、差分を再報告してから進めます。
 
-### 承認を待つ操作と順序
+### 後続の設定・反映計画（段階Aでは実行しない）
 
 | 段階 | 提案する操作 / 影響 | 実行前の条件 |
 | --- | --- | --- |
-| A: merge設定 | squash=trueを保持し、merge commit=true、rebase=false、自動削除=falseへ変更。全PRのmerge方式と統合後のbranch保持に影響 | Ownerの明示承認。default branch名はmainを維持 |
-| B: 基本保護 | `protect-develop` を新規作成し、実効保護を確認後、既存ID `19132355` を `protect-main` に更新。develop=squash・strict=false、main=merge・strict=true。削除禁止・force push禁止・PR必須・testを維持し、conversation解決必須=true、bypass actorなし。ゲートはまだrequiredにしない | Ownerの明示承認。旧保護を先に削除しない。Phase branchは現存せず、今回はPhase Rulesetを作成しない |
-| C: default branch反映 | develop → mainの基盤導入リリース。全差分を別agent・別worktreeでレビューし、CI・ローカルゲート結果・初回例外理由をPRに記録。ゲート以外の既存変更もmainへ入る | 固定した対象SHA・全差分・欠落7件に対する明示承認、独立レビュー、merge禁止の別途解除。今回mergeしない |
-| D: required化 | 次の検証を実行後、develop/mainのrequiredをtestとAI Review Gateにする。strict・merge方式・conversation保護はBを保持。CodeQL analyzeは追加しない | 直近7日以内の両contextの成功と発行元、検証PRの実行URL・SHAを取得後、その実値とRuleset差分を再提示し、Ownerの明示承認を得る。現時点での包括承認として扱わない |
+| 設定1: merge設定 | squash=trueを保持し、merge commit=true、rebase=false、自動削除=falseへ変更。全PRのmerge方式と統合後のbranch保持に影響 | Ownerの実行承認は受領済み。後続段階でコマンド・差分を報告して実施。default branch名はmainを維持 |
+| 設定2: 基本保護 | `protect-develop` を新規作成し、実効保護を確認後、既存ID `19132355` を `protect-main` に更新。develop=squash・strict=false、main=merge・strict=true。削除禁止・force push禁止・PR必須・testを維持し、conversation解決必須=true、bypass actorなし。ゲートはまだrequiredにしない | Ownerの実行承認は受領済み。後続段階でコマンド・差分を報告して実施。旧保護を先に削除しない。Phase branchは現存せず、今回はPhase Rulesetを作成しない |
+| 反映: default branch反映 | develop → mainの基盤導入リリース。全差分を別agent・別worktreeでレビューし、CI・ローカルゲート結果・初回例外理由をPRに記録。ゲート以外の既存変更もmainへ入る | Ownerのリリース実行承認は受領済み。固定SHA・全差分・欠落7件の初回例外をリリースPRに明記し、独立レビューと必須CI確認後、後続段階で具体的なmerge操作を報告する。今回mergeしない |
+| required化 | 次の検証を実行後、develop/mainのrequiredをtestとAI Review Gateにする。strict・merge方式・conversation保護は設定2を保持。CodeQL analyzeは追加しない | 直近7日以内の両contextの成功と発行元、検証PRの実行URL・SHAを取得後、その実値とRuleset差分を再提示し、Ownerの明示承認を得る。現時点での包括承認として扱わない |
 
 初回例外は記録不足のある導入リリース1回に限定します。欠落分のWork Unitを推測して追記したり、成功statusを手動発行したり、検証PRのbypassへ流用したりしません。共有履歴の修正は提案しません。新しいTaskのsquash時には全Contributorのtrailerを最終本文に残す必要があります。
+
+### 段階A: 初回導入リリースPRとレビュー依頼準備
+
+[リリースPR #121](https://github.com/kwdch013/screen_traslation/pull/121) を `develop → main` で作成しました。統合方式はmerge commitと本文に明記しています。PR作成そのものは設定変更ではなく、現在無効のmerge commitを有効にする操作は後続段階です。
+
+- base: `504a16dfc1cac6511f16938dec87256dc57f21f9`、HEAD: `ee453ccbf7f8c67ae1425d68ac2fb2f40f9c5b32`。
+- develop固有21コミット、109ファイル（5,921追加・739削除）。#119・#120は未統合で含みません。
+- 欠落7件の完全SHA・理由をPR本文へ記載。#66・#67のsquashも含み、通常ゲートPASSとは扱いません。例外はこの固定HEADの初回リリース1回に限定し、履歴改変・Work Unit推測・手動successは行いません。
+- Issue #118とPR #121をセットにし、別agent・別worktreeのcodexに全109ファイルの最新HEAD独立レビューと必須CI `test` の確認を依頼します。過去の部分PR承認・develop CIで代用しません。HEAD/baseが変われば差分・レビュー・CIを再確認します。
+- v1.0全体の最終リリースではなく、Roadmap #53 / Phase #65の基盤先行導入です。未実施のシナリオ・ユーザー作成テスト・画面確認はリリーステンプレート上で未完了と明示します。
+- #118を途中で自動closeしないよう、#121は関連リンクとし、完了リンクはDraft PR #119に残します。#118はOpen・in-progressと有効Claimを保持。#119は6受入条件が揃うまでDraftを維持します。
+- 現行mainのrequiredは `test`。作成直後のGitHub統合状態はstrict=trueによる `BEHIND`。固定21コミットを保つため今回developへmainを取り込まず、CI後の状態を後続で再確認します。今回のPR CIの実行URL・HEAD・テストmerge SHAの対応はPR本文と作業記録に追記します。AI Review GateのGitHub有効化・5ケース・required化は全て未実施です。
 
 ### 検証PR計画
 
