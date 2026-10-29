@@ -252,4 +252,4 @@ merge commitを継続して使い、developのコミットをmainの祖先に保
 
 ## v1.0 の要件・検証への入口
 
-次版は[要件草案](../requirements/version_1/requirements.md)、[受入計画](v1.0/acceptance.md)、[要件ID→Phase/Task対応表](../plan/version_1/roadmap.md)、[開発運用](v1.0/development.md)を参照してください。Owner確認待ちの数値案を実装済み仕様と扱わず、現在のWeb版の検証を維持します。
+次版は[要件書](../requirements/version_1/requirements.md)、[受入計画](v1.0/acceptance.md)、[要件ID→Phase/Task対応表](../plan/version_1/roadmap.md)、[開発運用](v1.0/development.md)を参照してください。要求と受入計画は2026-10-29にOwner承認済みです。数値への合意と後続Taskでの実装・実測・本人受入を区別し、現在のWeb版の検証を維持します。

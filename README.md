@@ -136,4 +136,4 @@ npm run build
 
 ## v1.0 の要件計画
 
-WindowsクライアントとLinuxバックエンドによる次版は、[要件草案](requirements/version_1/requirements.md)、[受入計画](docs/v1.0/acceptance.md)、[ロードマップ](plan/version_1/roadmap.md)を参照してください。Owner確認待ちの計画です。現在のWeb版の起動・利用方法は本文のとおりです。
+WindowsクライアントとLinuxバックエンドによる次版は、[要件書](requirements/version_1/requirements.md)、[受入計画](docs/v1.0/acceptance.md)、[ロードマップ](plan/version_1/roadmap.md)を参照してください。2026-10-29にOwnerが要求と受入計画を承認済みです。実装・実測・本人受入は後続Taskで行います。現在のWeb版の起動・利用方法は本文のとおりです。

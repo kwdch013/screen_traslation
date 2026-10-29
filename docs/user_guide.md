@@ -202,4 +202,4 @@ PYTHONPATH=src python -m app.main --install-argos-en-ja
 
 ## 次版の受入について
 
-次版の[要件草案](../requirements/version_1/requirements.md)と[ユーザー受入計画](v1.0/acceptance.md)はOwner確認待ちです。本人による表示の見た目・操作感と追加シナリオの確認を計画しています。現在利用できるWeb版の操作は本文を参照してください。
+次版の[要件書](../requirements/version_1/requirements.md)と[ユーザー受入計画](v1.0/acceptance.md)は2026-10-29にOwner承認済みです。実機評価・本人受入は未実施です。本人による表示の見た目・操作感と追加シナリオの確認を計画しています。現在利用できるWeb版の操作は本文を参照してください。

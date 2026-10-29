@@ -56,7 +56,7 @@ class V1DocumentationTest(unittest.TestCase):
 	def test_referenced_acceptance_scenarios_exist_and_have_steps_and_results(self) -> None:
 		acceptance = self.read(DOCUMENTS[1])
 		scenarios = set(re.findall(r"(?m)^### (ACC-\d{2}) ", acceptance))
-		self.assertGreaterEqual(len(scenarios), 10)
+		self.assertEqual(scenarios, {f"ACC-{number:02d}" for number in range(1, 16)})
 		for path in DOCUMENTS:
 			with self.subTest(document=path):
 				self.assertLessEqual(set(re.findall(r"ACC-\d{2}", self.read(path))), scenarios)
@@ -77,11 +77,36 @@ class V1DocumentationTest(unittest.TestCase):
 		for path in DOCUMENTS:
 			with self.subTest(document=path):
 				document = self.read(path)
-				self.assertIn("Owner", document)
-				self.assertIn("未確認", document)
+				self.assertIn("Owner承認済み", document)
+				self.assertIn("2026-10-29", document)
+				self.assertIn("#60/#109", document)
+				self.assertRegex(document, r"https://github\.com/[^/]+/[^/]+/issues/55#issuecomment-\d+")
+				self.assertNotRegex(document, r"Owner(?:未確認|確認待ち)|草案（Owner確認待ち）")
 		acceptance = self.read(DOCUMENTS[1])
 		for expected in ("ユーザー追加シナリオ", "見た目", "合格扱いにしない", "確認記録", "#110"):
 			self.assertIn(expected, acceptance)
+		self.assertIn("a8c0f528ce95c9208977ed262b4ef2a81e7b56d7", acceptance)
+		self.assertIn("AskUserQuestion", acceptance)
+		self.assertIn("このまま承認", acceptance)
+		rows = [line for line in acceptance.splitlines() if line.startswith("| ")]
+		owner_rows = [line for line in rows if "| Owner |" in line]
+		self.assertEqual(len(owner_rows), 5)
+		for line in owner_rows:
+			self.assertIn("未実施" if "本人の見た目" in line else "承認済み", line)
+		for subject in ("実機性能結果", "独立シナリオ結果"):
+			self.assertTrue(any(subject in line and "未実施" in line for line in rows))
+
+	def test_downstream_requirements_are_reflected_without_claiming_design_or_measurement(self) -> None:
+		roadmap = self.read(DOCUMENTS[2])
+		section = roadmap.split("## Owner承認後の下流反映", 1)[1].split("## 現行文書", 1)[0]
+		rows = [line for line in section.splitlines() if line.startswith("| #")]
+		self.assertEqual(len(rows), 9)
+		for row in rows:
+			with self.subTest(targets=row.split("|")[1]):
+				self.assertIn("要求反映済み", row)
+				self.assertNotIn("反映待ち", row)
+		for remaining in ("spec/pending", "native dependency", "未確定", "未実施", "#57", "#109", "#110"):
+			self.assertIn(remaining, section)
 
 	def test_scope_preserves_web_and_excludes_optional_existing_issues(self) -> None:
 		requirements = self.read(DOCUMENTS[0])
@@ -105,4 +130,6 @@ class V1DocumentationTest(unittest.TestCase):
 	def test_current_guides_link_to_versioned_requirements_without_changing_web_contract(self) -> None:
 		for path in ("README.md", "docs/specification.md", "docs/user_guide.md", "docs/developer_guide.md", "docs/v1.0/development.md"):
 			with self.subTest(document=path):
-				self.assertIn("requirements/version_1/requirements.md", self.read(path))
+				document = self.read(path)
+				self.assertIn("requirements/version_1/requirements.md", document)
+				self.assertNotRegex(document, r"Owner確認待ち|Ownerの対応環境・性能値・受入手順の確認は未実施")
