@@ -38,6 +38,9 @@ jobs:
           docker build -f tests/ai_gate/Dockerfile -t ai-gate-test:ci .
           docker run --rm --cpus=2 -v "$PWD:/workspace:ro" ai-gate-test:ci
 
+      - name: v1.0・現行Web文書整合テスト (Python 3.14コンテナ内)
+        run: docker run --rm --cpus=2 --memory=512m -v "$PWD:/workspace:ro" -w /workspace ai-gate-test:ci python -B -m unittest src.tests.test_v1_documentation src.tests.test_web_documentation -v
+
       - name: フロントエンド検証 (コンテナ内)
         run: docker build --target frontend-test --tag frontend-test:ci .
 

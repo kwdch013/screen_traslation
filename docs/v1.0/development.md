@@ -186,3 +186,14 @@ docker run --rm --cpus=2 -v "$PWD:/workspace:ro" ai-gate-test
 標準ライブラリだけで動く専用Python 3.14コンテナを使います。ホスト側のGit設定・tokenを渡さず、テストが作る一時リポジトリでWork Unitとhookを検証します。CIの既存 `test` ジョブも同じコンテナを実行します。アプリコンテナにはGitやゲートを追加しません。
 
 Work Unitとmarkerは同一credential内の論理的証跡です。悪意ある偽装を分離する認証基盤ではなく、必要なら将来Reviewer専用App/tokenを設けます。
+
+## v1.0 要件の参照と文書テスト
+
+要求の正本は[要件草案](../../requirements/version_1/requirements.md)、検証条件は[受入計画](acceptance.md)、全要件ID→Phase/Taskは[ロードマップ](../../plan/version_1/roadmap.md)です。Ownerの対応環境・性能値・受入手順の確認は未実施で、後続Issueへの確定値反映は承認後に行います。#66/#67/#118はREQ-NF-010に対応します。Web版の起動方法は現行ガイドを参照します。
+
+文書をマウントしたPython 3.14コンテナで既存と次版の文書テストを実行します。標準ライブラリだけを使い、OCR/翻訳モデルは実行しません。通常アプリイメージには文書を含めないため、マウントなしでskipした結果を文書検証成功と扱いません。
+
+```bash
+docker build -f tests/ai_gate/Dockerfile -t screen-v1-doc-test .
+docker run --rm --cpus=2 --memory=512m -v "$PWD:/workspace:ro" -w /workspace screen-v1-doc-test python -B -m unittest src.tests.test_v1_documentation src.tests.test_web_documentation -v
+```
