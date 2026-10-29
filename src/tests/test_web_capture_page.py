@@ -6,7 +6,9 @@ import unittest
 
 from starlette.requests import Request
 from starlette.responses import FileResponse
-from starlette.routing import Match
+from starlette.routing import Match, Route
+from starlette.types import Scope
+from typing import cast
 
 from app.web_capture import WebCaptureServer
 
@@ -27,13 +29,18 @@ class WebCapturePageTest(unittest.IsolatedAsyncioTestCase):
             encoding="utf-8",
         )
         (self.dist / "assets" / "app-abc123.js").write_text(
-            'navigator.mediaDevices.getDisplayMedia({video: true});',
+            "navigator.mediaDevices.getDisplayMedia({video: true});",
             encoding="utf-8",
         )
         (self.dist / "favicon.svg").write_text("<svg></svg>", encoding="utf-8")
         self.server = WebCaptureServer(frontend_dist=self.dist)
-        self.frontend_route = next(
-            route for route in self.server.app.routes if getattr(route, "name", None) == "frontend"
+        self.frontend_route = cast(
+            Route,
+            next(
+                route
+                for route in self.server.app.routes
+                if getattr(route, "name", None) == "frontend"
+            ),
         )
 
     async def test_root_serves_built_react_index_without_session_token(self) -> None:
@@ -51,7 +58,9 @@ class WebCapturePageTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsInstance(response, FileResponse)
         self.assertEqual(Path(response.path), self.dist / "assets" / "app-abc123.js")
-        self.assertIn("getDisplayMedia", Path(response.path).read_text(encoding="utf-8"))
+        self.assertIn(
+            "getDisplayMedia", Path(response.path).read_text(encoding="utf-8")
+        )
 
     async def test_dist_root_file_is_served(self) -> None:
         response = await self.frontend_route.endpoint(_request("/favicon.svg"))
@@ -65,7 +74,9 @@ class WebCapturePageTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 404)
 
     async def test_parent_directory_traversal_returns_404(self) -> None:
-        response = await self.frontend_route.endpoint(_request("/../outside/secret.txt"))
+        response = await self.frontend_route.endpoint(
+            _request("/../outside/secret.txt")
+        )
 
         self.assertEqual(response.status_code, 404)
 
@@ -102,10 +113,13 @@ class WebCapturePageTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_build_returns_clear_error(self) -> None:
         missing_server = WebCaptureServer(frontend_dist=self.dist / "missing")
-        route = next(
-            candidate
-            for candidate in missing_server.app.routes
-            if getattr(candidate, "name", None) == "frontend"
+        route = cast(
+            Route,
+            next(
+                candidate
+                for candidate in missing_server.app.routes
+                if getattr(candidate, "name", None) == "frontend"
+            ),
         )
 
         response = await route.endpoint(_request("/"))
@@ -119,7 +133,7 @@ def _request(path: str, raw_path: bytes | None = None) -> Request:
     return Request(_scope(path, raw_path))
 
 
-def _scope(path: str, raw_path: bytes | None = None) -> dict[str, object]:
+def _scope(path: str, raw_path: bytes | None = None) -> Scope:
     return {
         "type": "http",
         "asgi": {"version": "3.0"},

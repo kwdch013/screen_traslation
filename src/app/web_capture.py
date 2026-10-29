@@ -13,6 +13,7 @@ from .contracts import Frame
 from .web_capture_api import create_capture_app
 from .web_capture_protocol import create_header_timeout_protocol
 from .web_capture_security import (
+    CROP_REVISION_HEADER as CROP_REVISION_HEADER,
     MAX_FRAME_BYTES as MAX_FRAME_BYTES,
     MAX_IMAGE_DIMENSION as MAX_IMAGE_DIMENSION,
     MAX_IMAGE_PIXELS as MAX_IMAGE_PIXELS,
@@ -32,6 +33,7 @@ SERVER_FORCE_STOP_TIMEOUT_SECONDS = 1.0
 __all__ = [
     "DEFAULT_HOST",
     "DEFAULT_PORT",
+    "CROP_REVISION_HEADER",
     "MAX_FRAME_BYTES",
     "MAX_IMAGE_DIMENSION",
     "MAX_IMAGE_PIXELS",
@@ -52,13 +54,14 @@ class WebCaptureFrameStore:
         self._frame: Frame | None = None
         self._next_frame_id = 1
 
-    def update(self, image: object) -> None:
+    def update(self, image: object, crop_revision: str | None = None) -> None:
         with self._lock:
             self._frame = Frame(
                 image=image,
                 captured_at=monotonic(),
                 region=None,
                 frame_id=self._next_frame_id,
+                crop_revision=crop_revision,
             )
             self._next_frame_id += 1
 
@@ -99,7 +102,9 @@ class WebCaptureServer:
         frontend_dist: Path = DEFAULT_FRONTEND_DIST,
     ) -> None:
         if host != DEFAULT_HOST:
-            raise ValueError(f"WebCaptureServerは{DEFAULT_HOST}でのみ待ち受けできます: {host}")
+            raise ValueError(
+                f"WebCaptureServerは{DEFAULT_HOST}でのみ待ち受けできます: {host}"
+            )
         if read_timeout_seconds <= 0:
             raise ValueError("読み取りタイムアウトは0より大きい値を指定してください")
         self._host = host
@@ -149,19 +154,26 @@ class WebCaptureServer:
             self.store.clear()
             return self._session_token
 
-    def accept_frame(self, token: str, image: object) -> bool:
+    def accept_frame(
+        self,
+        token: str,
+        image: object,
+        crop_revision: str | None = None,
+    ) -> bool:
         """現行トークンのフレームだけをロック下で保存する。"""
         with self._session_lock:
             if not token or not secrets.compare_digest(token, self._session_token):
                 return False
-            self.store.update(image)
+            self.store.update(image, crop_revision=crop_revision)
             callback = self._frame_accepted_callback
         # サービスロックとの順序逆転を避けるため、セッションロックの外で通知する。
         if callback is not None:
             callback(token)
         return True
 
-    def set_frame_accepted_callback(self, callback: Callable[[str], None] | None) -> None:
+    def set_frame_accepted_callback(
+        self, callback: Callable[[str], None] | None
+    ) -> None:
         with self._session_lock:
             self._frame_accepted_callback = callback
 
@@ -170,7 +182,9 @@ class WebCaptureServer:
             if self._is_running_unlocked():
                 return
             if self._thread is not None and self._thread.is_alive():
-                raise RuntimeError("前回のローカルサーバースレッドが終了していないため再起動できません")
+                raise RuntimeError(
+                    "前回のローカルサーバースレッドが終了していないため再起動できません"
+                )
             config = self._uvicorn_config()
             server = uvicorn.Server(config)
             thread = threading.Thread(
@@ -192,7 +206,9 @@ class WebCaptureServer:
                 server.should_exit = True
                 thread.join(timeout=SERVER_START_STOP_TIMEOUT_SECONDS)
                 if thread.is_alive():
-                    raise RuntimeError("起動に失敗したローカルサーバースレッドを停止できません")
+                    raise RuntimeError(
+                        "起動に失敗したローカルサーバースレッドを停止できません"
+                    )
                 self._uvicorn_server = None
                 self._thread = None
                 detail = f": {error}" if error is not None else ""
@@ -230,7 +246,8 @@ class WebCaptureServer:
             http=create_header_timeout_protocol(self._read_timeout_seconds),
             log_level="warning",
             access_log=False,
-            timeout_keep_alive=self._read_timeout_seconds,
+            # uvicornは実行時に秒数のfloatを扱えるが、型注釈だけがintに限定されている。
+            timeout_keep_alive=self._read_timeout_seconds,  # type: ignore[arg-type]
             timeout_graceful_shutdown=2,
             # 状態をメモリ内で一元管理するため、複数ワーカーでは起動しない。
             workers=1,

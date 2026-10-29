@@ -4,7 +4,13 @@ from collections.abc import Callable
 
 from .capture import BlankCaptureSource
 from .config import PipelineConfig
-from .contracts import CaptureSource, OcrEngine, OverlayRenderer, ResultPublisher, Translator
+from .contracts import (
+    CaptureSource,
+    OcrEngine,
+    OverlayRenderer,
+    ResultPublisher,
+    Translator,
+)
 from .glossary import Glossary
 from .ocr import FallbackOcrEngine, LlmOcrEngine, StaticOcrEngine, TesseractOcrEngine
 from .overlay import ConsoleOverlayRenderer, InMemoryOverlayRenderer
@@ -14,7 +20,9 @@ from .translator import ArgosTranslator, GlossaryAwareTranslator, PassthroughTra
 from .web_capture import WebCaptureFrameStore, WebCaptureSource
 
 
-def build_capture_source(config: PipelineConfig, web_capture_store: WebCaptureFrameStore | None = None) -> CaptureSource:
+def build_capture_source(
+    config: PipelineConfig, web_capture_store: WebCaptureFrameStore | None = None
+) -> CaptureSource:
     if config.capture_backend == "blank":
         return BlankCaptureSource(config.target_region)
     if config.capture_backend == "web":
@@ -28,7 +36,9 @@ def build_capture_source(config: PipelineConfig, web_capture_store: WebCaptureFr
     raise ValueError(f"未対応のcapture_backendです: {config.capture_backend}")
 
 
-def build_ocr_engine(config: PipelineConfig, static_text: str | None = None) -> OcrEngine:
+def build_ocr_engine(
+    config: PipelineConfig, static_text: str | None = None
+) -> OcrEngine:
     if static_text is not None:
         from .ocr import text_to_region
 
@@ -61,10 +71,13 @@ def build_ocr_engine(config: PipelineConfig, static_text: str | None = None) -> 
 
 
 def build_translator(config: PipelineConfig, glossary: Glossary) -> Translator:
+    base_translator: Translator
     if config.translator_backend == "passthrough":
         base_translator = PassthroughTranslator()
     elif config.translator_backend == "argos":
-        base_translator = ArgosTranslator(config.source_language, config.target_language)
+        base_translator = ArgosTranslator(
+            config.source_language, config.target_language
+        )
     else:
         raise ValueError(f"未対応のtranslator_backendです: {config.translator_backend}")
     return GlossaryAwareTranslator(base_translator, glossary)

@@ -15,7 +15,7 @@ from app.web_capture import WebCaptureServer
 
 class FakeRunner:
     def __init__(self, on_error: Callable[[Exception], None]) -> None:
-        self.on_error = on_error
+        self.on_error: Callable[[Exception], None] | None = on_error
         self.running = False
 
     @property
@@ -28,7 +28,7 @@ class FakeRunner:
     def stop(self) -> None:
         self.running = False
 
-    def set_on_error(self, on_error: Callable[[Exception], None]) -> None:
+    def set_on_error(self, on_error: Callable[[Exception], None] | None) -> None:
         self.on_error = on_error
 
 
@@ -50,7 +50,9 @@ class WebControlApiTest(unittest.TestCase):
         )
         self.client = TestClient(self.server.app)
 
-    def _headers(self, *, host: str = "127.0.0.1:8765", origin: str = "http://127.0.0.1:8765"):
+    def _headers(
+        self, *, host: str = "127.0.0.1:8765", origin: str = "http://127.0.0.1:8765"
+    ):
         return {"Host": host, "Origin": origin}
 
     def test_control_lifecycle_and_stale_frame_rejection(self) -> None:
@@ -131,7 +133,9 @@ class WebControlApiTest(unittest.TestCase):
 
     def test_stale_session_stop_does_not_stop_reselected_session(self) -> None:
         first = self.client.post("/api/control/start", headers=self._headers()).json()
-        second = self.client.post("/api/control/reselect", headers=self._headers()).json()
+        second = self.client.post(
+            "/api/control/reselect", headers=self._headers()
+        ).json()
 
         stale_stop = self.client.post(
             "/api/control/stop",
