@@ -13,6 +13,7 @@ from .contracts import Frame
 from .web_capture_api import create_capture_app
 from .web_capture_protocol import create_header_timeout_protocol
 from .web_capture_security import (
+    CROP_REVISION_HEADER as CROP_REVISION_HEADER,
     MAX_FRAME_BYTES as MAX_FRAME_BYTES,
     MAX_IMAGE_DIMENSION as MAX_IMAGE_DIMENSION,
     MAX_IMAGE_PIXELS as MAX_IMAGE_PIXELS,
@@ -32,6 +33,7 @@ SERVER_FORCE_STOP_TIMEOUT_SECONDS = 1.0
 __all__ = [
     "DEFAULT_HOST",
     "DEFAULT_PORT",
+    "CROP_REVISION_HEADER",
     "MAX_FRAME_BYTES",
     "MAX_IMAGE_DIMENSION",
     "MAX_IMAGE_PIXELS",
@@ -52,13 +54,14 @@ class WebCaptureFrameStore:
         self._frame: Frame | None = None
         self._next_frame_id = 1
 
-    def update(self, image: object) -> None:
+    def update(self, image: object, crop_revision: str | None = None) -> None:
         with self._lock:
             self._frame = Frame(
                 image=image,
                 captured_at=monotonic(),
                 region=None,
                 frame_id=self._next_frame_id,
+                crop_revision=crop_revision,
             )
             self._next_frame_id += 1
 
@@ -151,12 +154,17 @@ class WebCaptureServer:
             self.store.clear()
             return self._session_token
 
-    def accept_frame(self, token: str, image: object) -> bool:
+    def accept_frame(
+        self,
+        token: str,
+        image: object,
+        crop_revision: str | None = None,
+    ) -> bool:
         """現行トークンのフレームだけをロック下で保存する。"""
         with self._session_lock:
             if not token or not secrets.compare_digest(token, self._session_token):
                 return False
-            self.store.update(image)
+            self.store.update(image, crop_revision=crop_revision)
             callback = self._frame_accepted_callback
         # サービスロックとの順序逆転を避けるため、セッションロックの外で通知する。
         if callback is not None:

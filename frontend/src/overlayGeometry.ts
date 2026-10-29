@@ -50,6 +50,17 @@ export function mapRegionToPreview(
 	}
 }
 
+export function offsetRegion<T extends RegionRect>(
+	region: T,
+	offset: Pick<RegionRect, 'x' | 'y'>,
+): T {
+	return {
+		...region,
+		x: region.x + offset.x,
+		y: region.y + offset.y,
+	}
+}
+
 function isPositiveFinite(value: number): boolean {
 	return Number.isFinite(value) && value > 0
 }
