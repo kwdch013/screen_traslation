@@ -177,72 +177,68 @@ docker compose run --rm app
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml` は PR、および `dev`・`main` への push で次を実行します。
+`.github/workflows/ci.yml` は PR、および `develop`・`main` への push で次を実行します。
 
 1. Python 3.14 を準備する。
 2. ホスト上でフロントエンド構成、文書整合、撤去済み構成のリポジトリ検査を行う。
 3. Docker の `frontend-test` ステージで oxlint、Vitest、TypeScript ビルドを行う。
 4. `ruff check src` を行う。
 5. 最終 Docker イメージをビルドし、リポジトリをマウントした同イメージ内で mypy 構成テストを行う。
-6. `mypy src` で型チェックを行う。
-7. `mypy --platform win32 src` で、本番実行環境 (Windows) 向けの型定義でも型チェックを行う。
-8. 全 Python テストを同じ最終 Docker イメージ内で行う。
+6. 開発統合先構成テストでCI・CodeQLのpush対象とDependabotの全更新先を確認する。
+7. `mypy src` で型チェックを行う。
+8. `mypy --platform win32 src` で、本番実行環境 (Windows) 向けの型定義でも型チェックを行う。
+9. 全 Python テストを同じ最終 Docker イメージ内で行う。
 
-ワークフローは `concurrency` と `cancel-in-progress: true` で古い実行を中止し、トップレベル権限を `contents: read` に限定します。`.github/workflows/codeql.yml` は PR、対象ブランチへの push、週次スケジュールで Python を解析します。`.github/dependabot.yml` は GitHub Actions、pip、npm、Docker の依存更新を週次で `dev` 宛てに作成します。
+ワークフローは `concurrency` と `cancel-in-progress: true` で古い実行を中止し、トップレベル権限を `contents: read` に限定します。`.github/workflows/codeql.yml` は PR、対象ブランチへの push、週次スケジュールで Python を解析します。`.github/dependabot.yml` は GitHub Actions、pip、npm、Docker の依存更新を週次で `develop` 宛てに作成します。
 
-## リリース (dev → main)
+## ブランチと統合先
 
-`main` はリリース済みの内容のみを反映する既定ブランチです。`.github/dependabot.yml` と CodeQL の週次 `schedule` は `main` 上の設定ファイルを参照するため、`main` へ反映するまで両方とも有効になりません。
+開発統合先は `develop`、リリース先と既定ブランチは `main` です。Owner承認によりリモートの旧 `dev` は `develop` へrename済みです。通常のTaskは `origin/develop`（Phase branchを使う場合はその最新状態）から `task/<Issue番号>-<slug>` または `fix/<Issue番号>-<slug>` を作り、同じ統合先へPRを出します。
 
-リポジトリ設定は通常 **squash マージのみ** を許可しています。`dev` から `main` へそのまま squash マージすると `main` が単一コミットになり、以後 `dev` と履歴が分岐して毎回のリリースでコンフリクトの温床になります。これを避けるため、リリース時のみ merge commit を一時的に許可し、履歴を保ったままマージします。
+| PR | 統合方式 |
+| --- | --- |
+| Task / fix → Phase または develop | squash |
+| Phase → develop | squash |
+| develop → main のリリース | merge commit |
 
-1. `dev` の CI (`test` ステータスチェック) が緑であることを確認する。
-2. `main` の Ruleset (`protect-dev-main`) が merge commit を許可しているか確認する。
+リポジトリ設定は squash と merge commit を有効、rebase merge とマージ後のブランチ自動削除を無効にする方針です。Rulesetはdevelop・Phaseをsquash限定、mainをmerge commit限定に分けます。共有ブランチへの直接push・force pushは行いません。
+
+[旧参照の移行・復旧とRulesetの段階導入](v1.0/development.md)に、現状と切替の実施条件を記録しています。このPRではリポジトリ設定やRuleset自体は変更せず、後続 #67 でAI Review Gateを導入・稼働確認してからrequired checkを追加します。
+
+## リリース (develop → main)
+
+`main` はリリース済みの内容を反映する既定ブランチです。Dependabotの設定とCodeQLの週次スケジュールはmainへの反映が必要です。AI Review Gateも既定ブランチ側の信頼済みworkflowとscriptを使うため、developだけへの導入では有効化が完了しません。
+
+1. リリース対象のTaskとPhaseの統合、結合試験、シナリオ試験、ユーザー受入を確認する。
+2. main向けRulesetの許可方式が `merge`、リポジトリ設定がsquash・merge commit有効であることを読み戻す。
+3. headをdevelop、baseをmainとするリリースPRを作成する。
 
    ```bash
-   gh api repos/kwdch013/screen_traslation/rulesets/<ID> --jq '.rules[] | select(.type=="pull_request") | .parameters.allowed_merge_methods'
+   gh pr create --base main --head develop --title "release: <バージョン>" --body-file <リリース本文ファイル>
    ```
 
-   `merge` が含まれていない場合、先に Ruleset を変更し、リリース後に元へ戻す (手順5に追加する)。
-
-3. `dev` を base、`main` を対象としたリリース PR を作成する (Ruleset により PR 必須)。
-
-   ```bash
-   gh pr create --base main --head dev --title "release: <内容の要約>" --body "<変更内容の要約>"
-   ```
-
-4. CI 通過を確認してから、マージ直前にリポジトリ設定で merge commit を一時許可し、**merge commit** でマージする (squash や rebase は使わない)。マージの成否にかかわらず、直後に設定を戻す (手順5)。
+4. IssueとPRをセットにした別エージェント・別worktreeの最新HEAD承認、CI `test`、AI Review Gateの通過を確認する。ゲート初回導入時の例外は[段階導入手順](v1.0/development.md#rulesetとrequired-checkの導入順)に従う。
+5. merge commitで統合する。developを保持するため `--delete-branch` を付けない。
 
    ```bash
-   gh repo edit --enable-merge-commit
    gh pr merge <PR番号> --merge
    ```
 
-5. リポジトリ設定を squash 限定へ戻す。マージが失敗した場合も必ず実行する。
+6. 共通祖先・差分と、Dependabot・CodeQL・AI Review Gateの実行を読み戻す。
 
-   ```bash
-   gh repo edit --enable-merge-commit=false
-   ```
-
-6. マージ後、GitHub の Insights → Dependency graph → Dependabot と Security → Code scanning で、週次スケジュール実行が有効になっていることを確認する。
-
-以後のリリースは `dev` と `main` の共通祖先からの差分のみが対象になるため、通常は手順 1〜6 の繰り返しで済みます。
-
-**注意:** merge commit の一時許可は CI 待ちの間ずっと有効にしておかない。PR 作成と CI 確認までは通常の (squash 限定の) 設定のまま進め、マージ直前にのみ許可する。
+merge commitを継続して使い、developのコミットをmainの祖先に保ちます。リリースのたびにmerge commit許可をオン・オフする運用には戻しません。
 
 ## Issue / PR 運用
 
-1. ユーザー要件を背景、要件、受け入れ条件、対象外を含む GitHub Issue にします。
-2. `dev` または `develop` からタスク専用ブランチを作ります。`main` から直接作りません。
-3. TDD で失敗するテストを先に追加し、Red を確認してから実装し、Green と回帰確認を行います。
-4. 作業内容を `tasks/` の Markdown に記録し、関連ドキュメントも更新します。
-5. prefix と日本語のメッセージでコミットし、`gh` コマンドで `dev` 宛ての詳細な PR を作成します。PR 本文には Issue を関連付けます。
-6. Issue（要件）と PR（変更）をセットでレビューし、指摘を検証して反映します。
-7. 承認後に squash merge します。
+1. 要件を背景、要件、受け入れ条件、対象外を含むIssueにし、native dependencyとExpected filesを確認する。
+2. 専用worktreeのWork Unitを取得し、Claim Commentと状態ラベルで着手を記録する。通常のBase / Merge targetはdevelopとし、mainからTaskブランチを切らない。
+3. TDDで失敗するテストを先に追加し、Redを確認してから実装し、Greenと回帰確認を行う。
+4. 作業を `tasks/` の日本語Markdownへ記録し、関連文書も更新する。
+5. prefixと日本語のメッセージでコミットし、develop（またはPhase）宛ての詳細なPRを作る。コミットには `AI-Work-Unit:`、PR本文の先頭には `<!-- ai-pr-work-unit: <UUID> -->`、本文には `Closes #<Issue番号>` を含める。
+6. 実装と別のエージェント・別worktreeへIssueとPRをセットで渡し、最新HEADの独立レビューを受ける。
+7. 承認CommentとAI Review Gateの通過後、Task / Phaseはsquash mergeする。squash本文にContributor全員の `AI-Work-Unit:` を残す。develop宛てではIssueの自動Closeに依存せず、merge確認後に閉じる。
 
-通常のタスク PR は上記のとおり `dev` 宛て・squash merge です。「リリース (dev → main)」節のリリース PR のみ例外として `main` 宛て・merge commit を使います。
-
-1タスクを1つの責任に保ち、別要件を同じ PR に混ぜません。
+1 Task = 1 Issue = 1 branch = 1 PRとし、別要件を同じPRへ混ぜません。Work Unit / hooks / AI Review Gateのリポジトリ導入は #67 が担当します。
 
 ## ドキュメント更新
 
