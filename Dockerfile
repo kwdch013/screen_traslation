@@ -34,6 +34,7 @@ RUN pip install --no-cache-dir torch==2.13.0+cpu --index-url https://download.py
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
 COPY mypy.ini ./
+COPY ruff.toml ./
 COPY src ./src
 COPY --from=frontend-build /frontend/dist ./frontend/dist
 
