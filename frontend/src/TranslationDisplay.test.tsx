@@ -158,7 +158,11 @@ describe('翻訳表示UI', () => {
 		previewWidth = 500
 		previewHeight = 500
 		fireEvent.resize(video)
-		expect(screen.getByTestId('translation-overlay')).toHaveStyle({ left: '75px', top: '151.5625px' })
+		const overlay = screen.getByTestId('translation-overlay')
+		expect(overlay).toHaveStyle({ left: '75px' })
+		// CSSOMの小数px丸めに備え、座標計算の値とcomputed styleを別々に検証する。
+		expect(overlay.style.top).toBe('151.5625px')
+		expect(Number.parseFloat(getComputedStyle(overlay).top)).toBeCloseTo(151.5625, 2)
 	})
 
 	it('videoの境界線を内寸へ含めて重畳レイヤーと座標変換の寸法基準を揃える', () => {
