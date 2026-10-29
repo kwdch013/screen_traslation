@@ -1,6 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import cast, Protocol
+
 from .errors import DependencyUnavailableError
+
+
+class ArgosPackageMetadata(Protocol):
+    from_code: str
+    to_code: str
+
+
+class ArgosPackage(ArgosPackageMetadata, Protocol):
+    def download(self) -> str: ...
 
 
 def install_argos_package(source_language: str = "en", target_language: str = "ja") -> str:
@@ -19,12 +31,16 @@ def install_argos_package(source_language: str = "en", target_language: str = "j
     )
     if selected_package is None:
         raise DependencyUnavailableError(f"{source_language}->{target_language} のArgosパッケージが見つかりません。")
-    package_path = selected_package.download()
+    package_path = cast(ArgosPackage, selected_package).download()
     package.install_from_path(package_path)
     return str(package_path)
 
 
-def find_argos_package(packages: list[object], source_language: str, target_language: str) -> object | None:
+def find_argos_package(
+    packages: Sequence[ArgosPackageMetadata],
+    source_language: str,
+    target_language: str,
+) -> ArgosPackageMetadata | None:
     for candidate in packages:
         if (
             getattr(candidate, "from_code", None) == source_language

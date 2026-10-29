@@ -154,6 +154,8 @@ class TranslationPipeline:
         self._last_frame_id: int | None = None
         self._fallback_frame_id = 0
         self._processing_generation: int | None = None
+        self._crop_revision_seen = False
+        self._last_crop_revision: str | None = None
 
     def invalidate_translation_cache(self) -> None:
         self._cache.clear()
@@ -167,6 +169,7 @@ class TranslationPipeline:
         glossary_revision = self._glossary_revision.current()
         self._prepare_generation(generation)
         frame = self._capture_source.capture()
+        self._prepare_crop_revision(frame.crop_revision)
         if frame.frame_id is not None and frame.frame_id == self._last_frame_id:
             return False
         recognized_regions = self._ocr_engine.recognize(frame)
@@ -233,6 +236,17 @@ class TranslationPipeline:
         self._last_frame_id = None
         self._fallback_frame_id = 0
 
+    def _prepare_crop_revision(self, crop_revision: str | None) -> None:
+        if not self._crop_revision_seen:
+            self._crop_revision_seen = True
+            self._last_crop_revision = crop_revision
+            return
+        if crop_revision == self._last_crop_revision:
+            return
+        self._last_crop_revision = crop_revision
+        self._stabilizer.clear()
+        self._last_overlay_texts.clear()
+
     def _publish_result(
         self,
         generation: int,
@@ -255,6 +269,7 @@ class TranslationPipeline:
                 frame_width=frame_width,
                 frame_height=frame_height,
                 regions=tuple(translations),
+                crop_revision=frame.crop_revision,
             )
         )
 

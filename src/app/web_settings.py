@@ -5,8 +5,10 @@ from dataclasses import replace
 import math
 from pathlib import Path
 import threading
+from typing import Any
 
-from .config import OverlayStyle, PipelineConfig, save_config
+from .config import OverlayStyle, PipelineConfig, update_config_file
+from .file_lock import DEFAULT_FILE_LOCK_TIMEOUT_SECONDS
 from .glossary import Glossary, GlossaryTerm
 
 PUBLIC_CONFIG_FIELDS = frozenset(
@@ -67,12 +69,14 @@ class WebSettings:
         glossary_path: Path,
         *,
         invalidate_translation_cache: Callable[[], None],
+        file_lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
     ) -> None:
         self._config = config
         self._glossary = glossary
         self._config_path = config_path
         self._glossary_path = glossary_path
         self._invalidate_translation_cache = invalidate_translation_cache
+        self._file_lock_timeout_seconds = file_lock_timeout_seconds
         self._lock = threading.RLock()
 
     def config_snapshot(self) -> PipelineConfig:
@@ -111,9 +115,16 @@ class WebSettings:
             raise ValueError(f"公開されていない設定項目は変更できません: {names}")
         _validate_public_changes(changes)
         with self._lock:
-            updated = _updated_config(self._config, changes)
-            _validate_config_consistency(updated)
-            save_config(updated, self._config_path)
+            def apply_changes(current: PipelineConfig) -> PipelineConfig:
+                updated_config = _updated_config(current, changes)
+                _validate_config_consistency(updated_config)
+                return updated_config
+
+            updated = update_config_file(
+                self._config_path,
+                apply_changes,
+                lock_timeout_seconds=self._file_lock_timeout_seconds,
+            )
             self._config = updated
             public_config = self.public_config()
         return {**public_config, "applied": "next_start"}
@@ -122,22 +133,36 @@ class WebSettings:
         return [_term_as_dict(term) for term in self._glossary.terms]
 
     def register_glossary_term(self, source: str, target: str) -> dict[str, str]:
-        term = self._glossary.register_and_save(source, target, self._glossary_path)
+        term = self._glossary.register_and_save(
+            source,
+            target,
+            self._glossary_path,
+            lock_timeout_seconds=self._file_lock_timeout_seconds,
+        )
         self._invalidate_translation_cache()
         return _term_as_dict(term)
 
     def delete_glossary_term(self, source: str) -> None:
-        self._glossary.delete_and_save(source, self._glossary_path)
+        self._glossary.delete_and_save(
+            source,
+            self._glossary_path,
+            lock_timeout_seconds=self._file_lock_timeout_seconds,
+        )
         self._invalidate_translation_cache()
 
 
-def _updated_config(config: PipelineConfig, changes: Mapping[str, object]) -> PipelineConfig:
-    values = dict(changes)
+def _updated_config(
+    config: PipelineConfig, changes: Mapping[str, object]
+) -> PipelineConfig:
+    # 公開項目と値の型は直前の検証で保証されているため、replaceへ渡す局所辞書のみ動的型とする。
+    values: dict[str, Any] = dict(changes)
     if "priority_order" in values:
         priority_order = values["priority_order"]
         values["priority_order"] = tuple(priority_order)
     if "overlay_style" in values:
-        values["overlay_style"] = _updated_overlay_style(config.overlay_style, values["overlay_style"])
+        values["overlay_style"] = _updated_overlay_style(
+            config.overlay_style, values["overlay_style"]
+        )
     try:
         return replace(config, **values)
     except (TypeError, ValueError) as error:
@@ -159,7 +184,9 @@ def _updated_overlay_style(style: OverlayStyle, changes: object) -> OverlayStyle
 
 def _validate_config_consistency(config: PipelineConfig) -> None:
     if config.ocr_backend in {"llm", "tesseract_llm_fallback"} and not config.llm_model:
-        raise ValueError(f"{config.ocr_backend}には空でないllm_modelを指定してください。")
+        raise ValueError(
+            f"{config.ocr_backend}には空でないllm_modelを指定してください。"
+        )
 
 
 def _validate_public_changes(changes: Mapping[str, object]) -> None:

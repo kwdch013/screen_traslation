@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Protocol
+
+from .contracts import Translator
 from .errors import DependencyUnavailableError
 from .glossary import Glossary
 
@@ -12,7 +15,7 @@ class PassthroughTranslator:
 
 
 class GlossaryAwareTranslator:
-    def __init__(self, base_translator: object, glossary: Glossary) -> None:
+    def __init__(self, base_translator: Translator, glossary: Glossary) -> None:
         self._base_translator = base_translator
         self._glossary = glossary
 
@@ -28,13 +31,13 @@ class ArgosTranslator:
     def __init__(self, source_language: str = "en", target_language: str = "ja") -> None:
         self._source_language = source_language
         self._target_language = target_language
-        self._translator = None
+        self._translator: Translator | None = None
 
     def translate(self, text: str) -> str:
         translator = self._load_translator()
         return translator.translate(text)
 
-    def _load_translator(self):
+    def _load_translator(self) -> Translator:
         if self._translator is not None:
             return self._translator
         try:
@@ -53,7 +56,13 @@ class ArgosTranslator:
         return self._translator
 
 
-def _find_language(languages: list[object], code: str):
+class _ArgosLanguage(Protocol):
+    code: str
+
+    def get_translation(self, target: _ArgosLanguage) -> Translator: ...
+
+
+def _find_language(languages: list[_ArgosLanguage], code: str) -> _ArgosLanguage | None:
     for language in languages:
         if getattr(language, "code", None) == code:
             return language
