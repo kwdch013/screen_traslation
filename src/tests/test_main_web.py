@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -10,6 +11,7 @@ import unittest
 from unittest import mock
 
 import app.main as main_module
+from app.config import PipelineConfig, load_config
 from app.glossary import Glossary
 from app.main import main
 
@@ -241,6 +243,8 @@ class MainCliCompatibilityTest(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertTrue(config_path.is_file())
             self.assertTrue(glossary_path.is_file())
+            self.assertEqual(load_config(config_path), PipelineConfig())
+            self.assertEqual(Glossary.load(glossary_path).terms, [])
 
     def test_add_term_remains_available(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -265,6 +269,71 @@ class MainCliCompatibilityTest(unittest.TestCase):
 
             self.assertEqual(result, 0)
             self.assertEqual(Glossary.load(glossary_path).translate_exact("New Game"), "ニューゲーム")
+
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "app.main",
+                    "--add-term",
+                    "New Game",
+                    "新規ゲーム",
+                    "--config",
+                    str(config_path),
+                    "--glossary",
+                    str(glossary_path),
+                ],
+            ):
+                result = main()
+
+            self.assertEqual(result, 0)
+            self.assertEqual(
+                Glossary.load(glossary_path).translate_exact("New Game"),
+                "新規ゲーム",
+            )
+
+    def test_read_only_cli_paths_do_not_overwrite_existing_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config" / "app.json"
+            glossary_path = root / "config" / "glossary.json"
+            config_path.parent.mkdir(parents=True)
+            config_content = json.dumps(
+                {
+                    "ocr_fps": 2.0,
+                    "translation_log_path": str(root / "translation.jsonl"),
+                },
+                ensure_ascii=False,
+            )
+            glossary_content = json.dumps(
+                [{"source": "Old", "target": "旧"}], ensure_ascii=False
+            )
+
+            for extra_arguments in (["--text", "Old"], ["--run-once", "--text", "Old"]):
+                with self.subTest(arguments=extra_arguments):
+                    config_path.write_text(config_content, encoding="utf-8")
+                    glossary_path.write_text(glossary_content, encoding="utf-8")
+                    with mock.patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "app.main",
+                            *extra_arguments,
+                            "--config",
+                            str(config_path),
+                            "--glossary",
+                            str(glossary_path),
+                        ],
+                    ), redirect_stdout(StringIO()):
+                        result = main()
+
+                    self.assertEqual(result, 0)
+                    self.assertEqual(
+                        config_path.read_text(encoding="utf-8"), config_content
+                    )
+                    self.assertEqual(
+                        glossary_path.read_text(encoding="utf-8"), glossary_content
+                    )
 
 
 class MainReadinessTest(unittest.TestCase):

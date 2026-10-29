@@ -23,6 +23,7 @@ type EventAction =
 	| { type: 'state'; generation: number }
 	| { type: 'result'; result: TranslationResult }
 	| { type: 'expire'; generation: number; frameId: number }
+	| { type: 'clearCurrentResult' }
 	| { type: 'clearForSessionChange' }
 
 const initialState: EventState = {
@@ -48,6 +49,11 @@ export function useTranslationEvents() {
 	const clearForSessionChange = useCallback(() => {
 		clearTtl()
 		dispatch({ type: 'clearForSessionChange' })
+	}, [clearTtl])
+
+	const clearCurrentResult = useCallback(() => {
+		clearTtl()
+		dispatch({ type: 'clearCurrentResult' })
 	}, [clearTtl])
 
 	useEffect(() => {
@@ -86,6 +92,7 @@ export function useTranslationEvents() {
 		connection: state.connection,
 		currentResult: state.currentResult,
 		history: state.history,
+		clearCurrentResult,
 		clearForSessionChange,
 	}
 }
@@ -96,6 +103,8 @@ function eventReducer(state: EventState, action: EventAction): EventState {
 			return { ...state, connection: 'connected' }
 		case 'disconnected':
 			return { ...state, connection: 'reconnecting' }
+		case 'clearCurrentResult':
+			return { ...state, currentResult: null }
 		case 'clearForSessionChange':
 			return {
 				...state,

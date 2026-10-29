@@ -5,7 +5,7 @@ from typing import cast
 
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
-# uvicorn 0.35以上0.52未満の非公開H11Protocol APIに依存する。
+# uvicorn 0.52.1以上0.53未満の非公開H11Protocol APIに依存する。
 # loop・scope・transportとon_response_complete()の挙動を前提とするため、
 # uvicorn更新時はこのファイルの互換性検査と実サーバーテストをガードとして確認する。
 
