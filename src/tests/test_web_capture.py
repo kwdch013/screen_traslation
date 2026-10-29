@@ -40,6 +40,13 @@ class WebCaptureFrameStoreTest(unittest.TestCase):
         self.assertEqual(frame.frame_id, 1)
         self.assertTrue(store.has_frame())
 
+    def test_update_stores_crop_revision_without_interpreting_it(self) -> None:
+        store = WebCaptureFrameStore()
+
+        store.update(Image.new("RGB", (4, 4)), crop_revision="crop-7")
+
+        self.assertEqual(store.latest().crop_revision, "crop-7")
+
     def test_frame_id_increases_across_clear(self) -> None:
         store = WebCaptureFrameStore()
         store.update(Image.new("RGB", (2, 2), color="red"))
@@ -59,6 +66,20 @@ class WebCaptureFrameStoreTest(unittest.TestCase):
         store.clear()
 
         self.assertFalse(store.has_frame())
+
+
+class WebCaptureServerFrameAcceptanceTest(unittest.TestCase):
+    def test_accept_frame_passes_crop_revision_to_store(self) -> None:
+        server = WebCaptureServer()
+
+        accepted = server.accept_frame(
+            server.session_token,
+            Image.new("RGB", (4, 4)),
+            "crop-8",
+        )
+
+        self.assertTrue(accepted)
+        self.assertEqual(server.store.latest().crop_revision, "crop-8")
 
 
 class WebCaptureSourceTest(unittest.TestCase):

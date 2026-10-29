@@ -10,6 +10,7 @@ from typing import Any, overload, TYPE_CHECKING
 from .contracts import Frame, OcrEngine, Rect, TextRegion
 from .errors import DependencyUnavailableError
 from .llm_client import OpenAICompatibleClient
+from .llm_ocr_response import image_pixel_size, parse_llm_ocr_regions
 
 if TYPE_CHECKING:
     from PIL.Image import Image
@@ -133,14 +134,24 @@ class LlmOcrEngine:
         text = self._client.complete_image(
             (
                 "You are an OCR engine. Transcribe only text that is visibly present in the image. "
-                "Return exact English text only. Preserve line breaks. Do not translate, summarize, correct, "
-                "add labels, add explanations, or infer missing text."
+                "Return a JSON array with one object per distinct text region. Each object must contain "
+                'exactly these fields: {"text": string, "x": number, "y": number, "width": number, '
+                '"height": number}. Coordinates must be image pixel coordinates with the top-left of the '
+                "provided image at (0, 0), and every rectangle must stay within the image. Preserve line "
+                "breaks inside text. Do not translate, summarize, correct, add labels, add explanations, "
+                "use Markdown fences, or infer missing text. Return [] when no English text is visible. "
+                "Return ONLY the JSON array and nothing else."
             ),
             frame.image,
-            "Transcribe the visible English text exactly as OCR output.",
+            "Return the visible English text regions and their bounding rectangles as the JSON array.",
         )
         if not text:
             return []
+        decoded, regions = parse_llm_ocr_regions(
+            text, image_pixel_size(frame.image)
+        )
+        if decoded:
+            return regions
         region = text_to_region(text)
         return [
             TextRegion(
