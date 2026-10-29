@@ -6,7 +6,7 @@
 - 実装担当: Codex。Base / Merge targetは `develop`、ブランチは `task/67-ai-review-gate`。
 - 専用worktreeは `tmp/worktrees/issue-67`。Work Unitは `caf90bac-6bd5-4ed0-9e35-77371802f871`。
 - [Claim記録](https://github.com/kwdch013/screen_traslation/issues/67#issuecomment-6498949349)で依存解消・Expected files競合なしを確認した。担当worktreeをdetachedで用意してWork Unitを取得し、Claim race獲得後にorigin/developから作業ブランチを作成した。
-- ユーザー指定の完了範囲は、日本語commit/pushとdevelop向けPR作成まで。独立レビュー・mergeは実施しない。
+- 当初の依頼は日本語commit/pushとdevelop向けPR作成まで。PR #117の[high]指摘1に対する今回の追加依頼は、Task分割・文書整合・commit/push・ラベル更新まで。独立レビュー依頼・mergeは行わない。
 
 ## 変更内容と判断
 
@@ -15,7 +15,7 @@
 - ゲートは最新判断Comment・完全なHEAD SHA・Contributor除外・Issue状態・blockを検証する。未承認、自己承認、古いHEAD、不正marker、重複レビュー状態、Draft/Closedは拒否する。
 - default branchのscriptだけを権限付きworkflowで実行する。scriptが無い導入期間は評価を見送り、承認成功statusは出さない。workflowからRulesetのrequired checksを設定しない。
 - Python 3.14・標準ライブラリだけの専用テストコンテナを用意し、既存CIの `test` ジョブへ追加した。アプリ実行環境にGitやゲートの依存は追加しない。
-- AGENTS.mdとCLAUDE.mdの参照で両エージェントへ共通ルールを適用し、開発ガイドとIssue対応表へ操作・段階導入・復旧・未実施項目を記録した。
+- AGENTS.mdとCLAUDE.mdの参照で両エージェントへ共通ルールを適用し、開発ガイドとIssue対応表へ操作・段階導入・復旧・後続Task #118の担当範囲を記録した。
 
 ## TDD・検証結果
 
@@ -47,9 +47,19 @@
 | 条件 | 状態 |
 | --- | --- |
 | Work Unit・Claim・承認marker・HEADの正常/拒否 | 61件のコンテナテスト成功 |
-| GitHubで未承認統合を阻止し、正しい承認/CIで統合可能 | **未完了**。mainにscript/workflowが無いことをAPIで確認。main反映・実稼働・検証PR確認後にrequired化する |
-| 仕様・開発/利用文書・要件ID対応 | 開発基盤の仕様を開発文書とAGENTS.mdへ反映し、#67対応表更新。アプリ要件IDは #55/#57 で未確定のため捏造しない |
-| 別agent・別worktreeの最新HEAD独立レビュー・AI Review Gate通過 | **未実施**。ユーザー指定によりPR作成で終了 |
+| workflowの信頼境界・未導入時の動作 | default branchのみ実行、script未反映時に成功statusを発行しない、Rulesetを自動変更しないことをコンテナテストで確認 |
+| 仕様・開発/利用文書・要件ID対応 | 開発基盤の仕様を開発文書とAGENTS.mdへ反映し、#67 / #118の対応表・段階導入・復旧手順を更新。アプリ要件IDは #55/#57 で未確定のため捏造しない |
+| 別agent・別worktreeの最新HEAD独立レビュー・ゲートのローカルCLI検証 | 初回レビューは変更要求。今回のHEADは再承認待ち。独立レビュー依頼はユーザー指定の対象外 |
 | developへのsquash merge | **未実施**。ユーザー指定の対象外 |
 
 GitHub Rulesetは読み取りのみ。既存 `protect-dev-main` は旧dev/main対象・required `test` のままで、今回の実装で保護済みとは扱わない。リポジトリ設定・main・既存PRは変更しない。初回のmain反映に既存履歴の証跡不足による例外が必要なら、別途Owner確認を得る。特定マシンの接続情報は成果物へ含めない。
+
+## PR #117の[high]指摘1への対応（2026-10-29）
+
+- [最新変更要求](https://github.com/kwdch013/screen_traslation/pull/117#issuecomment-6499293115)を確認。信頼済みコードのdefault branch反映前にはGitHub上での統合制御を実証できず、元の#67受け入れ条件とClosesリンクが整合していなかった。
+- Ownerの指示どおり、[新Task #118](https://github.com/kwdch013/screen_traslation/issues/118)（R1-P3-T2b）を起票し、level/task・issue/block・Milestone v1.0・wave/3を設定。Phase #65のnative Sub-issueとし、native blocked-by #67を登録した。起票のみで未Claim。
+- #67の受け入れ条件をコード・workflow・ローカル正常/拒否テスト・文書の導入へ整合。default branch反映→検証PRで未承認/自己承認/古いHEADの拒否と独立承認の受理→実在contextのrequired化→CIを含む統合可否の再検証・証跡記録は#118へ移した。
+- #54・#55・#68の既存依存は#67のまま維持。#118はPhase #65の必須Taskとして追跡し、#118とPhase結合テストが完了するまで#65を閉じない。mainへの基盤導入リリースはProject完了時の最終リリースと区別する。
+- PR本文のCloses #67は導入範囲に整合するため維持し、#118を完了リンクへ含めない。GitHub上の強制を実証済みとは扱わない。
+- 今回のリポジトリ差分は本文書とdocs/v1.0/development.mdのみ。コード・workflowの挙動変更がないためテスト追加は行わず、既存コンテナテストと差分・Issue/PR・native関係のread-backで整合を検証する。
+- 指摘対応後の確認: Python 3.14コンテナで基盤テスト61件、構成/文書5モジュール24件が成功。`git diff --check`成功。native親子・依存とIssue #65/#67/#118・PR本文をread-backし、本文一致・Open状態・既存依存の維持を確認済み。
