@@ -203,7 +203,7 @@ docker compose run --rm app
 
 リポジトリ設定は squash と merge commit を有効、rebase merge とマージ後のブランチ自動削除を無効にする方針です。Rulesetはdevelop・Phaseをsquash限定、mainをmerge commit限定に分けます。共有ブランチへの直接push・force pushは行いません。
 
-[旧参照の移行・復旧とRulesetの段階導入](v1.0/development.md)に、現状と切替の実施条件を記録しています。このPRではリポジトリ設定やRuleset自体は変更せず、後続 #67 でAI Review Gateを導入・稼働確認してからrequired checkを追加します。
+[旧参照の移行・復旧とRulesetの段階導入](v1.0/development.md)に、現状と切替の実施条件を記録しています。#67でゲートのscripts・hooks・workflowを導入します。今回もPR作成までで、リポジトリ設定やRuleset自体は変更せず、main反映と稼働確認後にrequired checkを追加します。
 
 ## リリース (develop → main)
 
@@ -238,7 +238,7 @@ merge commitを継続して使い、developのコミットをmainの祖先に保
 6. 実装と別のエージェント・別worktreeへIssueとPRをセットで渡し、最新HEADの独立レビューを受ける。
 7. 承認CommentとAI Review Gateの通過後、Task / Phaseはsquash mergeする。squash本文にContributor全員の `AI-Work-Unit:` を残す。develop宛てではIssueの自動Closeに依存せず、merge確認後に閉じる。
 
-1 Task = 1 Issue = 1 branch = 1 PRとし、別要件を同じPRへ混ぜません。Work Unit / hooks / AI Review Gateのリポジトリ導入は #67 が担当します。
+1 Task = 1 Issue = 1 branch = 1 PRとし、別要件を同じPRへ混ぜません。Work Unit / Claim / hooks / AI Review Gateは #67 の基盤です。[操作・検証コマンド](v1.0/development.md#work-unitclaim独立レビューの操作)を参照してください。
 
 ## ドキュメント更新
 
