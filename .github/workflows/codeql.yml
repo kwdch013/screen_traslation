@@ -3,7 +3,7 @@ name: CodeQL
 on:
   pull_request:
   push:
-    branches: [dev, main]
+    branches: [develop, main]
   schedule:
     - cron: "0 0 * * 1" # 毎週月曜。新規に公開された脆弱性を拾うため
 
