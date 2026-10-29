@@ -58,7 +58,7 @@ GitHubのrename動作は[公式のブランチ名変更手順](https://docs.gith
 
 ## Rulesetとrequired checkの導入順
 
-以下は #66 で確定した段階導入手順です。#67 はコード・workflow・ローカルテスト・文書の導入を担当し、GitHub上のRuleset・merge方式設定・既定ブランチは変更していません。有効化とGitHub上の統合拒否/受理の実証は、同じPhase #65の必須Task [#118](https://github.com/kwdch013/screen_traslation/issues/118) に分割しました。#118 は #67 の完了待ちで、default branchへの反映、検証PR、実在contextのrequired化、統合可否の再検証と証跡記録を担当します。#67 の完了だけで実証済みとは扱わず、#118 とPhase結合テストの完了までは #65 を閉じません。
+以下は #66 で確定した段階導入手順です。#67 はコード・workflow・ローカルテスト・文書の導入を担当し、GitHub上のRuleset・merge方式設定・既定ブランチは変更していません。有効化とGitHub上の統合拒否/受理の実証は、同じPhase #65の必須Task [#118](https://github.com/kwdch013/screen_traslation/issues/118) に分割しました。#67 は PR #117 でdevelopへ統合済みです。#118 はdefault branchへの反映、検証PR、実在contextのrequired化、統合可否の再検証と証跡記録を担当します。#67 の完了だけで実証済みとは扱わず、#118 とPhase結合テストの完了までは #65 を閉じません。
 
 1. 現在のRuleset JSON、リポジトリのmerge設定、branch SHA、open PR一覧をgit管理外の `tmp/` へ保存する。Ruleset名・対象・required contextを読み、既存の `test` 保護を保持する。
 2. rename後に残った旧 `refs/heads/dev` をdevelopへ切り替える。developとmainを別Rulesetへ分離し、PR必須・force push禁止・削除禁止を維持する。developはsquash限定、mainはmerge commit限定とする。Phaseを使う場合は `refs/heads/phase/**` にsquash限定・PR必須・force push禁止を適用し、完了後削除できるよう削除禁止は付けない。
@@ -87,10 +87,10 @@ requiredにするcontextは、[公式のrequired status checkの条件](https://
 | #66 全TaskのBase / Merge target | GitHubのv1.0 Task本文、旧参照移行手順 | developへ確定。依存とClaimは別に管理 |
 | #66 Ruleset / required導入順 | Rulesetとrequired checkの導入順 | 手順確定。実設定の変更とGitHub実証は #118 |
 | #67 Work Unit・Claim・独立レビューゲート | `scripts/ai-work-unit.py`・`scripts/ai-claim.py`・`scripts/ai-review-gate.py`・hooks・workflow、`tests/ai_gate/` | 正常/拒否の61件とworkflow信頼境界をコンテナで検証。GitHub実証条件は #118 へ移管 |
-| #118 有効化・GitHub実証 | default branch反映、検証PR、実在contextのrequired化、統合可否の再検証・証跡 | #67完了待ち。Phase #65の必須Taskとして追跡 |
+| #118 有効化・GitHub実証 | default branch反映、検証PR、実在contextのrequired化、統合可否の再検証・証跡 | #67統合済み。承認前調査と計画を作成、有効化・GitHub実証は未実施。Phase #65の必須Task |
 | #55 要件定義 / #57 設計 | 要件ID対応表 | 未確定のアプリ要件IDは作らず、確定時にこの開発基盤Taskへ対応付ける |
 
-#67の完了には別agent・別worktreeの最新HEAD独立レビュー、ゲートのローカルCLI検証、developへのsquash mergeが必要です。PR #117の指摘対応後も再承認とmergeは別工程です。#54・#55・#68の依存先は #67 のまま維持し、#118完了までは独立レビューとローカルCLIで確認します。GitHub上の強制を実証済みとは扱いません。
+#67はPR #117の最新HEADへの独立承認・ローカルCLIのPASSを経て、2026-10-29にdevelopへsquash merge済みです。#54・#55・#68の依存先は #67 のまま維持し、#118完了までは独立レビューとローカルCLIで確認します。GitHub上の強制を実証済みとは扱いません。
 
 
 ## Work Unit・Claim・独立レビューの操作
@@ -186,3 +186,76 @@ docker run --rm --cpus=2 -v "$PWD:/workspace:ro" ai-gate-test
 標準ライブラリだけで動く専用Python 3.14コンテナを使います。ホスト側のGit設定・tokenを渡さず、テストが作る一時リポジトリでWork Unitとhookを検証します。CIの既存 `test` ジョブも同じコンテナを実行します。アプリコンテナにはGitやゲートを追加しません。
 
 Work Unitとmarkerは同一credential内の論理的証跡です。悪意ある偽装を分離する認証基盤ではなく、必要なら将来Reviewer専用App/tokenを設けます。
+
+
+## Issue #118の有効化調査と段階実行計画
+
+本節と [作業記録](../../tasks/2026-10-29_ai_review_gate_activation.md) は調査・段階実行の記録です。有効化やGitHub上の統合制御が成功した記録ではありません。2026-10-29のセッションでOwnerからdevelop → mainのリリースとRuleset変更の実行承認を受領しました。最新指示に従い、各段階の具体的な操作・対象・差分を実行前に報告し、今回は**段階A（リリースPR作成とレビュー依頼準備）だけ**で停止します。merge・repo設定変更・Ruleset変更・required化は今回実施しません。
+
+### 読み戻した現状
+
+| 対象 | 2026-10-29の確認結果 |
+| --- | --- |
+| #67の独立レビュー | PR #117のHEAD `f941e40b1b951c13df9118fa1e8deb8f2a238434` に独立承認とローカルCLIのPASS記録あり |
+| develop | `ee453ccbf7f8c67ae1425d68ac2fb2f40f9c5b32`。ゲートworkflow・scripts・hooksを導入済み |
+| default branch / main | `main` / `504a16dfc1cac6511f16938dec87256dc57f21f9`。ゲートworkflow・scriptsは未反映 |
+| Actions登録 / 発行済みstatus | AI Review Gateは未登録。調査時のdevelop HEADにゲートstatusなし |
+| 現行Ruleset | ID `19132355`、`protect-dev-main`、active。対象は旧dev/main。requiredはtestのみ、strict=true、conversation解決必須=false、bypass actorなし |
+| developの実効rules | API `rules/branches/develop` は空。旧devの保護がrename後のdevelopへ移っていない |
+| リポジトリmerge設定 | squash=true、merge commit=false、rebase=false、統合後のbranch自動削除=true |
+| testの成功履歴 | develop HEADで2026-10-29 14:36:17 UTCに成功。発行元GitHub Actions（App ID `15368`）。[実行結果](https://github.com/kwdch013/screen_traslation/actions/runs/40892765811/job/123513692430) |
+| mainへの導入範囲 | main固有1コミット、develop固有21コミット、3点比較で109ファイル。ゲート以外のアプリ・依存更新も含む。ローカルmerge-treeは競合なし。実行前に差分とSHAを再確認 |
+| trailerの欠落 | develop固有21コミットのうち7件。#66・#67のsquash commitも欠落している。履歴を書き換えず、初回導入の例外範囲としてOwner判断を求める |
+
+全JSON・取得日時・欠落commit一覧・設定変更案はgit管理外の `tmp/issue-118/` に保存します。token・接続情報を記録しません。保存済みSHAや設定が実行時と変わった場合は、差分を再報告してから進めます。
+
+### 後続の設定・反映計画（段階Aでは実行しない）
+
+| 段階 | 提案する操作 / 影響 | 実行前の条件 |
+| --- | --- | --- |
+| 設定1: merge設定 | squash=trueを保持し、merge commit=true、rebase=false、自動削除=falseへ変更。全PRのmerge方式と統合後のbranch保持に影響 | Ownerの実行承認は受領済み。後続段階でコマンド・差分を報告して実施。default branch名はmainを維持 |
+| 設定2: 基本保護 | `protect-develop` を新規作成し、実効保護を確認後、既存ID `19132355` を `protect-main` に更新。develop=squash・strict=false、main=merge・strict=true。削除禁止・force push禁止・PR必須・testを維持し、conversation解決必須=true、bypass actorなし。ゲートはまだrequiredにしない | Ownerの実行承認は受領済み。後続段階でコマンド・差分を報告して実施。旧保護を先に削除しない。Phase branchは現存せず、今回はPhase Rulesetを作成しない |
+| 反映: default branch反映 | develop → mainの基盤導入リリース。全差分を別agent・別worktreeでレビューし、CI・ローカルゲート結果・初回例外理由をPRに記録。ゲート以外の既存変更もmainへ入る | Ownerのリリース実行承認は受領済み。固定SHA・全差分・欠落7件の初回例外をリリースPRに明記し、独立レビューと必須CI確認後、後続段階で具体的なmerge操作を報告する。今回mergeしない |
+| required化 | 次の検証を実行後、develop/mainのrequiredをtestとAI Review Gateにする。strict・merge方式・conversation保護は設定2を保持。CodeQL analyzeは追加しない | 直近7日以内の両contextの成功と発行元、検証PRの実行URL・SHAを取得後、その実値とRuleset差分を再提示し、Ownerの明示承認を得る。現時点での包括承認として扱わない |
+
+初回例外は記録不足のある導入リリース1回に限定します。欠落分のWork Unitを推測して追記したり、成功statusを手動発行したり、検証PRのbypassへ流用したりしません。共有履歴の修正は提案しません。新しいTaskのsquash時には全Contributorのtrailerを最終本文に残す必要があります。
+
+### 段階A: 初回導入リリースPRとレビュー依頼準備
+
+[リリースPR #121](https://github.com/kwdch013/screen_traslation/pull/121) を `develop → main` で作成しました。統合方式はmerge commitと本文に明記しています。PR作成そのものは設定変更ではなく、現在無効のmerge commitを有効にする操作は後続段階です。
+
+- base: `504a16dfc1cac6511f16938dec87256dc57f21f9`、HEAD: `ee453ccbf7f8c67ae1425d68ac2fb2f40f9c5b32`。
+- develop固有21コミット、109ファイル（5,921追加・739削除）。#119・#120は未統合で含みません。
+- 欠落7件の完全SHA・理由をPR本文へ記載。#66・#67のsquashも含み、通常ゲートPASSとは扱いません。例外はこの固定HEADの初回リリース1回に限定し、履歴改変・Work Unit推測・手動successは行いません。
+- Issue #118とPR #121をセットにし、別agent・別worktreeのcodexに全109ファイルの最新HEAD独立レビューと必須CI `test` の確認を依頼します。過去の部分PR承認・develop CIで代用しません。HEAD/baseが変われば差分・レビュー・CIを再確認します。
+- v1.0全体の最終リリースではなく、Roadmap #53 / Phase #65の基盤先行導入です。未実施のシナリオ・ユーザー作成テスト・画面確認はリリーステンプレート上で未完了と明示します。
+- #118を途中で自動closeしないよう、#121は関連リンクとし、完了リンクはDraft PR #119に残します。#118はOpen・in-progressと有効Claimを保持。#119は6受入条件が揃うまでDraftを維持します。
+- 現行mainのrequiredは `test`。作成直後のGitHub統合状態はstrict=trueによる `BEHIND`。固定21コミットを保つため今回developへmainを取り込まず、CI後の状態を後続で再確認します。今回のPR CIの実行URL・HEAD・テストmerge SHAの対応はPR本文と作業記録に追記します。AI Review GateのGitHub有効化・5ケース・required化は全て未実施です。
+
+### 検証PR計画
+
+default branch反映を確認後、developから検証用branchとPRを作ります。文書・証跡を納品する本Task PRとは区別し、検証PRはmergeしません。専用の検証IssueをOpen・`issue/review-required`としてリンクし、#118本体を未完了のまま保持します。検証PRはDraftではない状態で評価し、未解決conversation・競合・無関係な失敗を除いて条件を揃えます。作成者と全commitのWork Unit・完全SHAを先に記録します。
+
+以下の5ケースをrequired化前・後にそれぞれ実行します。すべて現状は未実施です。否定ケースでも `pr/approved` など他の前提は揃え、目的の拒否理由をCLI出力とworkflowログで照合します。試験入力としての自己承認markerは検証PRだけに明記して投稿し、有効な承認として扱いません。
+
+| ケース | 操作と確認 | required化前の期待 | required化後の期待 |
+| --- | --- | --- | --- |
+| 未承認 | 判断Commentが無いHEADで実行 | gate failure、test success | 同じ結果でGitHubが統合不可 |
+| Contributor自身の承認 | 実Contributor IDを使った試験入力を最新判断にする | gate failure、test success | 同じ結果で統合不可 |
+| 古いHEAD | 実際の独立レビュー・承認後に有効trailer付きcommitをpush。新SHAに対し旧承認を保持し再評価 | 新HEADでgate failure、test success | 同じ結果で統合不可 |
+| CI失敗 | 検証branchだけに意図した失敗テストを追加し、実CIを失敗させる。別agent・別worktreeが試験目的と最新HEADを確認して独立承認 | gate success、test failure | 同じ結果で統合不可 |
+| 正常 | 失敗テストを削除した新commitをpushし、別agent・別worktreeで最新HEADを再レビュー・承認。conversationを解決 | gate success、test success | 両方successで統合可能。mergeはしない |
+
+CI失敗には `tests/ai_gate/` の検証専用unittestで明示的に失敗させる方法を使い、workflow・ゲートscriptや発行statusを改変しません。承認後pushのケースでは旧承認が実在すること、CI失敗ケースではゲート自体はsuccessであることまで照合します。独立承認はReviewer本人が投稿し、実装担当が代理投稿しません。
+
+### 証跡の取得と判定
+
+各ケースで確認日時（UTC）、検証Issue/PR URL、PR HEAD、テスト用merge commit SHA、workflow run/job URL、workflowがcheckoutしたmain SHA、context名・state/conclusion・発行元を保存します。PRイベントのCIはテスト用merge commitを対象にする場合があるため、PR HEADとの対応を残します。[GitHub公式のrequired check仕様](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)も参照してください。
+
+- check runは `commits/<sha>/check-runs`、commit statusは `commits/<sha>/status` と `statuses` で別々に取得する。requiredにする名称はworkflowのジョブ `gate` ではなく、実際に発行するcommit status `AI Review Gate` とCIの `test`。
+- GitHubのPR情報 `headRefOid`・`mergeable`・`mergeStateStatus`・`statusCheckRollup`・Draft状態、およびGraphQLのreviewThreadsで未解決conversationを読み戻す。計算途中のUNKNOWNや未終了runは判定保留とする。
+- `mergeable` 単独ではチェックによる禁止を判定しない。required化後は適用中のrules、全requiredの結果とGitHubの統合状態を突き合わせる。正常時にGitHubが統合可能と示す状態を取得するまで受理成功とは記録しない。
+- 未承認等でgateがfailureでもrequired化前はGitHubの統合拒否を保証できない。前後の結果を分け、Draft・CIの未実行・conversation残存を目的の拒否の証拠にしない。
+- Ruleset適用前後は一覧・各詳細・`rules/branches/develop`・`rules/branches/main` とrepo merge設定を再取得する。既存test保護を保持し、許可方式・strict値・conversation解決必須・bypass actorも照合する。
+
+取得後に #118・本文書・tasks/記録へ、ケースごとの実値とURLを追記します。未実施の欄をsuccessで埋めません。手順書PRのCI成功やローカル61件の成功だけで本Task・Phase #65を閉じません。
