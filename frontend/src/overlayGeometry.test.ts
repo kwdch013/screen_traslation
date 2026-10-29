@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { calculateContainTransform, mapRegionToPreview } from './overlayGeometry'
+import { calculateContainTransform, mapRegionToPreview, offsetRegion } from './overlayGeometry'
 
 describe('プレビュー座標変換', () => {
 	it('上下にletterboxがあるプレビューへ画像座標を変換する', () => {
@@ -35,5 +35,12 @@ describe('プレビュー座標変換', () => {
 	it('画像またはプレビューの寸法が不正なら変換不能を返す', () => {
 		expect(calculateContainTransform({ width: 0, height: 1080 }, { width: 1000, height: 800 })).toBeNull()
 		expect(calculateContainTransform({ width: 1920, height: 1080 }, { width: 0, height: 800 })).toBeNull()
+	})
+
+	it('クロップ画像基準の領域へ元動画の左上オフセットを加算する', () => {
+		expect(offsetRegion(
+			{ x: 12, y: 34, width: 200, height: 80 },
+			{ x: 320, y: 180 },
+		)).toEqual({ x: 332, y: 214, width: 200, height: 80 })
 	})
 })

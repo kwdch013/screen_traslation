@@ -26,6 +26,7 @@ class TranslationResultData(TypedDict):
     processed_at: float
     frame_width: int
     frame_height: int
+    crop_revision: str | None
     regions: list[TranslationRegionData]
 
 
@@ -55,6 +56,7 @@ class Frame:
     captured_at: float
     region: Rect | None = None
     frame_id: int | None = None
+    crop_revision: str | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,7 @@ class TranslationResult:
     frame_width: int
     frame_height: int
     regions: tuple[TranslationRegion, ...]
+    crop_revision: str | None = None
 
     def as_dict(self) -> TranslationResultData:
         return {
@@ -92,6 +95,7 @@ class TranslationResult:
             "processed_at": self.processed_at,
             "frame_width": self.frame_width,
             "frame_height": self.frame_height,
+            "crop_revision": self.crop_revision,
             "regions": [
                 {
                     "source": region.source,
