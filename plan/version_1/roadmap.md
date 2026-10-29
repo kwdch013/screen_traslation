@@ -10,7 +10,7 @@
 - Task/Phase→developはsquash、develop→mainはmerge commit。Claim/Work Unit/独立レビューの操作は[開発手順](../../docs/v1.0/development.md)を参照する。
 - #66の統合先移行と #67の基盤コードは導入済み。#118のdefault branch反映・GitHub強制の実証は別Taskで、#67のローカルテスト成功を代用しない。
 - #55の数値等のOwner確認→#56の候補/脅威→#58/#59/#60の実証→#57の設計/ADR確定→契約/雛形→機能→配布/実機→性能/本人受入→リリースの順とする。
-- 本TaskではOwner承認記録と下流反映・文書/テストを揃えてPR #120をDraft解除し、レビュー待ちにする。独立レビュー依頼・merge・Issue Closeは行わない。
+- #55の要求確定はPR #120でdevelopへ統合済み。#56は方式候補と脅威モデルを整理し、PoC/最終設計へ渡す。各Taskの独立レビュー・merge・CloseはGitHubの状態と証跡で別途確認する。
 
 ## Project → Roadmap → Phase → Task
 
@@ -93,3 +93,7 @@ Phaseは全Taskの独立レビュー済みPR統合と項目単位の結合試験
 現行[仕様](../../docs/specification.md)、[開発者向け説明](../../docs/developer_guide.md)、[利用手順](../../docs/user_guide.md)と[README](../../README.md)にOwner承認済みv1.0要求への入口を追加する。Web版のAPI・ループバック起動・表示方式は変更しない。v1.0の製品用操作文書は #105 が配布物と合わせて作成する。
 
 #26のPlaywright Web E2EはWeb回帰の改善でv1.0必須受入の代替ではない。#49のLLM座標評価は任意評価で、既定Tesseract/Argosの品質達成の根拠にしない。両Issueの状態・スコープを変更/Closeしない。
+
+## #56 の方式候補・脅威モデルへの対応
+
+全22要件の判断先は[ADR索引・要件ID対応表](../../docs/v1.0/design/adr/README.md)、脅威と検証先は[脅威モデル](../../docs/v1.0/design/security.md)を参照する。6件の提案ADRとQ-01～Q-12は候補/問いの整理であり、#58/#59/#60の実証、#57の採否・図・下流本文反映は未実施。合意済み要求の値は変更せず、native dependencyとspec/pendingを維持する。本対応表の追加は実装・受入やIssue #56のmerge完了を意味しない。
