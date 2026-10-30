@@ -1,3 +1,6 @@
 # 開発用ツール (CI と開発環境で共通のバージョンに固定する)
 mypy==1.18.2
 ruff==0.16.1
+jsonschema==4.26.0
+referencing==0.37.0
+types-jsonschema==4.26.0.20261006

@@ -26,6 +26,17 @@ HTTPS制御/設定APIと単一WSS、binary画像フレーム、翻訳結果、�
 - `git diff --check` — 成功。#63との相対リンクとsession/generation/frame/revision・座標語彙を契約テストで確認。
 - 最終変更後の再実行: `app:ci` mountなしunittest 297件成功 / 63件skip、mount付き文書回帰44件成功、両mypy 78 source files成功、ruff成功、OpenAPI lint成功。
 
+## PR #140 変更要求への対応
+
+- TDD Red: 独立validatorを使うようテストを書き換えて実行し、通常環境に`jsonschema`が無いため9件すべてが失敗することを確認。
+- binary message上限を8-byte header + 4,096-byte metadata + 4,194,304-byte画像payload = 4,198,408 bytesへ統一。上限ちょうどと+1 byteの境界fixtureを追加し、fixture・README・OpenAPI・API設計の値をテスト。
+- `jsonschema`のDraft 2020-12 validatorとFormatChecker、`referencing`のローカルRegistryで全schemaの`check_schema`と全正常fixtureの検証を行う。UUIDの不正値、寸法超過、未知fieldが拒否されるネガティブテストを追加。
+- `requirements-dev.txt`へ検証依存を固定。Dockerfileは既に開発依存をインストールし、CIはこのDockerfileを利用。契約文書が無い通常イメージはvalidator import前にskipし、文書mount時は検証をskipしない。
+- CIへapp:ciでのmount付きschema検証stepを追加。`tests/ai_gate/Dockerfile`はschema testを実行しない標準ライブラリ専用テストのため追加依存は不要。
+- 最終検証: 指定Docker build成功、mountなし全体回帰300件成功/66件skip、mount付き契約schema 10件成功/skipなし、mypy Linux/Windows各78 source files成功、ruff成功。
+- 依存無しのPython 3.14 imageで契約文書をmountしない場合、schema test 10件がimport errorなしでskipすることを確認。
+- mount付き全src/tests実行では、修正前のschema例外参照エラーに加え、frontend/distがmountから見えないことによるWeb testの503と並列file-lock timeoutが発生。PR本文では該当回帰を文書・schemaテストのCI対象範囲として記載する。
+
 ## Issue/PR
 
 - Base / Merge target: `develop`

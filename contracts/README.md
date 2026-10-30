@@ -8,7 +8,7 @@ WindowsクライアントとLinuxサーバーが共有する通信・データ�
 - 制御・設定APIはHTTPS、画像/状態/翻訳結果は`wss://<設定済み接続先>/api/v1/stream`の単一双方向接続を使います。SSEや画像用HTTP endpointは設けません。
 - TLS確立後、`Authorization: Bearer <token>`で認証します。端末tokenと管理tokenは別の資格情報です。管理tokenだけが設定/辞書のPUTと端末資格情報の発行/失効を行えます。tokenをURL、ログ、エラー応答へ含めません。
 - WSS Upgradeの前に端末tokenを検証します。Upgrade後も各messageで資格情報の失効とsession所有権を照合します。WebSocket subprotocolは`screen-translation.v1`です。
-- HTTP JSON要求本文は最大1 MiB、共通エラー応答は最大4 KiB。WSS画像の上限は画像payload自体に適用し、下記binary messageのmetadata/header分を含むmessage全体は4,198,404 bytes以下です。
+- HTTP JSON要求本文は最大1 MiB、共通エラー応答は最大4 KiB。WSS binary message全体の上限は、8-byte header + 最大4,096-byte metadata + 最大4,194,304-byte画像payload = **4,198,408 bytes**です。
 
 ### 権限
 

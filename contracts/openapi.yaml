@@ -303,7 +303,7 @@ paths:
           imageFormats: [image/png, image/jpeg]
           maximumImageBytes: 4194304
           maximumMetadataBytes: 4096
-          maximumMessageBytes: 4198404
+          maximumMessageBytes: 4198408
         textMessage:
           schema: ./schemas/stream-message.schema.json
           direction: server-to-client

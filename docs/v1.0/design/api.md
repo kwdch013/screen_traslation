@@ -53,7 +53,7 @@ sequenceDiagram
 | HTTP error body | 4 KiB以下、`error.schema.json`の4 fieldのみ |
 | WSS | 1本の双方向接続。subprotocol `screen-translation.v1`、Upgrade前に認証 |
 | WSS state/result text | state 4 KiB以下、result 1 MiB以下 |
-| WSS image binary | 1 message、画像payload 4 MiB以下。headerを含むmessage 4,198,404 bytes以下 |
+| WSS image binary | 1 message、画像payload 4 MiB以下。8-byte header + 4,096-byte metadata + 4 MiB画像payloadの合計で、message 4,198,408 bytes以下 |
 | Retry | 認証・権限・形式・競合は自動再試行しない。503 `MODEL_NOT_READY`のみready再確認後に明示操作で再試行 |
 
 認証失敗は401、role/所有者不一致は403。資格情報失効は新規HTTPS要求に即時適用し、既存WSSも最大1秒で送受信を拒否します。資格情報と画像・原文・訳文を永続ログ/応答へ記録しません。
