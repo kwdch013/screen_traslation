@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 import unittest
 
 from app.dpi_coordinates import (
@@ -10,6 +12,66 @@ from app.dpi_coordinates import (
 
 
 class DpiCoordinateTests(unittest.TestCase):
+	def test_geometry_contract_fixtures_match_coordinate_model(self):
+		fixture_path = (
+			Path(__file__).parents[2]
+			/ "contracts"
+			/ "fixtures"
+			/ "geometry"
+			/ "coordinate-cases.json"
+		)
+		fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+		self.assertEqual(fixture["schema_version"], 1)
+		self.assertEqual(
+			fixture["rounding"],
+			"nearest_integer_ties_away_from_zero",
+		)
+		self.assertGreaterEqual(len(fixture["conversions"]), 8)
+		self.assertGreaterEqual(len(fixture["roi_cases"]), 4)
+		self.assertEqual(
+			len({case["id"] for case in fixture["conversions"]}),
+			len(fixture["conversions"]),
+		)
+
+		for case in fixture["conversions"]:
+			with self.subTest(case=case["id"]):
+				self.assertIn(
+					case["operation"],
+					{
+						"physical_to_image",
+						"physical_to_logical",
+						"logical_to_physical",
+					},
+				)
+				self.assertEqual(len(case["input_point"]), 2)
+				self.assertEqual(len(case["expected_point"]), 2)
+				point = Point(*case["input_point"])
+				if case["operation"] == "physical_to_image":
+					actual = physical_to_image(point, Rect(*case["roi"]))
+				elif case["operation"] == "physical_to_logical":
+					origin = Point(*case["monitor_origin_physical"])
+					actual = physical_to_logical(point, origin, case["dpi"])
+				else:
+					origin = Point(*case["monitor_origin_physical"])
+					actual = logical_to_physical(point, origin, case["dpi"])
+				self.assertEqual(
+					[actual.x, actual.y],
+					case["expected_point"],
+				)
+
+		for case in fixture["roi_cases"]:
+			with self.subTest(case=case["id"]):
+				roi = case["roi"]
+				monitor = case["monitor"]
+				self.assertEqual(len(roi), 4)
+				self.assertEqual(len(monitor), 4)
+				self.assertIsInstance(case["allowed"], bool)
+				contained = (
+					monitor[0] <= roi[0] < roi[2] <= monitor[2]
+					and monitor[1] <= roi[1] < roi[3] <= monitor[3]
+				)
+				self.assertEqual(contained, case["allowed"])
+
 	def test_one_and_quarter_scale_rounds_positive_and_negative_half_pixels_away_from_zero(self):
 		origin = Point(0, 0)
 		self.assertEqual(

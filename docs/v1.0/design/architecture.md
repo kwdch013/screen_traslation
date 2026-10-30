@@ -149,11 +149,11 @@ JSONエラー共通形式は`code`、利用者向け`message`、`correlation_id`
 
 ### Session state machine
 
-`Idle → Owned → Streaming → Stopping → Idle`。startは原子的で、Owned/Streaming中の別clientは409。Streaming中の停止、token revoke、heartbeat timeout、server shutdownは直ちにgenerationを無効化し、新結果配信を拒否する。heartbeat timeout時は5秒以内に検知し、検知から10秒以内にownerをfreeにする。明示停止ではownerを即時freeにする。
+サーバー所有状態は `Idle → Owned → Streaming → Stopping → Idle`。client表示状態とframe/generation/revisionの採否、辞書更新中の扱いは [`contracts/session-state.md`](../../../contracts/session-state.md) を正本とする。startは原子的で、Owned/Streaming中の別clientは409。Streaming中の停止、token revoke、heartbeat timeout、server shutdownは直ちにgenerationを無効化し、新結果配信を拒否する。heartbeat timeout時は5秒以内に検知し、検知から10秒以内にownerをfreeにする。明示停止ではownerを即時freeにする。
 
 ### Client result acceptance
 
-結果描画条件は全て満たすこと: `session_id == current_session_id`、`generation == current_generation`、`frame_id > last_applied_frame_id`、`dictionary_revision == current_revision`、`now_monotonic - captured_monotonic <= 5秒`、状態がStreaming。いずれか不一致なら現在表示を置き換えない。stop/reselect/target-loss/disconnect時はgeneration更新・表示消去を一連で行う。時計値はclientプロセス間/サーバーと比較しない。
+座標変換と跨モニターROI方針は [`contracts/coordinates.md`](../../../contracts/coordinates.md)、結果採否とsession/generation/revision状態は [`contracts/session-state.md`](../../../contracts/session-state.md) を正本とする。stop/reselect/target-loss/disconnect時はgeneration無効化・表示消去を一連で行う。取得時刻はclient単調時計だけで測り、clientプロセス間/サーバーと比較しない。Windows実測での誤差2 physical px以下は #136 の受入条件である。
 
 ## セキュリティ、運用、復旧
 
@@ -200,7 +200,7 @@ draw.io CLIでXMLを開き、同じ原本からSVGを出力した。出力SVGを
 | --- | --- |
 | #61 | 全22要件IDを下記対応表に結び、`contracts/`のfixture・互換性を#62～#64で扱う。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #62 | HTTPS制御/設定 + 1本のWSS。binaryフレームにsession/generation/frame/revision、幅/高さ/content_typeを含め、同一メッセージ内にPNG/JPEG bytes。HTTPは4 MiB画像境界、ROI64×32～1920×1080・2,073,600画素、+1/偽装拒否。詳細schema/field長/error fixtureを契約正本にする。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
-| #63 | 画像座標は物理ROI左上を原点、矩形は半開区間。DPI contextごとに変換し、負座標を保持。session/generation/frame/revision/取得時単調時刻を照合。未確定の跨モニターROI許可/交差規則は本Taskで断定せず、契約Task内で確定。Windows誤差2px以下は#136で実測。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #63 | 画像座標は物理ROI左上原点・半開区間。モニター別DPI contextで変換し負座標を保持。ROIは一つのモニターへ完全包含のみ許可し、境界跨ぎ/隙間/画面外は開始前に拒否。session/generation/frame/revision・client内取得単調時刻を照合し、旧・逆順・期限切れ結果を破棄。JSON geometry fixtureをPython算術モデルで検証。Windows誤差2px以下は#136で実測。設計参照: `docs/v1.0/design/architecture.md`、[`contracts/coordinates.md`](../../../contracts/coordinates.md)、[`contracts/session-state.md`](../../../contracts/session-state.md) |
 | #64 | HTTP/WSS双方で同じsession所有権/roleを検証。frameとresultの相関、旧世代/逆順/revision不一致拒否。request/response fieldとstatus/close codeをfixture化。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #68 | .NET10 LTSの2026-10-30基準SDK 10.0.402とruntime 10.0.14、stable-only、global.json固定。client/server/contractsを同一repo内で分離し、Web版は受入前に保持。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #69 | Python3.14 CPU Torchを明示したlock、Linux client-independent server、既存Web試験と新契約試験の別jobを維持する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
@@ -244,25 +244,25 @@ draw.io CLIでXMLを開き、同じ原本からSVGを出力した。出力SVGを
 | 要件ID | 基本設計要素 | 詳細設計/検証参照 |
 | --- | --- | --- |
 | REQ-F-001 | CMP-001/CMP-002 | SCR-001、FLW-001、API-003、ACC-01/03 |
-| REQ-F-002 | CMP-002 | LYR-003、API-007、#63、TST-007、ACC-06 |
+| REQ-F-002 | CMP-002 | LYR-003、API-007、[#63](../../../contracts/coordinates.md)、TST-007、ACC-06 |
 | REQ-F-003 | CMP-004/CMP-006 | FLW-002、API-007、DAT-002、ADR-0001/0005、ACC-01/11 |
 | REQ-F-004 | CMP-007 | FLW-002、DAT-008、ADR-0006、ACC-01/10 |
 | REQ-F-005 | CMP-002/CMP-003 | SCR-001、TST-008、ADR-0002、ACC-07 |
-| REQ-F-006 | CMP-003/CMP-006 | FLW-003、Session state machine、ACC-02/03 |
+| REQ-F-006 | CMP-003/CMP-006 | FLW-003、[session-state.md](../../../contracts/session-state.md)、ACC-02/03 |
 | REQ-F-007 | CMP-003 | DAT-004、SCR-001、ACC-02/12 |
-| REQ-F-008 | CMP-008 | FLW-004、API-005/006、DAT-005/006、ACC-09 |
+| REQ-F-008 | CMP-008 | FLW-004、API-005/006、DAT-005/006、[revision採否契約](../../../contracts/session-state.md)、ACC-09 |
 | REQ-F-009 | CMP-001/CMP-004 | SCR-001、FLW-003、API-002/007、ACC-04/05 |
-| REQ-F-010 | CMP-005/CMP-006 | FLW-001/003、DAT-001、TST-003/010、ACC-08 |
+| REQ-F-010 | CMP-005/CMP-006 | FLW-001/003、DAT-001、[session-state.md](../../../contracts/session-state.md)、TST-003/010、ACC-08 |
 | REQ-F-011 | CMP-009 | API-002、model ready、TST-011、ACC-10 |
 | REQ-F-012 | CMP-008/CMP-009 | deployment/restore, DAT-005～008、ACC-14 |
-| REQ-NF-001 | CMP-005/CMP-006 | FLW-002、TST-004/005、ADR-0005、ACC-11 |
+| REQ-NF-001 | CMP-005/CMP-006 | FLW-002、[frame/result採否契約](../../../contracts/session-state.md)、TST-004/005、ADR-0005、ACC-11 |
 | REQ-NF-002 | CMP-007/CMP-009 | model ready/FLW-002、#109、ACC-10/13 |
 | REQ-NF-003 | CMP-007/CMP-008 | FLW-004、#109、ACC-09/13 |
-| REQ-NF-004 | CMP-003/CMP-006 | FLW-003/result acceptance、TST-006、ACC-02/04 |
+| REQ-NF-004 | CMP-003/CMP-006 | FLW-003/[result acceptance](../../../contracts/session-state.md)、TST-006、ACC-02/04 |
 | REQ-NF-005 | CMP-006/CMP-009 | resource/timeout limits、#109、ACC-11/13 |
 | REQ-NF-006 | CMP-005 | TLS/token/role checks、TST-001/002/010、ACC-05 |
 | REQ-NF-007 | CMP-003/CMP-005/CMP-008 | DAT-003/004/007、logs/backups、TST-012、ACC-12 |
-| REQ-NF-008 | CMP-001/CMP-002/CMP-003 | SCR-001～003、LYR-003、TST-007/008、ACC-06/07/15 |
+| REQ-NF-008 | CMP-001/CMP-002/CMP-003 | SCR-001～003、LYR-003、[座標契約](../../../contracts/coordinates.md)、TST-007/008、ACC-06/07/15 |
 | REQ-NF-009 | CMP-004/CMP-005 | external settings and fail-closed behavior, TST-001, ACC-05/14 |
 | REQ-NF-010 | CMP-001～009 | old/new isolation, docs/independent review/acceptance, ACC-14/15 |
 
