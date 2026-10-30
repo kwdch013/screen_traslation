@@ -234,6 +234,8 @@ class V1DesignDecisionTest(unittest.TestCase):
 class CaptureExclusionResearchTest(unittest.TestCase):
 	def setUp(self) -> None:
 		self.root = Path(__file__).resolve().parents[2]
+		if not (self.root / "README.md").is_file():
+			self.skipTest("文書を含むリポジトリをマウントして実行してください")
 		self.document = self.root / "docs/v1.0/research/capture-exclusion.md"
 
 	def test_research_cites_official_api_docs_and_states_constraints(self) -> None:
