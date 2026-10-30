@@ -21,7 +21,9 @@ Owner承認済みのv1.0要件と#56/#58/#59/#60の調査を反映し、方式�
 - draw.io CLI: `xvfb-run -a drawio --export --format svg --size diagram ...`。2図のSVG/PNG出力とPNG表示を確認済み。
 - Windows実機、製品性能/品質、契約schemaは未検証。#135/#136相当Taskと#62～#109に引き継ぐ。
 
-## 未完了
+## 完了結果
 
-- commit/push/PR作成はこの作業の後工程。
-- レビュー・mergeは依頼どおり実施しない。
+- commit: `4782a8c` (`docs: #57の基本・詳細設計と図を確定する`)
+- PR: [#137](https://github.com/kwdch013/screen_traslation/pull/137) (`develop`向け)。後続の作業記録更新を含む。
+- Issue #57 / PR #137をレビュー待ち状態へ更新済み。
+- レビュー・mergeは依頼どおり未実施。
