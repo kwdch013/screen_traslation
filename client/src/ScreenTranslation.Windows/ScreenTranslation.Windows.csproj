@@ -8,6 +8,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
     <ProjectReference Include="..\ScreenTranslation.Core\ScreenTranslation.Core.csproj" />
+    <ProjectReference Include="..\ScreenTranslation.Client\ScreenTranslation.Client.csproj" />
   </ItemGroup>
 </Project>
