@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 import os
 import ssl
+import time
+from uuid import uuid4
 from datetime import UTC, datetime, timedelta
 from typing import Callable
 
@@ -32,6 +36,12 @@ from screen_translation_server.security.auth import (
 	create_server_tls_context_from_environment,
 )
 from screen_translation_server.security.rate_limit import AuthAttemptLimiter, AttemptLimitError
+from screen_translation_server.sessions import (
+	SessionConflict,
+	SessionForbidden,
+	SessionManager,
+	SessionNotFound,
+)
 
 
 _AUTH_FAILURE = {"detail": "Authentication failed"}
@@ -44,13 +54,25 @@ def create_app(
 	policy: SecurityPolicy | None = None,
 	limiter: AuthAttemptLimiter | None = None,
 	engine: Callable[..., object] | None = None,
+	is_ready: bool = False,
+	sessions: SessionManager | None = None,
 ) -> Starlette:
 	"""テスト可能なASGIアプリを作る。環境設定に転送元ヘッダーを信頼させない。"""
-	app = Starlette(routes=[])
+	session_manager = sessions or SessionManager(clock=time.monotonic, sleep=asyncio.sleep)
+	@asynccontextmanager
+	async def lifespan(_app: Starlette):
+		try:
+			yield
+		finally:
+			await session_manager.close()
+
+	app = Starlette(routes=[], lifespan=lifespan)
 	app.state.credentials = credentials or _credentials_from_environment()
 	app.state.policy = policy or SecurityPolicy.from_environment()
 	app.state.limiter = limiter or AuthAttemptLimiter()
 	app.state.engine = engine
+	app.state.ready = is_ready
+	app.state.sessions = session_manager
 	app.state.http_body_timeout = float(os.environ.get("SCREEN_TRANSLATION_HTTP_BODY_TIMEOUT_SECONDS", "10"))
 
 	async def authenticated(request: Request, roles: frozenset[Role]) -> Credential | Response:
@@ -85,7 +107,7 @@ def create_app(
 		result = await authenticated(request, frozenset({Role.DEVICE, Role.ADMIN}))
 		if isinstance(result, Response):
 			return result
-		return JSONResponse({"ready": False}, status_code=503)
+		return JSONResponse({"ready": app.state.ready}, status_code=200 if app.state.ready else 503)
 
 	async def admin_status(request: Request) -> Response:
 		result = await authenticated(request, frozenset({Role.ADMIN}))
@@ -116,6 +138,59 @@ def create_app(
 			return JSONResponse({"detail": "Request rejected"}, status_code=413)
 		return JSONResponse(_UNIMPLEMENTED, status_code=501)
 
+	async def start_session(request: Request) -> Response:
+		result = await authenticated(request, frozenset({Role.DEVICE}))
+		if isinstance(result, Response):
+			return result
+		try:
+			content_length = request.headers.get("content-length")
+			if content_length is not None:
+				declared = int(content_length)
+				if declared < 0 or declared > HTTP_JSON_MAX_BYTES:
+					return JSONResponse({"detail": "Request rejected"}, status_code=413)
+			body = await read_limited_body(
+				request.stream(),
+				maximum=HTTP_JSON_MAX_BYTES,
+				timeout_seconds=app.state.http_body_timeout,
+			)
+		except (InputLimitError, ValueError):
+			return JSONResponse({"detail": "Request rejected"}, status_code=413)
+		if body.strip() not in (b"", b"{}"):
+			if request.headers.get("content-type") != "application/json":
+				return JSONResponse(_UNIMPLEMENTED, status_code=501)
+			return _session_error("INVALID_REQUEST", "開始要求の形式が不正です。", 422)
+		if not app.state.ready:
+			return _session_error("MODEL_NOT_READY", "サーバーの準備が完了していません。", 503, retryable=True)
+		try:
+			session = await app.state.sessions.start(result.credential_id)
+		except SessionConflict:
+			return _session_error("SESSION_IN_USE", "別の端末がセッションを使用中です。", 409, retryable=True)
+		return JSONResponse({
+			"session_id": session.session_id,
+			"generation": session.generation,
+			"dictionary_revision": session.dictionary_revision,
+		}, status_code=201)
+
+	async def stop_session(request: Request) -> Response:
+		result = await authenticated(request, frozenset({Role.DEVICE}))
+		if isinstance(result, Response):
+			return result
+		try:
+			await read_limited_body(
+				request.stream(),
+				maximum=HTTP_JSON_MAX_BYTES,
+				timeout_seconds=app.state.http_body_timeout,
+			)
+		except InputLimitError:
+			return JSONResponse({"detail": "Request rejected"}, status_code=413)
+		try:
+			await app.state.sessions.stop(request.path_params["session_id"], result.credential_id)
+		except SessionForbidden:
+			return _session_error("FORBIDDEN", "セッションを操作する権限がありません。", 403)
+		except SessionNotFound:
+			return _session_error("NOT_FOUND", "セッションが見つかりません。", 404)
+		return Response(status_code=204)
+
 	async def stream(websocket: WebSocket) -> None:
 		remote = _source_address(websocket.scope.get("client"))
 		try:
@@ -124,7 +199,7 @@ def create_app(
 			await _deny_websocket(websocket, 429, retry_after=error.retry_after)
 			return
 		try:
-			authenticate_request(
+			credential = authenticate_request(
 				app.state.credentials,
 				app.state.policy,
 				is_secure=websocket.url.scheme == "wss",
@@ -151,7 +226,7 @@ def create_app(
 				await websocket.close(code=1008)
 				return
 			try:
-				validate_authenticated_binary_message(
+				frame = validate_authenticated_binary_message(
 					data,
 					app.state.credentials,
 					app.state.policy,
@@ -163,6 +238,11 @@ def create_app(
 			except (AuthenticationError, InputLimitError):
 				await websocket.close(code=1008)
 				return
+			try:
+				await app.state.sessions.heartbeat(frame.metadata["session_id"], credential.credential_id)
+			except (SessionConflict, SessionForbidden, SessionNotFound):
+				await websocket.close(code=1008)
+				return
 			await websocket.send_json(_UNIMPLEMENTED)
 			await websocket.close(code=1011)
 		except WebSocketDisconnect:
@@ -172,8 +252,8 @@ def create_app(
 		Route("/api/v1/health", health, methods=["GET"]),
 		Route("/api/v1/ready", ready, methods=["GET"]),
 		Route("/api/v1/admin/status", admin_status, methods=["GET"]),
-		Route("/api/v1/sessions", control_stub, methods=["POST"]),
-		Route("/api/v1/sessions/{session_id}", control_stub, methods=["DELETE"]),
+		Route("/api/v1/sessions", start_session, methods=["POST"]),
+		Route("/api/v1/sessions/{session_id}", stop_session, methods=["DELETE"]),
 		Route("/api/v1/settings", control_stub, methods=["GET", "PUT"]),
 		Route("/api/v1/glossary", control_stub, methods=["GET", "PUT"]),
 		WebSocketRoute("/api/v1/stream", stream),
@@ -214,6 +294,15 @@ async def _deny_websocket(websocket: WebSocket, status: int, *, retry_after: int
 
 def _limited_response(retry_after: int) -> JSONResponse:
 	return JSONResponse(_AUTH_FAILURE, status_code=429, headers={"Retry-After": str(retry_after)})
+
+
+def _session_error(code: str, message: str, status_code: int, *, retryable: bool = False) -> JSONResponse:
+	return JSONResponse({
+		"code": code,
+		"message": message,
+		"correlation_id": str(uuid4()),
+		"retryable": retryable,
+	}, status_code=status_code)
 
 
 def _source_address(client: object) -> str:
