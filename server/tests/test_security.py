@@ -11,6 +11,7 @@ from screen_translation_server.security.auth import (
 	CredentialStore,
 	Role,
 	SecurityPolicy,
+	authenticate_api_request,
 	create_server_tls_context,
 	create_server_tls_context_from_environment,
 	generate_token,
@@ -94,6 +95,30 @@ class SecurityTests(unittest.TestCase):
 				host="server.example",
 				origin=None,
 				authorization="Bearer secret",
+			)
+
+	def test_api_authentication_composes_tls_header_and_token_validation(self) -> None:
+		store = CredentialStore([self.credential("device-secret", Role.DEVICE)])
+		policy = SecurityPolicy(frozenset({"server.example"}))
+		credential = authenticate_api_request(
+			store,
+			policy,
+			is_secure=True,
+			host="server.example",
+			origin=None,
+			authorization="Bearer device-secret",
+			allowed_roles={Role.DEVICE},
+		)
+		self.assertEqual(credential.role, Role.DEVICE)
+		with self.assertRaises(AuthenticationError):
+			authenticate_api_request(
+				store,
+				policy,
+				is_secure=False,
+				host="server.example",
+				origin=None,
+				authorization="Bearer device-secret",
+				allowed_roles={Role.DEVICE},
 			)
 
 	def test_tls_context_requires_certificate_and_enforces_tls_12_minimum(self) -> None:

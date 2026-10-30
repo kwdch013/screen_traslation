@@ -11,7 +11,13 @@ from typing import Any
 
 from PIL import Image, UnidentifiedImageError
 
-from screen_translation_server.security.auth import CredentialStore, Role
+from screen_translation_server.security.auth import (
+	Credential,
+	CredentialStore,
+	Role,
+	SecurityPolicy,
+	authenticate_api_request,
+)
 
 
 HTTP_JSON_MAX_BYTES = 1_048_576
@@ -93,12 +99,24 @@ def parse_binary_message(message: bytes) -> BinaryMessage:
 def validate_authenticated_binary_message(
 	message: bytes,
 	credentials: CredentialStore,
+	policy: SecurityPolicy,
 	authorization: str | None,
 	*,
+	is_secure: bool,
+	host: str | None,
+	origin: str | None,
 	allowed_roles: set[Role] | frozenset[Role] = frozenset({Role.DEVICE}),
 ) -> BinaryMessage:
-	"""資格情報を先に検証し、受信長・metadata・実画像を確認してから返す。"""
-	credentials.authenticate(authorization, allowed_roles)
+	"""TLS/許可Host/Origin/資格情報を検証後、受信長と実画像を確認して返す。"""
+	authenticate_api_request(
+		credentials,
+		policy,
+		is_secure=is_secure,
+		host=host,
+		origin=origin,
+		authorization=authorization,
+		allowed_roles=allowed_roles,
+	)
 	frame = parse_binary_message(message)
 	validate_image_payload(
 		frame.image,
@@ -107,6 +125,28 @@ def validate_authenticated_binary_message(
 		frame.metadata["image_height"],
 	)
 	return frame
+
+
+def authenticate_request(
+	credentials: CredentialStore,
+	policy: SecurityPolicy,
+	*,
+	is_secure: bool,
+	host: str | None,
+	origin: str | None,
+	authorization: str | None,
+	allowed_roles: set[Role] | frozenset[Role],
+) -> Credential:
+	"""HTTP routeとWebSocket Upgradeで共通の認証入口。"""
+	return authenticate_api_request(
+		credentials,
+		policy,
+		is_secure=is_secure,
+		host=host,
+		origin=origin,
+		authorization=authorization,
+		allowed_roles=allowed_roles,
+	)
 
 
 def validate_json_body_length(declared_length: object, received_length: int, maximum: int = HTTP_JSON_MAX_BYTES) -> None:

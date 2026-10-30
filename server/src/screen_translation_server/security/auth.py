@@ -120,6 +120,27 @@ def verify_request_boundary(
 		raise AuthenticationError("要求を拒否しました。")
 
 
+def authenticate_api_request(
+	credentials: CredentialStore,
+	policy: SecurityPolicy,
+	*,
+	is_secure: bool,
+	host: str | None,
+	origin: str | None,
+	authorization: str | None,
+	allowed_roles: set[Role] | frozenset[Role],
+) -> Credential:
+	"""TLS/Host/Originを確認した後でだけ資格情報を検証する。"""
+	verify_request_boundary(
+		policy,
+		is_secure=is_secure,
+		host=host,
+		origin=origin,
+		authorization=authorization,
+	)
+	return credentials.authenticate(authorization, allowed_roles)
+
+
 def create_server_tls_context(certificate_path: str | Path | None, private_key_path: str | Path | None) -> ssl.SSLContext:
 	"""証明書なしの平文fallbackを許さずTLS 1.2以上のserver contextを作る。"""
 	if certificate_path is None or private_key_path is None:

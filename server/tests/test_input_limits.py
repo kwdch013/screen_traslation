@@ -99,11 +99,19 @@ class InputLimitTests(unittest.TestCase):
 		from unittest.mock import patch
 
 		from screen_translation_server.api.input_limits import validate_authenticated_binary_message
-		from screen_translation_server.security.auth import AuthenticationError, CredentialStore
+		from screen_translation_server.security.auth import AuthenticationError, CredentialStore, SecurityPolicy
 
 		with patch("screen_translation_server.api.input_limits.Image.open") as image_open:
 			with self.assertRaises(AuthenticationError):
-				validate_authenticated_binary_message(b"not a frame", CredentialStore([]), "Bearer invalid")
+				validate_authenticated_binary_message(
+					b"not a frame",
+					CredentialStore([]),
+					SecurityPolicy(frozenset({"server.example"})),
+					"Bearer invalid",
+					is_secure=True,
+					host="server.example",
+					origin=None,
+				)
 		image_open.assert_not_called()
 
 
