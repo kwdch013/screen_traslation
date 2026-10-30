@@ -17,7 +17,9 @@
 - 先に文書テストと共存テストを追加して失敗することを確認した。
 - `mcr.microsoft.com/dotnet/sdk:10.0.402` でSDK 10.0.402を確認。SDKイメージ同梱Runtimeは10.0.13だったため、runtime 10.0.14イメージからCore runtimeを追加し、`dotnet --list-runtimes` で10.0.14を確認した。
 - client ComposeのLinuxコンテナでSolution build (WPF cross-targetを含む) 成功、Core test 1件成功。server ComposeのPython 3.14でunittest 1件成功。
-- root CI相当: `mypy src` は77 source filesで成功、`ruff check src` 成功、Python全テスト285件成功 (51 skipped)。関連文書テスト41件成功。
+- 通常 `app:ci` はリポジトリをマウントせず `src/` だけを配置するため、リポジトリ文書が無い場合に共存テストをskipする。マウント付き文書テスト経路では構成検査を実行する。
+- PR #138の変更要求に対するTDD: 修正前に `docker build -t app:ci .` 後の全テストを実行し、共存テスト1件がsolutionファイル不在で失敗することを確認。skip条件とCI文書テスト対象追加後、通常イメージの全289件が成功 (55 skipped)、マウント付き文書テスト41件が成功。
+- mypy通常/Windows向けは各77 source filesで成功、ruff成功、AI gate関連61件成功。client ComposeのCore test 1件、server Composeのunittest 1件も成功。
 - 既存Webの `docker build --target frontend-test .` も成功。
 
 ## 設計上の範囲
