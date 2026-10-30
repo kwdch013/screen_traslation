@@ -1,0 +1,76 @@
+# v1.0 サーバー運用手順
+
+この文書は、Linuxサーバーの資格情報・TLS証明書・バックアップを運用する手順です。接続先・ホスト名・IP・利用者名・実機固有のsecretは環境変数またはsecret管理から与え、この文書やGitへ記録しません。
+
+## 資格情報の配置と初期化
+
+資格情報台帳は `SCREEN_TRANSLATION_CREDENTIALS_FILE` で指定する永続領域へ配置します。台帳には資格情報ID・salt付きverifier・role・有効期限・失効状態だけが入り、token平文は保存されません。台帳の所有者をサーバープロセスに限定し、ファイルmode `0600` と、バックアップを読める運用者を制限します。台帳は設定・辞書・モデルとは別の領域に置きます。
+
+1. 台帳の保存先を決め、`SCREEN_TRANSLATION_CREDENTIALS_FILE` を設定します。TLSとHost/Originの設定も先に行います。
+2. 空の台帳へ初期管理資格情報を作成します。期限は組織のcredential policyに従い、timezone付きISO 8601形式で指定してください。
+
+   ```sh
+   python -m screen_translation_server.admin.credentials init-admin --expires-at '<期限日時>'
+   ```
+
+   表示された管理tokenは一度しか表示されません。安全なsecret管理へ直接登録し、端末・通常ログ・シェル履歴・チケット・設定APIへ貼り付けません。管理tokenはサーバー起動後の管理CLIへ `SCREEN_TRANSLATION_ADMIN_TOKEN` 環境変数で渡します。値をコマンド引数へ書きません。
+3. 初期化が完了してからサーバーを起動し、HTTPSのhealth/readyを確認します。未設定・破損した台帳は認証入口がfail closedとなります。
+
+管理CLIの共通入口は次のとおりです。
+
+```sh
+python -m screen_translation_server.admin.credentials --store "$SCREEN_TRANSLATION_CREDENTIALS_FILE" <command>
+```
+
+## 端末資格情報の発行・ローテーション
+
+各端末に個別の `credential_id` とdevice tokenを発行します。tokenは256-bit CSPRNGのhex値で、端末ごとに別のtokenを使います。有効期限は組織のcredential policyに従って指定します。
+
+```sh
+python -m screen_translation_server.admin.credentials --store "$SCREEN_TRANSLATION_CREDENTIALS_FILE" issue <credential-id> --role device --expires-at '<期限日時>'
+```
+
+`SCREEN_TRANSLATION_ADMIN_TOKEN` が必要です。CLIはtokenを一度だけ標準出力に表示します。対象端末へ安全に登録したことを確認してから、旧端末資格情報を失効します。Windows clientでは端末tokenをDPAPI CurrentUserと制限ACLで保存します。端末資格情報を通常の設定API・URL・ログへ送りません。
+
+## 一覧・失効
+
+一覧はID・role・状態・有効期限のみを表示し、平文tokenやverifierは表示しません。
+
+```sh
+python -m screen_translation_server.admin.credentials --store "$SCREEN_TRANSLATION_CREDENTIALS_FILE" list
+python -m screen_translation_server.admin.credentials --store "$SCREEN_TRANSLATION_CREDENTIALS_FILE" list --include-revoked
+python -m screen_translation_server.admin.credentials --store "$SCREEN_TRANSLATION_CREDENTIALS_FILE" revoke <credential-id>
+```
+
+失効は台帳へ原子的に保存されます。認証入口は各HTTP要求・WebSocket messageで台帳を読み直し、既存のidle WebSocketも0.25秒周期で再検証するため、失効後1秒以内に新規処理と配信を拒否して接続を閉じます。失効後の同じIDの再利用は禁止です。再発行は新しいIDを作り、漏えいしたtokenを復活させません。
+
+## TLS証明書の供給と更新
+
+サーバーはアプリ内TLS終端、TLS 1.2以上です。`SCREEN_TRANSLATION_TLS_CERTIFICATE` と `SCREEN_TRANSLATION_TLS_PRIVATE_KEY` をsecret管理が提供する読み取り専用パスへ設定します。Compose secretsまたは同等の仕組みを使い、ホスト側の保存・バックアップ権限も制限します。秘密鍵はGit・イメージ・環境変数の値・コマンド引数・ログへ置きません。環境変数にはパスだけを設定します。
+
+秘密鍵は保護されたsecret領域内で読み取りを必要とするプロセスだけに許可し、証明書と鍵を別ファイルで供給します。CA秘密鍵とserver private keyを同じ配布対象に含めません。サーバー証明書は許可されたDNS名のSANを持たせ、期限・信頼鎖を確認します。CA公開証明書は別の確認済み経路でclientへ登録します。
+
+1. 既存版を残したまま新しいleaf証明書・秘密鍵の組をsecret管理へ登録します。手順と検査コマンドは [`server/deploy/tls/README.md`](../../server/deploy/tls/README.md) を参照してください。
+2. `verify-pair.sh` で証明書と鍵の一致、SAN、CA信頼、残り有効期間を確認します。確認にはテスト用証明書を使えます。検証無効化やHTTPへのfallbackはしません。
+3. `SCREEN_TRANSLATION_TLS_CERTIFICATE` / `SCREEN_TRANSLATION_TLS_PRIVATE_KEY` が指す `current` を、新版を含むディレクトリへ原子的に切り替えます。読み取り専用secretを稼働コンテナ内で編集しません。
+4. Uvicorn server processへ `SIGHUP` を送ります。アプリは同じTLS contextへchainを読み込み直すため、listenerを止めず新規TLS接続へ新版を提示します。再読込に失敗した場合はsecure stopし、旧証明書を暗黙に継続しません。
+5. 新規TLS接続からSAN・信頼鎖・期限を検証し、失敗時はsecretの組を修正して再起動します。更新済み接続先と端末の確認後にのみ旧証明書をsecret管理から削除します。
+
+CA自体の更新では、新CAの公開証明書を別経路で全端末へ配布・確認してから新leafへ切り替えます。端末の信頼更新確認後に旧CAを撤去します。期限切れ・名前不一致・未信頼証明書で接続できない場合は、証明書検証を無効にせず、安全な信頼経路と時刻・SAN・期限を調べます。
+
+## バックアップと復旧
+
+資格情報台帳、TLS秘密鍵、CA公開情報、設定/辞書/モデルを別々にバックアップします。backup先・保管期間・アクセス権はsecret管理と運用ポリシーで制限します。token平文はバックアップ対象にしません。
+
+復元は最新の資格情報台帳と失効記録を用います。古い台帳を戻すと失効済み資格情報が有効化されるおそれがあるため、バックアップ時刻だけでなく後続の発行・失効記録と照合します。履歴を確認できない場合は、復旧時点の既存資格情報を失効扱いにし、新しいtokenを発行します。秘密鍵侵害時は旧証明書を使い続けず、鍵/leafを再発行し、CA公開情報と端末の信頼を確認します。
+
+## 要件対応
+
+| 要件 | 本手順・実装 |
+|---|---|
+| REQ-NF-006 | TLS 1.2以上、device/admin role分離、無効/失効資格情報の拒否 |
+| REQ-NF-007 | tokenはsalt付きverifierのみ保存し、秘密はsecret管理/OS保護へ分離 |
+| REQ-NF-009 | HTTPS/WSSの証明書名・期限・信頼を検証し、検証無効化を禁止 |
+| ACC-05 / ACC-12 / ACC-14 | 失効後1秒以内拒否、秘密をログ/API/イメージへ含めない、管理CLIをadmin roleに限定 |
+
+利用者側の接続・端末token保存手順はWindows clientの運用文書で扱います。ここでは実機固有の接続情報を記録しません。
