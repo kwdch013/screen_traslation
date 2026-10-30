@@ -184,6 +184,37 @@ class EngineLifecycleTest(unittest.TestCase):
 			self.assertIn("期限を超過", lifecycle.failure_reason or "")
 			self.assertFalse(lifecycle.ready_response()["ready"])
 
+	def test_same_deadline_spans_provision_and_engine_load(self) -> None:
+		with tempfile.TemporaryDirectory() as directory:
+			clock = FakeClock()
+
+			def download(_url: str, target: Path, _timeout: float) -> None:
+				target.write_bytes(self.model_bytes)
+				clock.advance(0.01)
+
+			provisioner = ModelProvisioner(
+				self.manifest,
+				Path(directory),
+				downloader=download,
+				installer=lambda _path: clock.advance(0.03),
+				monotonic=clock.monotonic,
+			)
+			deadline = clock.monotonic() + 0.05
+			provisioner.provision(deadline=deadline)
+			self.assertEqual(provisioner.progress, "complete")
+
+			lifecycle = EngineLifecycle(
+				self.manifest,
+				directory,
+				engine_loader=lambda: (clock.advance(0.01) or object()),
+				monotonic=clock.monotonic,
+			)
+			with self.assertRaisesRegex(TimeoutError, "期限を超過"):
+				lifecycle.prepare(deadline=deadline)
+
+			self.assertEqual(lifecycle.state, ModelState.FAILED)
+			self.assertFalse(lifecycle.ready_response()["ready"])
+
 	def test_failure_then_retry_success_clears_previous_failure_reason(self) -> None:
 		with tempfile.TemporaryDirectory() as directory:
 			attempts = 0
