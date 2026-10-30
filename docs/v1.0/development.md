@@ -18,6 +18,14 @@ docker compose -f client/compose.test.yml run --rm test
 docker compose -f server/compose.test.yml run --rm test
 ```
 
+### サーバーのモデル準備とreadiness
+
+サーバーイメージには翻訳モデルを同梱・自動取得しません。管理者が設定した固定manifest（版、HTTPS取得先、サイズ、信頼済みSHA-256、ライセンス名/URLと確認済み状態）を`ModelProvisioner`へ渡して明示導入します。観測値だけのdigestや未確認のライセンスでは導入できず、1 GiBを超えるモデル、破損・不正なアーカイブも拒否します。取得・検証・導入の進捗は`downloading`、`verifying`、`installing`、`complete`として保持し、空のモデル領域での準備期限は1800秒です。
+
+起動時はモデルのサイズとdigest、cgroup上限を検証してからエンジンを一度だけロードし、Tesseract/Argosのwarmupを行います。準備失敗・資源上限不明・上限超過ではreadyになりません。health値は常に`{"status":"alive"}`、ready完了時は`{"ready":true}`、未完了時は503 `MODEL_NOT_READY`です。health/readyのHTTPルート配線はAPI実装Taskで行います。このTaskは契約応答値を組み立てる関数までを提供します。
+
+アプリケーションの上限は2 CPU / 4 GiB、同時処理1件、待機画像は最新1件です。サーバーの実行コンテナにも同じCPU/メモリ制限を設定し、Composeテストサービスはその上限を使用します。導入済みモデルの検証・ロード・warmupが120秒を超える場合もreadyにはなりません。
+
 `.NET SDK 10.0.402` とRuntime 10.0.14は設計基準のstable版です。`client/global.json` がSDKを固定し、テストイメージは同SDKタグにRuntime 10.0.14を加えます。Windows専用UI/APIの実機試験はLinux Coreテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。
 
 ### CI・CodeQL・依存更新
