@@ -119,6 +119,7 @@ requiredにするcontextは、[公式のrequired status checkの条件](https://
 | #67 Work Unit・Claim・独立レビューゲート | `scripts/ai-work-unit.py`・`scripts/ai-claim.py`・`scripts/ai-review-gate.py`・hooks・workflow、`tests/ai_gate/` | 正常/拒否の61件とworkflow信頼境界をコンテナで検証。GitHub実証条件は #118 へ移管 |
 | #68 client/server/contractsの雛形 | `client/ScreenTranslation.sln`・`client/global.json`・Linux Core試験、`server/`のPython 3.14コンテナ、`contracts/README.md`、旧Web文書・共存テスト | .NET SDK 10.0.402 / Runtime 10.0.14とディレクトリ境界を固定。Windows API・製品機能・契約fixture・配布は後続Task |
 | #69 Linuxコンテナ・WindowsクライアントCI | `.github/workflows/ci.yml`・`codeql.yml`・`dependabot.yml`・`src/tests/test_ci_workflow_structure.py` | REQ-NF-008/009/010。Python/C#契約fixtureを別jobで検査し、required `test` を常時集約 |
+| #77 OCR・翻訳コア共有 | `server/src/screen_translation_server/engines/`から`src/app`のOCR/翻訳実装を利用し、同一fixtureと旧Web回帰を検証 | コアは旧Web側を正本として段階抽出。Tesseract/Argosモデルを含むserverコンテナで実エンジンも確認 |
 | #118 有効化・GitHub実証 | default branch反映、検証PR、実在contextのrequired化、統合可否の再検証・証跡 | #67完了待ち。Phase #65の必須Taskとして追跡 |
 | #55 要件定義 / #57 基本・詳細設計 | [要件書](../../requirements/version_1/requirements.md) / [基本・詳細設計](design/architecture.md) / [ADR索引](design/adr/README.md) | 全22要件IDと採用方式・下流Issue反映表を管理。実機・製品試験は未実施 |
 
