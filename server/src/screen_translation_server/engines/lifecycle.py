@@ -81,6 +81,7 @@ class ModelProvisioner:
 		*,
 		deadline: float | None = None,
 	) -> Path:
+		self.failure_reason = None
 		try:
 			if timeout_seconds <= 0:
 				raise ValueError("モデル準備の期限は正数で指定してください。")
@@ -99,6 +100,7 @@ class ModelProvisioner:
 				self._set_progress("installing")
 				self._installer(self.model_path)
 				self._check_deadline(deadline)
+				self.failure_reason = None
 				self._set_progress("complete")
 				return self.model_path
 
@@ -116,6 +118,7 @@ class ModelProvisioner:
 			self._set_progress("installing")
 			self._installer(self.model_path)
 			self._check_deadline(deadline)
+			self.failure_reason = None
 			self._set_progress("complete")
 			return self.model_path
 		except Exception as error:

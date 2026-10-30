@@ -140,6 +140,11 @@ class EngineLifecycleTest(unittest.TestCase):
 			self.assertIn("期限を超過", provisioner.failure_reason or "")
 			self.assertTrue(provisioner.model_path.exists())
 
+			provisioner.provision()
+
+			self.assertEqual(provisioner.progress, "complete")
+			self.assertIsNone(provisioner.failure_reason)
+
 	def test_existing_model_install_over_deadline_does_not_complete(self) -> None:
 		with tempfile.TemporaryDirectory() as directory:
 			model_path = Path(directory, "translate-en_ja-1.0.argosmodel")
@@ -178,6 +183,32 @@ class EngineLifecycleTest(unittest.TestCase):
 			self.assertEqual(lifecycle.progress, "failed")
 			self.assertIn("期限を超過", lifecycle.failure_reason or "")
 			self.assertFalse(lifecycle.ready_response()["ready"])
+
+	def test_failure_then_retry_success_clears_previous_failure_reason(self) -> None:
+		with tempfile.TemporaryDirectory() as directory:
+			attempts = 0
+
+			def install(_model_path: Path) -> None:
+				nonlocal attempts
+				attempts += 1
+				if attempts == 1:
+					raise RuntimeError("installation failed")
+
+			provisioner = ModelProvisioner(
+				self.manifest,
+				Path(directory),
+				downloader=lambda _url, target, _timeout: target.write_bytes(self.model_bytes),
+				installer=install,
+			)
+			with self.assertRaisesRegex(RuntimeError, "installation failed"):
+				provisioner.provision()
+			self.assertEqual(provisioner.progress, "failed")
+			self.assertEqual(provisioner.failure_reason, "installation failed")
+
+			provisioner.provision()
+
+			self.assertEqual(provisioner.progress, "complete")
+			self.assertIsNone(provisioner.failure_reason)
 
 	def test_download_failure_does_not_activate_unverified_model(self) -> None:
 		with tempfile.TemporaryDirectory() as directory:
