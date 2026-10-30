@@ -90,7 +90,7 @@ requiredにするcontextは、[公式のrequired status checkの条件](https://
 | #66 Ruleset / required導入順 | Rulesetとrequired checkの導入順 | 手順確定。実設定の変更とGitHub実証は #118 |
 | #67 Work Unit・Claim・独立レビューゲート | `scripts/ai-work-unit.py`・`scripts/ai-claim.py`・`scripts/ai-review-gate.py`・hooks・workflow、`tests/ai_gate/` | 正常/拒否の61件とworkflow信頼境界をコンテナで検証。GitHub実証条件は #118 へ移管 |
 | #118 有効化・GitHub実証 | default branch反映、検証PR、実在contextのrequired化、統合可否の再検証・証跡 | #67完了待ち。Phase #65の必須Taskとして追跡 |
-| #55 要件定義 / #57 設計 | 要件ID対応表 | 未確定のアプリ要件IDは作らず、確定時にこの開発基盤Taskへ対応付ける |
+| #55 要件定義 / #57 基本・詳細設計 | [要件書](../../requirements/version_1/requirements.md) / [基本・詳細設計](design/architecture.md) / [ADR索引](design/adr/README.md) | 全22要件IDと採用方式・下流Issue反映表を管理。実機・製品試験は未実施 |
 
 #67の完了には別agent・別worktreeの最新HEAD独立レビュー、ゲートのローカルCLI検証、developへのsquash mergeが必要です。PR #117の指摘対応後も再承認とmergeは別工程です。#54・#55・#68の依存先は #67 のまま維持し、#118完了までは独立レビューとローカルCLIで確認します。GitHub上の強制を実証済みとは扱いません。
 
@@ -191,7 +191,7 @@ Work Unitとmarkerは同一credential内の論理的証跡です。悪意ある�
 
 ## v1.0 要件の参照と文書テスト
 
-要求の正本は[要件書](../../requirements/version_1/requirements.md)、検証条件は[受入計画](acceptance.md)、全要件ID→Phase/Taskは[ロードマップ](../../plan/version_1/roadmap.md)です。Ownerの対応環境・性能値・受入手順の承認は2026-10-29に記録済みです（[承認記録](https://github.com/kwdch013/screen_traslation/issues/55#issuecomment-6499965211)）。後続Issueへ合意済み要求を反映し、方式選定と実測・本人受入の残件をロードマップに記録します。#66/#67/#118はREQ-NF-010に対応します。Windows API の公式仕様と未実施の実機検証手順は[キャプチャ除外調査](research/capture-exclusion.md)を参照します。Web版の起動方法は現行ガイドを参照します。
+要求の正本は[要件書](../../requirements/version_1/requirements.md)、基本/詳細設計は[architecture.md](design/architecture.md)、脅威モデルは[security.md](design/security.md)、検証条件は[受入計画](acceptance.md)、全要件ID→Phase/Taskは[ロードマップ](../../plan/version_1/roadmap.md)です。Ownerの対応環境・性能値・受入手順の承認は2026-10-29に記録済みです（[承認記録](https://github.com/kwdch013/screen_traslation/issues/55#issuecomment-6499965211)）。採用方式と下流Issueへの反映内容はarchitecture.md/ADR索引に確定し、実機/製品の未実施事項はロードマップに記録します。WGC/キャプチャ除外は#135相当、混在DPI/負座標/重畳は#136相当のWindows実機Taskで確認します。#66/#67/#118はREQ-NF-010に対応します。公式仕様と実機検証手順は[キャプチャ除外調査](research/capture-exclusion.md)と[混在DPI調査](research/mixed-dpi.md)を参照します。Web版の起動方法は現行ガイドを参照します。
 
 文書をマウントしたPython 3.14コンテナで既存と次版の文書テストを実行します。標準ライブラリだけを使い、OCR/翻訳モデルは実行しません。通常アプリイメージには文書を含めないため、マウントなしでskipした結果を文書検証成功と扱いません。
 
