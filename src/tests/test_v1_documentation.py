@@ -237,7 +237,11 @@ class V1DesignDecisionTest(unittest.TestCase):
 		section = document.split("## 下流Issueへの仕様反映", 1)[1].split("### 要件IDと設計要素", 1)[0]
 		rows = [line for line in section.splitlines() if re.match(r"\| #\d+ \|", line)]
 		self.assertGreaterEqual(len(rows), 35)
-		issues = [re.match(r"\| #(\d+) \|", row).group(1) for row in rows]
+		issues: list[str] = []
+		for row_number, row in enumerate(rows, start=1):
+			match = re.match(r"\| #(\d+) \|", row)
+			assert match is not None, f"仕様転記対象の表の{row_number}行目がIssue行ではありません: {row}"
+			issues.append(match.group(1))
 		self.assertEqual(len(issues), len(set(issues)), "仕様転記対象のIssue番号を重複させない")
 		for issue, row in zip(issues, rows, strict=True):
 			with self.subTest(issue=issue):
