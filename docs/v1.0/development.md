@@ -20,7 +20,9 @@ docker compose -f server/compose.test.yml run --rm test
 
 ### サーバーのモデル準備とreadiness
 
-サーバーイメージには翻訳モデルを同梱・自動取得しません。管理者が設定した固定manifest（版、HTTPS取得先、サイズ、信頼済みSHA-256、ライセンス名/URLと確認済み状態）を`ModelProvisioner`へ渡して明示導入します。観測値だけのdigestや未確認のライセンスでは導入できず、1 GiBを超えるモデル、破損・不正なアーカイブも拒否します。取得・検証・導入の進捗は`downloading`、`verifying`、`installing`、`complete`として保持し、空のモデル領域での準備期限は1800秒です。
+サーバーイメージには翻訳モデルを同梱・自動取得しません。管理者が設定した固定manifest（版、HTTPS取得先、サイズ、信頼済みSHA-256、ライセンス名/URLと確認済み状態）を`ModelProvisioner`へ渡して明示導入します。観測値だけのdigestや未確認のライセンスでは導入できず、1 GiBを超えるモデル、破損・不正なアーカイブも拒否します。取得・検証・導入の進捗は`downloading`、`verifying`、`installing`、`complete`として保持し、空のモデル領域からreadyまでの準備期限は1800秒です。`ModelProvisioner.provision()`と`EngineLifecycle.prepare()`には同じ`time.monotonic()`基準の絶対deadlineを渡します。各段階の前後に期限を検査し、期限超過は`failed`として診断理由を保持し、readyにはしません。
+
+installerは同期処理で、実行中の強制中断やArgos側の部分導入物の巻き戻しはできません。installerがdeadlineを越えた場合は戻った直後に失敗とし、readyにせず、検証済み`.argosmodel`は再試行用に残します。再試行ではそのファイルを再検証してinstallerを再実行し、導入処理が完了するまで準備失敗として扱います。download中の期限超過では`.part`を削除します。
 
 起動時はモデルのサイズとdigest、cgroup上限を検証してからエンジンを一度だけロードし、Tesseract/Argosのwarmupを行います。準備失敗・資源上限不明・上限超過ではreadyになりません。health値は常に`{"status":"alive"}`、ready完了時は`{"ready":true}`、未完了時は503 `MODEL_NOT_READY`です。health/readyのHTTPルート配線はAPI実装Taskで行います。このTaskは契約応答値を組み立てる関数までを提供します。
 

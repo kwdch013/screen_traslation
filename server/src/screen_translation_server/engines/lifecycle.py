@@ -60,12 +60,14 @@ class ModelProvisioner:
 		downloader: Callable[[str, Path, float], None] | None = None,
 		installer: Callable[[Path], None] | None = None,
 		progress: Callable[[str], None] | None = None,
+		monotonic: Callable[[], float] = time.monotonic,
 	) -> None:
 		self.manifest = manifest
 		self.destination = destination
 		self._downloader = downloader or _download
 		self._installer = installer or _install_argos_model
 		self._progress = progress or (lambda _stage: None)
+		self._monotonic = monotonic
 		self.progress = "missing"
 		self.failure_reason: str | None = None
 
@@ -73,32 +75,47 @@ class ModelProvisioner:
 	def model_path(self) -> Path:
 		return self.destination / f"translate-en_ja-{self.manifest.version}.argosmodel"
 
-	def provision(self, timeout_seconds: float = PREPARATION_TIMEOUT_SECONDS) -> Path:
+	def provision(
+		self,
+		timeout_seconds: float = PREPARATION_TIMEOUT_SECONDS,
+		*,
+		deadline: float | None = None,
+	) -> Path:
 		try:
 			if timeout_seconds <= 0:
 				raise ValueError("モデル準備の期限は正数で指定してください。")
 			timeout_seconds = min(timeout_seconds, PREPARATION_TIMEOUT_SECONDS)
+			deadline = min(deadline, self._monotonic() + timeout_seconds) if deadline is not None else None
+			if deadline is None:
+				deadline = self._monotonic() + timeout_seconds
+			self._check_deadline(deadline)
 			self.manifest.validate()
+			self._check_deadline(deadline)
 			self.destination.mkdir(parents=True, exist_ok=True)
 			if self.model_path.exists():
+				self._check_deadline(deadline)
 				self._verify(self.model_path)
+				self._check_deadline(deadline)
 				self._set_progress("installing")
 				self._installer(self.model_path)
+				self._check_deadline(deadline)
 				self._set_progress("complete")
 				return self.model_path
 
-			started = time.monotonic()
 			staging = self.destination / f".{self.model_path.name}.part"
 			self._set_progress("downloading")
-			self._downloader(self.manifest.source_url, staging, timeout_seconds)
-			if time.monotonic() - started > timeout_seconds:
-				raise TimeoutError("モデル取得が準備期限を超過しました。")
+			self._downloader(self.manifest.source_url, staging, max(0.0, deadline - self._monotonic()))
+			self._check_deadline(deadline)
 			self._set_progress("verifying")
 			self._verify(staging)
+			self._check_deadline(deadline)
 			_validate_archive(staging)
+			self._check_deadline(deadline)
 			os.replace(staging, self.model_path)
+			self._check_deadline(deadline)
 			self._set_progress("installing")
 			self._installer(self.model_path)
+			self._check_deadline(deadline)
 			self._set_progress("complete")
 			return self.model_path
 		except Exception as error:
@@ -108,6 +125,10 @@ class ModelProvisioner:
 			if "staging" in locals():
 				staging.unlink(missing_ok=True)
 			raise
+
+	def _check_deadline(self, deadline: float) -> None:
+		if self._monotonic() >= deadline:
+			raise TimeoutError("モデル準備の期限を超過しました。")
 
 	def _set_progress(self, stage: str) -> None:
 		self.progress = stage
@@ -159,6 +180,7 @@ class EngineLifecycle:
 		warmup: Callable[[object], None] | None = None,
 		resource_limits: ResourceLimits | None = None,
 		resource_check: Callable[[], bool] | None = None,
+		monotonic: Callable[[], float] = time.monotonic,
 	) -> None:
 		self.manifest = manifest
 		self.model_directory = Path(model_directory)
@@ -166,6 +188,7 @@ class EngineLifecycle:
 		self.warmup = warmup or _warmup_engines
 		self.resource_limits = resource_limits or ResourceLimits()
 		self.resource_check = resource_check or self.resource_limits.validate_runtime
+		self._monotonic = monotonic
 		self.state = ModelState.MISSING
 		self.progress = "missing"
 		self.failure_reason: str | None = None
@@ -178,16 +201,20 @@ class EngineLifecycle:
 	def ready_response(self) -> dict[str, bool]:
 		return {"ready": self.state == ModelState.READY}
 
-	def prepare(self) -> object:
+	def prepare(self, *, deadline: float | None = None) -> object:
 		with self._lock:
 			if self.state == ModelState.READY and self._engine is not None:
 				return self._engine
 			self.state = ModelState.PREPARING
 			self.progress = "verifying"
 			self.failure_reason = None
-			started = time.monotonic()
+			started = self._monotonic()
+			installed_deadline = started + INSTALLED_START_TIMEOUT_SECONDS
+			deadline = min(deadline, installed_deadline) if deadline is not None else installed_deadline
 			try:
+				_check_deadline(self._monotonic, deadline)
 				self.manifest.validate()
+				_check_deadline(self._monotonic, deadline)
 				model_path = self.model_directory / f"translate-en_ja-{self.manifest.version}.argosmodel"
 				if not model_path.is_file():
 					self.state = ModelState.MISSING
@@ -195,14 +222,16 @@ class EngineLifecycle:
 					self.failure_reason = "モデルが未導入です。管理者がモデル準備を実行してください。"
 					raise FileNotFoundError(self.failure_reason)
 				ModelProvisioner(self.manifest, self.model_directory)._verify(model_path)
+				_check_deadline(self._monotonic, deadline)
 				if not self.resource_check():
 					raise RuntimeError("サーバー資源上限を確認できないか、CPU/メモリ上限を超過しています。")
+				_check_deadline(self._monotonic, deadline)
 				self.progress = "loading"
 				engine = self.engine_loader()
+				_check_deadline(self._monotonic, deadline)
 				self.progress = "warmup"
 				self.warmup(engine)
-				if time.monotonic() - started > INSTALLED_START_TIMEOUT_SECONDS:
-					raise TimeoutError("導入済みモデルの準備が120秒を超過しました。")
+				_check_deadline(self._monotonic, deadline)
 				self._engine = engine
 				self.state = ModelState.READY
 				self.progress = "complete"
@@ -335,6 +364,11 @@ def _safe_failure_reason(error: Exception) -> str:
 	):
 		return f"モデル準備に失敗しました ({type(error).__name__})。"
 	return message
+
+
+def _check_deadline(monotonic: Callable[[], float], deadline: float) -> None:
+	if monotonic() >= deadline:
+		raise TimeoutError("モデル準備の期限を超過しました。")
 
 
 def _read_cgroup_limits(root: Path) -> tuple[float | None, int | None]:

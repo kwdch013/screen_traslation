@@ -23,6 +23,17 @@ from screen_translation_server.engines.lifecycle import (
 from screen_translation_server.readiness import health_response, ready_response
 
 
+class FakeClock:
+	def __init__(self) -> None:
+		self.now = 100.0
+
+	def monotonic(self) -> float:
+		return self.now
+
+	def advance(self, seconds: float) -> None:
+		self.now += seconds
+
+
 class EngineLifecycleTest(unittest.TestCase):
 	def setUp(self) -> None:
 		archive = io.BytesIO()
@@ -101,6 +112,72 @@ class EngineLifecycleTest(unittest.TestCase):
 			self.assertEqual(result.read_bytes(), self.model_bytes)
 			self.assertEqual(progress, ["downloading", "verifying", "installing", "complete"])
 			self.assertEqual(provisioner.progress, "complete")
+			self.assertIsNone(provisioner.failure_reason)
+
+	def test_provisioner_install_over_deadline_fails_without_completing(self) -> None:
+		with tempfile.TemporaryDirectory() as directory:
+			clock = FakeClock()
+			attempts = 0
+
+			def install(_model_path: Path) -> None:
+				nonlocal attempts
+				attempts += 1
+				if attempts == 1:
+					clock.advance(0.05)
+
+			provisioner = ModelProvisioner(
+				self.manifest,
+				Path(directory),
+				downloader=lambda _url, target, _timeout: target.write_bytes(self.model_bytes),
+				installer=install,
+				monotonic=clock.monotonic,
+			)
+			deadline = clock.monotonic() + 0.01
+
+			with self.assertRaisesRegex(TimeoutError, "期限を超過"):
+				provisioner.provision(deadline=deadline)
+			self.assertEqual(provisioner.progress, "failed")
+			self.assertIn("期限を超過", provisioner.failure_reason or "")
+			self.assertTrue(provisioner.model_path.exists())
+
+	def test_existing_model_install_over_deadline_does_not_complete(self) -> None:
+		with tempfile.TemporaryDirectory() as directory:
+			model_path = Path(directory, "translate-en_ja-1.0.argosmodel")
+			model_path.write_bytes(self.model_bytes)
+			clock = FakeClock()
+			provisioner = ModelProvisioner(
+				self.manifest,
+				Path(directory),
+				installer=lambda _path: clock.advance(0.05),
+				monotonic=clock.monotonic,
+			)
+
+			with self.assertRaisesRegex(TimeoutError, "期限を超過"):
+				provisioner.provision(deadline=clock.monotonic() + 0.01)
+
+			self.assertEqual(provisioner.progress, "failed")
+			self.assertFalse(provisioner.progress == "complete")
+			self.assertTrue(model_path.exists())
+
+	def test_prepare_deadline_is_checked_after_warmup(self) -> None:
+		with tempfile.TemporaryDirectory() as directory:
+			Path(directory, "translate-en_ja-1.0.argosmodel").write_bytes(self.model_bytes)
+			clock = FakeClock()
+			lifecycle = EngineLifecycle(
+				self.manifest,
+				directory,
+				engine_loader=lambda: object(),
+				warmup=lambda _engine: clock.advance(0.02),
+				monotonic=clock.monotonic,
+			)
+
+			with self.assertRaisesRegex(TimeoutError, "期限を超過"):
+				lifecycle.prepare(deadline=clock.monotonic() + 0.01)
+
+			self.assertEqual(lifecycle.state, ModelState.FAILED)
+			self.assertEqual(lifecycle.progress, "failed")
+			self.assertIn("期限を超過", lifecycle.failure_reason or "")
+			self.assertFalse(lifecycle.ready_response()["ready"])
 
 	def test_download_failure_does_not_activate_unverified_model(self) -> None:
 		with tempfile.TemporaryDirectory() as directory:
