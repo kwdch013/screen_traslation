@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import math
 import uuid
 import warnings
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any
+from typing import Any, AsyncIterable
 
 from PIL import Image, UnidentifiedImageError
 
@@ -162,6 +164,29 @@ def validate_json_body_length(declared_length: object, received_length: int, max
 		or declared_length > maximum
 	):
 		raise InputLimitError("要求本文長が不正です。")
+
+
+async def read_limited_body(
+	chunks: AsyncIterable[bytes],
+	*,
+	maximum: int,
+	timeout_seconds: float,
+) -> bytes:
+	"""設定された期限内にbyte上限まで読み、超過/遅延時は蓄積を止める。"""
+	if isinstance(maximum, bool) or not isinstance(maximum, int) or maximum < 1:
+		raise ValueError("本文上限は正の整数で設定してください。")
+	if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+		raise ValueError("本文受信期限は正の有限秒数で設定してください。")
+	body = bytearray()
+	try:
+		async with asyncio.timeout(timeout_seconds):
+			async for chunk in chunks:
+				if not isinstance(chunk, bytes) or len(body) + len(chunk) > maximum:
+					raise InputLimitError("要求本文が上限を超えています。")
+				body.extend(chunk)
+	except TimeoutError:
+		raise InputLimitError("要求本文の受信期限を超えました。") from None
+	return bytes(body)
 
 
 def validate_roi(width: object, height: object) -> None:

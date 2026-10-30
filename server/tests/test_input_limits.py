@@ -1,3 +1,4 @@
+import asyncio
 import json
 import unittest
 from pathlib import Path
@@ -7,6 +8,7 @@ from PIL import Image
 from screen_translation_server.api.input_limits import (
 	InputLimitError,
 	parse_binary_message,
+	read_limited_body,
 	validate_binary_frame_size,
 	validate_image_payload,
 	validate_json_body_length,
@@ -94,6 +96,30 @@ class InputLimitTests(unittest.TestCase):
 		for declared, received in ((-1, 0), (None, 1_048_577), (11, 10), (9, 10)):
 			with self.subTest(declared=declared, received=received), self.assertRaises(InputLimitError):
 				validate_json_body_length(declared, received)
+
+	def test_slow_or_oversized_http_body_is_stopped_with_configured_limits(self) -> None:
+		async def run_body_test() -> None:
+			async def normal_chunks():
+				yield b"{"
+				yield b"}"
+
+			self.assertEqual(await read_limited_body(normal_chunks(), maximum=2, timeout_seconds=1), b"{}")
+
+			async def oversized_chunks():
+				yield b"abc"
+
+			with self.assertRaises(InputLimitError):
+				await read_limited_body(oversized_chunks(), maximum=2, timeout_seconds=1)
+
+			async def delayed_chunks():
+				yield b"{"
+				await asyncio.sleep(0.05)
+				yield b"}"
+
+			with self.assertRaises(InputLimitError):
+				await read_limited_body(delayed_chunks(), maximum=2, timeout_seconds=0.005)
+
+		asyncio.run(run_body_test())
 
 	def test_authenticated_binary_path_rejects_credentials_before_image_decode(self) -> None:
 		from unittest.mock import patch

@@ -14,12 +14,12 @@
 ## 実装内容
 
 - `security/auth.py`: 256-bit token生成、salt付きSHA-256 verifier作成、定数時間比較、期限/失効/role検証、汎用認証失敗、環境設定からのHost/Origin/TLS証明書読込、TLS 1.2以上を強制。
-- `api/input_limits.py`: HTTP JSON 1 MiB、画像4 MiB、ROI寸法/画素数、STF1 binary header・metadata・総byte上限、metadata型/UUID/重複key、PNG/JPEG実形式/実寸法を検証。TLS/Host/Origin/role資格情報の共通認証入口を通ってから画像decodeする。
+- `api/input_limits.py`: HTTP JSON 1 MiB、設定から渡すHTTP受信期限、画像4 MiB、ROI寸法/画素数、STF1 binary header・metadata・総byte上限、metadata型/UUID/重複key、PNG/JPEG実形式/実寸法を検証。TLS/Host/Origin/role資格情報の共通認証入口を通ってから画像decodeする。
 - `test_security.py` / `test_input_limits.py`: TDDで認証/権限/TLS/Host/Origin、秘密値非露出、fixture境界、偽装画像、ROI、認証前decode禁止を確認。
 
 ## 検証
 
-- `docker compose -f server/compose.test.yml run --build --rm test python -B -m unittest discover -s tests` — 32件成功。
+- `docker compose -f server/compose.test.yml run --build --rm test python -B -m unittest discover -s tests` — 33件成功。
 - `docker build -t app:ci . && docker run --rm -e PYTHONPATH=/app/src app:ci python -B -m unittest discover -s src/tests` — 306件成功、72件skip。
 - app:ci mount付きAPI schema / 文書回帰 — 36件成功。
 - `mypy src` / `mypy --platform win32 src` — 各79 source files成功。
