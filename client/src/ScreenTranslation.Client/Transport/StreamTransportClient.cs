@@ -24,6 +24,17 @@ public interface IStreamSocketFactory
 
 public sealed class TransportProtocolException(string message, Exception? innerException = null) : Exception(message, innerException);
 
+public enum TransportConnectionStatus
+{
+	Disconnected,
+	Connected,
+	Reconnecting,
+	Failed,
+	Stopped,
+}
+
+public sealed class ReconnectLimitException(string message) : IOException(message);
+
 public sealed class ClientWebSocketStreamFactory : IStreamSocketFactory
 {
 	public IStreamSocket Create(ConnectionSettings settings) => new ClientWebSocketStream(settings.ServerCertificateSha256);
@@ -45,36 +56,19 @@ public sealed class StreamTransportClient(
 	private Guid currentSessionId;
 	private ulong currentGeneration;
 	private ulong currentDictionaryRevision;
+	private TransportConnectionStatus status = TransportConnectionStatus.Disconnected;
 
 	public event Action? ConnectionLost;
 	public event Action? Reconnected;
+	public event Action<TransportConnectionStatus>? ConnectionStatusChanged;
 
 	public bool IsConnected => socket is not null;
 	public bool IsSessionActive => sessionActive;
+	public TransportConnectionStatus Status => status;
 
 	public async Task ConnectAsync(CancellationToken cancellationToken = default)
 	{
-		if (socket is not null) return;
-		var token = await credentialStore.LoadAsync(cancellationToken).ConfigureAwait(false);
-		if (string.IsNullOrWhiteSpace(token)) throw new TransportAuthenticationException("端末資格情報がありません。再登録してください。");
-		_ = settings.Validate();
-		var endpoint = CreateStreamUri(settings.ServerUri);
-		IStreamSocket? connectedSocket = null;
-		await ReconnectCoordinator.ConnectAsync(async ct =>
-		{
-			var candidate = socketFactory.Create(settings);
-			try
-			{
-				await candidate.ConnectAsync(endpoint, token, ct).ConfigureAwait(false);
-				connectedSocket = candidate;
-			}
-			catch
-			{
-				await candidate.DisposeAsync().ConfigureAwait(false);
-				throw;
-			}
-		}, delay, reconnectPolicy, cancellationToken).ConfigureAwait(false);
-		socket = connectedSocket ?? throw new IOException("WSS接続が確立しませんでした。");
+		await ConnectWithRetryLimitAsync(reconnectPolicy.MaximumRetries, cancellationToken).ConfigureAwait(false);
 	}
 
 	public void ActivateSession(Guid sessionId, ulong generation, ulong dictionaryRevision)
@@ -109,9 +103,15 @@ public sealed class StreamTransportClient(
 	public async Task RunReceiveLoopAsync(Func<JsonElement, Task> onMessage, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(onMessage);
+		var consecutiveDisconnects = 0;
+		var connectedAt = 0L;
 		while (!cancellationToken.IsCancellationRequested)
 		{
-			if (socket is null) await ConnectAsync(cancellationToken).ConfigureAwait(false);
+			if (socket is null)
+			{
+				await ConnectAsync(cancellationToken).ConfigureAwait(false);
+				connectedAt = monotonicNanoseconds();
+			}
 			try
 			{
 				var message = await socket!.ReceiveTextAsync(cancellationToken).ConfigureAwait(false);
@@ -147,8 +147,29 @@ public sealed class StreamTransportClient(
 			}
 			catch (Exception exception) when (exception is TimeoutException or WebSocketException or HttpRequestException or IOException)
 			{
+				if (monotonicNanoseconds() - connectedAt >= reconnectPolicy.EffectiveStableConnectionDuration.TotalNanoseconds)
+				{
+					consecutiveDisconnects = 0;
+				}
+				consecutiveDisconnects++;
 				await InvalidateAfterDisconnectAsync().ConfigureAwait(false);
-				await ConnectAsync(cancellationToken).ConfigureAwait(false);
+				if (consecutiveDisconnects > reconnectPolicy.MaximumRetries)
+				{
+					SetStatus(TransportConnectionStatus.Failed);
+					throw new ReconnectLimitException("連続切断が再接続上限に達しました。");
+				}
+
+				SetStatus(TransportConnectionStatus.Reconnecting);
+				try
+				{
+					await ConnectWithRetryLimitAsync(reconnectPolicy.MaximumRetries - consecutiveDisconnects + 1, cancellationToken).ConfigureAwait(false);
+					connectedAt = monotonicNanoseconds();
+				}
+				catch
+				{
+					SetStatus(TransportConnectionStatus.Failed);
+					throw;
+				}
 				Reconnected?.Invoke();
 			}
 		}
@@ -160,6 +181,42 @@ public sealed class StreamTransportClient(
 		var oldSocket = socket;
 		socket = null;
 		if (oldSocket is not null) await oldSocket.DisposeAsync().ConfigureAwait(false);
+		SetStatus(TransportConnectionStatus.Stopped);
+	}
+
+	private async Task ConnectWithRetryLimitAsync(int maximumRetries, CancellationToken cancellationToken)
+	{
+		if (socket is not null) return;
+		var token = await credentialStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+		if (string.IsNullOrWhiteSpace(token)) throw new TransportAuthenticationException("端末資格情報がありません。再登録してください。");
+		_ = settings.Validate();
+		var endpoint = CreateStreamUri(settings.ServerUri);
+		IStreamSocket? connectedSocket = null;
+		try
+		{
+			await ReconnectCoordinator.ConnectAsync(async ct =>
+			{
+				var candidate = socketFactory.Create(settings);
+				try
+				{
+					await candidate.ConnectAsync(endpoint, token, ct).ConfigureAwait(false);
+					connectedSocket = candidate;
+				}
+				catch
+				{
+					await candidate.DisposeAsync().ConfigureAwait(false);
+					throw;
+				}
+			}, delay, reconnectPolicy with { MaximumRetries = maximumRetries }, cancellationToken).ConfigureAwait(false);
+			socket = connectedSocket ?? throw new IOException("WSS接続が確立しませんでした。");
+			SetStatus(TransportConnectionStatus.Connected);
+		}
+		catch
+		{
+			if (connectedSocket is not null) await connectedSocket.DisposeAsync().ConfigureAwait(false);
+			SetStatus(TransportConnectionStatus.Failed);
+			throw;
+		}
 	}
 
 	private async Task InvalidateAfterDisconnectAsync()
@@ -178,6 +235,13 @@ public sealed class StreamTransportClient(
 		currentGeneration = 0;
 		currentDictionaryRevision = 0;
 		resultTracker.InvalidateSession();
+	}
+
+	private void SetStatus(TransportConnectionStatus value)
+	{
+		if (status == value) return;
+		status = value;
+		ConnectionStatusChanged?.Invoke(value);
 	}
 
 	private static Uri CreateStreamUri(string serverUri)
