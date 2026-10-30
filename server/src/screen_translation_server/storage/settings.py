@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ._store import (
+	MAX_SETTINGS_FILE_BYTES,
 	JsonRevisionStore,
 	RevisionConflict,
 	StorageCorruptionError,
@@ -48,6 +49,7 @@ class SettingsStore:
 			"settings.json",
 			_default_settings,
 			_validate_stored,
+			max_file_bytes=MAX_SETTINGS_FILE_BYTES,
 			lock_timeout_seconds=lock_timeout_seconds,
 		)
 

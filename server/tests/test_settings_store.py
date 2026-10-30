@@ -5,13 +5,32 @@ import multiprocessing
 from pathlib import Path
 import tempfile
 import unittest
+from contextlib import AbstractContextManager
 from unittest.mock import patch
 
 from screen_translation_server.storage.settings import (
 	RevisionConflict,
 	SettingsStore,
+	StorageCorruptionError,
 	StoreValidationError,
 )
+from screen_translation_server.storage._store import MAX_SETTINGS_FILE_BYTES
+
+
+class _BoundedReadSpy(AbstractContextManager):
+	def __init__(self, file, calls: list[int]) -> None:
+		self._file = file
+		self._calls = calls
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, *args):
+		self._file.close()
+
+	def read(self, size: int = -1) -> bytes:
+		self._calls.append(size)
+		return self._file.read(size)
 
 
 def _update_settings_in_process(data_dir: str, fps: int, barrier, results) -> None:
@@ -91,6 +110,40 @@ class SettingsStoreTests(unittest.TestCase):
 		with self.assertRaises(ValueError):
 			SettingsStore(self.data_dir).get()
 		self.assertEqual(path.read_text(encoding="utf-8"), "{broken")
+
+	def test_file_at_byte_limit_is_readable_and_limit_plus_one_is_rejected(self) -> None:
+		path = self.data_dir / "settings.json"
+		valid = b'{"schema_version":1,"revision":1,"capture_fps":2}'
+		path.write_bytes(valid + b" " * (MAX_SETTINGS_FILE_BYTES - len(valid)))
+
+		self.assertEqual(SettingsStore(self.data_dir).get()["capture_fps"], 2)
+		path.write_bytes(path.read_bytes() + b" ")
+		before = path.read_bytes()
+
+		with self.assertRaises(StorageCorruptionError):
+			SettingsStore(self.data_dir).get()
+		with self.assertRaises(StorageCorruptionError):
+			SettingsStore(self.data_dir).update(1, {"capture_fps": 3})
+		self.assertEqual(path.read_bytes(), before)
+
+	def test_giant_file_is_rejected_after_only_a_bounded_read(self) -> None:
+		path = self.data_dir / "settings.json"
+		with path.open("wb") as file:
+			file.truncate(MAX_SETTINGS_FILE_BYTES * 100)
+		before_size = path.stat().st_size
+		calls: list[int] = []
+		original_open = Path.open
+
+		def tracked_open(file_path: Path, *args, **kwargs):
+			opened = original_open(file_path, *args, **kwargs)
+			return _BoundedReadSpy(opened, calls) if file_path == path else opened
+
+		with patch.object(Path, "open", autospec=True, side_effect=tracked_open):
+			with self.assertRaises(StorageCorruptionError):
+				SettingsStore(self.data_dir).get()
+
+		self.assertEqual(calls, [MAX_SETTINGS_FILE_BYTES + 1])
+		self.assertEqual(path.stat().st_size, before_size)
 
 	def test_concurrent_updates_with_same_revision_only_commit_once(self) -> None:
 		context = multiprocessing.get_context("spawn")

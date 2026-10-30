@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ._store import (
+	MAX_GLOSSARY_FILE_BYTES,
 	JsonRevisionStore,
 	RevisionConflict,
 	StorageCorruptionError,
@@ -70,6 +71,7 @@ class GlossaryStore:
 			"glossary.json",
 			_default_glossary,
 			_validate_stored,
+			max_file_bytes=MAX_GLOSSARY_FILE_BYTES,
 			lock_timeout_seconds=lock_timeout_seconds,
 		)
 

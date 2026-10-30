@@ -13,6 +13,11 @@ from app.file_lock import (
 )
 
 MAX_REVISION = (1 << 64) - 1
+# settings.schema.jsonはuint64 revisionと固定3項目のみのため、整形済みJSONに十分な余白を加えた上限。
+MAX_SETTINGS_FILE_BYTES = 1024
+# glossary.schema.jsonの最大1,000件・各128文字を基準に、制御文字のJSON表現(1文字最大6 byte)と
+# 項目構造の余白を加算する。上限内なら契約上限の辞書を保存形式の差にかかわらず読み取れる。
+MAX_GLOSSARY_FILE_BYTES = 1000 * (2 * 128 * 6 + 128) + 1024
 
 
 class StoreValidationError(ValueError):
@@ -47,12 +52,15 @@ class JsonRevisionStore:
 		data_dir: Path,
 		filename: str,
 		default_factory: Callable[[], dict[str, Any]],
-		validator: Callable[[object], dict[str, Any]],		*,
+		validator: Callable[[object], dict[str, Any]],
+		*,
+		max_file_bytes: int,
 		lock_timeout_seconds: float = DEFAULT_FILE_LOCK_TIMEOUT_SECONDS,
 	) -> None:
 		self._path = Path(data_dir) / filename
 		self._default_factory = default_factory
 		self._validator = validator
+		self._max_file_bytes = max_file_bytes
 		self._lock_timeout_seconds = lock_timeout_seconds
 
 	def get(self) -> dict[str, Any]:
@@ -95,7 +103,11 @@ class JsonRevisionStore:
 		if not self._path.exists():
 			return None
 		try:
-			value = json.loads(self._path.read_text(encoding="utf-8"))
+			with self._path.open("rb") as file:
+				content = file.read(self._max_file_bytes + 1)
+			if len(content) > self._max_file_bytes:
+				raise StorageCorruptionError(f"{self._path.name}が許容サイズを超えています。")
+			value = json.loads(content.decode("utf-8"))
 			return self._validator(value)
 		except (OSError, UnicodeError, json.JSONDecodeError, StoreValidationError) as error:
 			raise StorageCorruptionError(f"{self._path.name}を安全に読み込めません。") from error
