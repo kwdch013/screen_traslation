@@ -1,4 +1,5 @@
 using System.Text;
+using System.Security.Cryptography;
 using ScreenTranslation.Client.Security;
 using ScreenTranslation.Client.Settings;
 using Xunit;
@@ -52,6 +53,20 @@ public sealed class SettingsTests
 	}
 
 	[Fact]
+	public async Task Credential_store_rejects_tampered_protected_bytes()
+	{
+		var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+		var store = new ProtectedCredentialStore(path, new AuthenticatedTestCredentialProtector());
+
+		await store.SaveAsync("test-only-device-credential");
+		var bytes = await File.ReadAllBytesAsync(path);
+		bytes[^1] ^= 0x01;
+		await File.WriteAllBytesAsync(path, bytes);
+
+		await Assert.ThrowsAsync<InvalidDataException>(() => store.LoadAsync());
+	}
+
+	[Fact]
 	public async Task Corrupt_settings_are_rejected_without_echoing_file_contents()
 	{
 		var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -77,5 +92,34 @@ public sealed class SettingsTests
 		public byte[] Protect(ReadOnlySpan<byte> plaintext) => plaintext.ToArray().Reverse().ToArray();
 
 		public byte[] Unprotect(ReadOnlySpan<byte> protectedData) => protectedData.ToArray().Reverse().ToArray();
+	}
+
+	private sealed class AuthenticatedTestCredentialProtector : ICredentialProtector
+	{
+		private static readonly byte[] Key = "test-only-authentication-key"u8.ToArray();
+
+		public byte[] Protect(ReadOnlySpan<byte> plaintext)
+		{
+			var tag = HMACSHA256.HashData(Key, plaintext);
+			return [.. tag, .. plaintext];
+		}
+
+		public byte[] Unprotect(ReadOnlySpan<byte> protectedData)
+		{
+			if (protectedData.Length < 32)
+			{
+				throw new CryptographicException("保護データが短すぎます。");
+			}
+
+			var tag = protectedData[..32];
+			var plaintext = protectedData[32..];
+			var expectedTag = HMACSHA256.HashData(Key, plaintext);
+			if (!CryptographicOperations.FixedTimeEquals(tag, expectedTag))
+			{
+				throw new CryptographicException("認証タグが一致しません。");
+			}
+
+			return plaintext.ToArray();
+		}
 	}
 }
