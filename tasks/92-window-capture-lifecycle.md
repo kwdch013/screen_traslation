@@ -20,6 +20,9 @@
 - TDD Red: 新規テストが未実装の `ScreenTranslation.Client.Capture` を参照してコンパイル失敗。
 - Linuxコンテナ: `CaptureLifecycleTests` 9件成功 (fake session)。
 - Windows-targeted build: `ScreenTranslation.Windows.Tests.csproj` 成功、0 warning / 0 error。
+- Client compose: Core 1件、Client 18件、Contract 4件成功。
+- Python 3.14: 通常回帰と`src/`のみを`/app/src`へmountした回帰が各306件成功 (72 skip)。
+- 静的検査: `mypy src`、`mypy --platform win32 src` (各79 source files)、`ruff check src` 成功。
 - Windows上の列挙テスト実行、WGC実画面取得、自己キャプチャ除外、`SetWindowDisplayAffinity`、混在DPIの実測: **未実施(Windows実機が必要)**。この結果を合格扱いにしない。列挙テストのWindows CI実行と実機確認は #135/#136/#148 系Taskで行う。
 
 ## 変更範囲

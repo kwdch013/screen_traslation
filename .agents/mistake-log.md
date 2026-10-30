@@ -25,8 +25,9 @@
 - 何が起きたか: Issue #57用worktreeを作成するコマンドの末尾で`python3 scripts/ai-work-unit.py`を実行し、親worktreeのcwdから別のWork Unit IDを一度生成した。Claim前に対象worktreeで再取得し、正しいIDだけを使ったためClaim/commitには影響していない。
 - 根本原因: worktree作成とWork Unit取得を1つのコマンド列にまとめ、実行cwdが親のまま変わらない点を見落とした。
 - 正しいやり方: worktree作成後、別の実行で対象worktreeをcwdに指定し、`git rev-parse --show-toplevel`が期待パスと一致することを確認してからhelperを呼ぶ。
-- 発生回数: 2
+- 発生回数: 3
 - 2026-10-30の差分: Issue #63のClaim前に、親worktreeでhelperを誤実行した。専用worktreeで再取得したIDをClaimに使い、Claim後のID不一致はない。
+- 2026-10-30の差分: Issue #92でClaim前にTask branchを作った。ClaimとWork Unit IDは正しい専用worktreeで取得したが、初期worktreeはdetachedにし、Claim勝利後にbranchを作る手順へ guard を拡張する。
 - 再発原因: worktree作成とhelper実行を同じコマンド列にまとめた。
 - guard: guard-worktree-command-cwd
 
@@ -41,5 +42,12 @@
 - 何が起きたか: 追加したPython契約テストに残っていた不正インデントを、再ビルドしないCompose実行の成功結果で見落とした。`--build`付き再実行で構文エラーが判明した。
 - 根本原因: 変更後のコンテナイメージを使ったことと、出力を末尾だけに制限したことで、Composeが古いイメージを実行している可能性を確認しなかった。
 - 正しいやり方: Dockerfile・コンテナ内テストソースを変更した場合は`--build`を付けて実行し、shell pipelineには`pipefail`を設定して終了コードを維持する。
+- 発生回数: 1
+- guard: なし
+
+## 2026-10-30 Python回帰テストでイメージ内の静的資産をマウントで隠した
+- 何が起きたか: `app:ci`回帰時にリポジトリ全体を`/workspace`へマウントし、イメージに含まれる`/app/frontend/dist`を使えなくしたため、既存Web回帰で503を発生させた。`src/`だけを`/app/src`へマウントして再実行し306件成功した。
+- 根本原因: イメージ実行環境のパス構成を確認せず、source rootをイメージ外の別パスへ重ねた。
+- 正しいやり方: マウント回帰は既定の実行パス`/app/src`へ`src/`だけをread-onlyで重ね、イメージ内frontend資産・設定を維持してからテストする。
 - 発生回数: 1
 - guard: なし
