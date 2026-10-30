@@ -4,7 +4,8 @@
 
 - Issue: [#127](https://github.com/kwdch013/screen_traslation/issues/127)、親Phase #65、Milestone v1.0。
 - Base / Merge target: `develop` / `develop`。
-- Branch: `task/127-governance-policy`。Work Unit: `7cab66b4-08bd-49bf-9947-f59c49c5753d`。
+- Branch: `task/127-governance-policy`。Work Unit: `e4d671f1-d41e-470b-90d9-f03b4754c904`。
+- PR: [#128](https://github.com/kwdch013/screen_traslation/pull/128) (作成済み、レビュー・merge未実施)。
 - 初回Claimは誤ったcwdから取得したWork Unit IDを含んだため解放しました ([記録](https://github.com/kwdch013/screen_traslation/issues/127#issuecomment-6525753019))。担当worktreeのID `e4d671f1-d41e-470b-90d9-f03b4754c904` でClaimを取り直し、`issue/in-progress`・`worker/claimed` を再設定。#127をPhase #65のnative Sub-issueとして登録。
 - 既存の未追跡 `.agents/`・`.claude/` は保持し、作業は別worktreeで実施。
 
