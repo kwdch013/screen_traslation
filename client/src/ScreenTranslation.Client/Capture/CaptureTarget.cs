@@ -31,6 +31,7 @@ public interface ICaptureSessionFactory
 
 public interface ICaptureSession : IAsyncDisposable
 {
+	event Action<CaptureInvalidationReason>? Invalidated;
 	ValueTask StartAsync(CancellationToken cancellationToken = default);
 	ValueTask StopAsync(CancellationToken cancellationToken = default);
 }

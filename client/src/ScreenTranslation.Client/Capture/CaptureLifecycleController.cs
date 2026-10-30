@@ -69,6 +69,7 @@ public sealed class CaptureLifecycleController : IAsyncDisposable
 			try
 			{
 				session = await sessionFactory.CreateAsync(SelectedTarget, cancellationToken);
+				session.Invalidated += OnSessionInvalidated;
 				await session.StartAsync(cancellationToken);
 				activeSession = session;
 				State = CaptureClientState.Streaming;
@@ -78,6 +79,7 @@ public sealed class CaptureLifecycleController : IAsyncDisposable
 				State = CaptureClientState.ConnectedStopped;
 				if (session is not null)
 				{
+					session.Invalidated -= OnSessionInvalidated;
 					await session.DisposeAsync();
 				}
 				throw;
@@ -138,14 +140,20 @@ public sealed class CaptureLifecycleController : IAsyncDisposable
 			{
 				return;
 			}
-			if (activeSession is not null)
+			try
 			{
-				await StopCoreAsync(CancellationToken.None);
+				if (activeSession is not null)
+				{
+					await StopCoreAsync(CancellationToken.None);
+				}
+				InvalidateGeneration();
 			}
-			InvalidateGeneration();
-			SelectedTarget = null;
-			State = CaptureClientState.Disconnected;
-			disposed = true;
+			finally
+			{
+				SelectedTarget = null;
+				State = CaptureClientState.Disconnected;
+				disposed = true;
+			}
 		}
 		finally
 		{
@@ -158,10 +166,17 @@ public sealed class CaptureLifecycleController : IAsyncDisposable
 		var session = activeSession;
 		State = CaptureClientState.Stopping;
 		activeSession = null;
+		session!.Invalidated -= OnSessionInvalidated;
+		Exception? stopException = null;
+		Exception? disposeException = null;
 		try
 		{
 			InvalidateGeneration();
 			await session!.StopAsync(cancellationToken);
+		}
+		catch (Exception exception)
+		{
+			stopException = exception;
 		}
 		finally
 		{
@@ -169,10 +184,42 @@ public sealed class CaptureLifecycleController : IAsyncDisposable
 			{
 				await session!.DisposeAsync();
 			}
+			catch (Exception exception)
+			{
+				disposeException = exception;
+			}
 			finally
 			{
 				State = CaptureClientState.ConnectedStopped;
 			}
+		}
+		if (stopException is not null && disposeException is not null)
+		{
+			throw new AggregateException("キャプチャ停止と破棄の両方に失敗しました。", stopException, disposeException);
+		}
+		if (stopException is not null)
+		{
+			System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(stopException).Throw();
+		}
+		if (disposeException is not null)
+		{
+			System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(disposeException).Throw();
+		}
+	}
+
+	private void OnSessionInvalidated(CaptureInvalidationReason reason) => _ = HandleSessionInvalidatedAsync(reason);
+
+	private async Task HandleSessionInvalidatedAsync(CaptureInvalidationReason reason)
+	{
+		try
+		{
+			await InvalidateAsync(reason);
+		}
+		catch (ObjectDisposedException)
+		{
+		}
+		catch (AggregateException)
+		{
 		}
 	}
 

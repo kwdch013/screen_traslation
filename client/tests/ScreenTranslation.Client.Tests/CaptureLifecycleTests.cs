@@ -114,6 +114,53 @@ public sealed class CaptureLifecycleTests
 		Assert.Equal(CaptureClientState.ConnectedStopped, lifecycle.State);
 	}
 
+	[Fact]
+	public async Task StopAndDisposeFailuresStillInvalidateAndDisposeExactlyOnce()
+	{
+		var factory = new FakeCaptureSessionFactory { FailOnStop = true, FailOnDispose = true };
+		var lifecycle = new CaptureLifecycleController(factory);
+		await lifecycle.SelectTargetAsync(Target("window-1"));
+		await lifecycle.StartAsync();
+		var notifications = new List<ulong>();
+		lifecycle.GenerationInvalidated += notifications.Add;
+
+		var exception = await Assert.ThrowsAsync<AggregateException>(async () => await lifecycle.StopAsync());
+
+		Assert.Equal(2, exception.InnerExceptions.Count);
+		Assert.Equal(CaptureClientState.ConnectedStopped, lifecycle.State);
+		Assert.Single(notifications);
+		Assert.Equal(1, factory.Sessions[0].StopCount);
+		Assert.Equal(1, factory.Sessions[0].DisposeCount);
+		await lifecycle.StopAsync();
+		Assert.Equal(1, factory.Sessions[0].DisposeCount);
+	}
+
+	[Fact]
+	public async Task SessionInvalidationStopsThroughTheController()
+	{
+		var factory = new FakeCaptureSessionFactory();
+		var lifecycle = new CaptureLifecycleController(factory);
+		await lifecycle.SelectTargetAsync(Target("window-1"));
+		await lifecycle.StartAsync();
+
+		factory.Sessions[0].NotifyInvalidated(CaptureInvalidationReason.Minimized);
+		await factory.Sessions[0].StopCompleted;
+		await WaitForStoppedAsync(lifecycle);
+
+		Assert.Equal(CaptureClientState.ConnectedStopped, lifecycle.State);
+		Assert.Equal(CaptureInvalidationReason.Minimized, lifecycle.LastInvalidationReason);
+		Assert.Equal(1, factory.Sessions[0].DisposeCount);
+	}
+
+	private static async Task WaitForStoppedAsync(CaptureLifecycleController lifecycle)
+	{
+		for (var attempt = 0; attempt < 100 && lifecycle.State != CaptureClientState.ConnectedStopped; attempt++)
+		{
+			await Task.Delay(10);
+		}
+		Assert.Equal(CaptureClientState.ConnectedStopped, lifecycle.State);
+	}
+
 	private static CaptureTarget Target(string id, CaptureTargetKind kind = CaptureTargetKind.Window) =>
 		new(id, kind, id, new CaptureBounds(-1920, 0, 1920, 1080), 144);
 
@@ -121,19 +168,25 @@ public sealed class CaptureLifecycleTests
 	{
 		public List<FakeCaptureSession> Sessions { get; } = [];
 		public bool FailOnStart { get; init; }
+		public bool FailOnStop { get; init; }
+		public bool FailOnDispose { get; init; }
 
 		public ValueTask<ICaptureSession> CreateAsync(CaptureTarget target, CancellationToken cancellationToken = default)
 		{
-			var session = new FakeCaptureSession(FailOnStart);
+			var session = new FakeCaptureSession(FailOnStart, FailOnStop, FailOnDispose);
 			Sessions.Add(session);
 			return ValueTask.FromResult<ICaptureSession>(session);
 		}
 	}
 
-	private sealed class FakeCaptureSession(bool failOnStart) : ICaptureSession
+	private sealed class FakeCaptureSession(bool failOnStart, bool failOnStop, bool failOnDispose) : ICaptureSession
 	{
+		private readonly TaskCompletionSource stopCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		public int StopCount { get; private set; }
 		public int DisposeCount { get; private set; }
+		public event Action<CaptureInvalidationReason>? Invalidated;
+		public Task StopCompleted => stopCompleted.Task;
+		public void NotifyInvalidated(CaptureInvalidationReason reason) => Invalidated?.Invoke(reason);
 
 		public ValueTask StartAsync(CancellationToken cancellationToken = default)
 		{
@@ -148,12 +201,21 @@ public sealed class CaptureLifecycleTests
 		public ValueTask StopAsync(CancellationToken cancellationToken = default)
 		{
 			StopCount++;
+			stopCompleted.TrySetResult();
+			if (failOnStop)
+			{
+				throw new InvalidOperationException("試験用の停止失敗です。");
+			}
 			return ValueTask.CompletedTask;
 		}
 
 		public ValueTask DisposeAsync()
 		{
 			DisposeCount++;
+			if (failOnDispose)
+			{
+				throw new InvalidOperationException("試験用の破棄失敗です。");
+			}
 			return ValueTask.CompletedTask;
 		}
 	}
