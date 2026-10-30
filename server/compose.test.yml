@@ -1,8 +1,8 @@
 services:
   test:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: server/Dockerfile
     init: true
     network_mode: none
     volumes:
@@ -14,5 +14,5 @@ services:
       - unittest
       - discover
       - -s
-      - tests/contracts
+      - tests
       - -v
