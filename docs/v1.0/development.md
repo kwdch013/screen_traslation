@@ -8,7 +8,7 @@ v1.0のソースは `client/`・`server/`・`contracts/` に分け、既存Web�
 | --- | --- | --- |
 | Windowsクライアント | C# / .NET 10、基準SDK 10.0.402、WPF | CoreはLinuxコンテナでbuild/test。Windows UIを含むSolutionはWindows runnerでbuild/test |
 | Linuxサーバー | Python 3.14、`server/src/`・`server/tests/` | 専用コンテナでunittest |
-| 共通契約 | `contracts/README.md` | 契約文書とfixtureは別Taskで追加 |
+| 共通契約 | `contracts/README.md`・`contracts/fixtures/` | Linux serverとclientの両fixture試験をCIで実行 |
 | 既存Web版 | `src/`・`frontend/` | 既存CI・利用手順を継続 |
 
 リポジトリルートから次を実行します。
@@ -18,7 +18,15 @@ docker compose -f client/compose.test.yml run --rm test
 docker compose -f server/compose.test.yml run --rm test
 ```
 
-`.NET SDK 10.0.402` とRuntime 10.0.14は設計基準のstable版です。`client/global.json` がSDKを固定し、テストイメージは同SDKタグにRuntime 10.0.14を加えます。Windows専用UI/APIの実機試験はLinux Coreテストの合格で代替しません。Windows runnerでは `.github/workflows/client-bootstrap.yml` が `client/ScreenTranslation.sln` をビルドし、Coreテストを実行します。
+`.NET SDK 10.0.402` とRuntime 10.0.14は設計基準のstable版です。`client/global.json` がSDKを固定し、テストイメージは同SDKタグにRuntime 10.0.14を加えます。Windows専用UI/APIの実機試験はLinux Coreテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。
+
+### CI・CodeQL・依存更新
+
+`.github/workflows/ci.yml` はpull requestとdevelop/mainへのpushごとに起動し、Web回帰、server契約、client契約、Windows Solutionのjobを実行します。pathsフィルタを使わないため、client/server/contractsの変更や文書だけの変更でも必要jobが省略されず、既存Rulesetが要求する `test` checkは全jobの結果を集約して必ず完了します。上流jobが失敗・取消になった場合は集約checkも失敗します。
+
+Web側の `app:ci` イメージは通常、GitHub設定ファイルを含みません。そのため `src/tests/test_ci_workflow_structure.py` はworkflowファイルが無い環境ではskipし、CIではリポジトリをread-only mountした構造検証を実行します。通常イメージをmount無しで実行する既存回帰も維持します。
+
+CodeQLはPythonとC#を1つの `.github/workflows/codeql.yml` で解析します。Dependabotは既存のGitHub Actions・Web pip/npm・root Docker更新に加え、`server/` のpip/Dockerと `client/` のNuGetを週次で確認し、更新PRをすべてdevelopへ作ります。非公式actionはworkflow内でコミットSHAに固定します。
 
 ## 決定事項と適用範囲
 
@@ -110,6 +118,7 @@ requiredにするcontextは、[公式のrequired status checkの条件](https://
 | #66 Ruleset / required導入順 | Rulesetとrequired checkの導入順 | 手順確定。実設定の変更とGitHub実証は #118 |
 | #67 Work Unit・Claim・独立レビューゲート | `scripts/ai-work-unit.py`・`scripts/ai-claim.py`・`scripts/ai-review-gate.py`・hooks・workflow、`tests/ai_gate/` | 正常/拒否の61件とworkflow信頼境界をコンテナで検証。GitHub実証条件は #118 へ移管 |
 | #68 client/server/contractsの雛形 | `client/ScreenTranslation.sln`・`client/global.json`・Linux Core試験、`server/`のPython 3.14コンテナ、`contracts/README.md`、旧Web文書・共存テスト | .NET SDK 10.0.402 / Runtime 10.0.14とディレクトリ境界を固定。Windows API・製品機能・契約fixture・配布は後続Task |
+| #69 Linuxコンテナ・WindowsクライアントCI | `.github/workflows/ci.yml`・`codeql.yml`・`dependabot.yml`・`src/tests/test_ci_workflow_structure.py` | REQ-NF-008/009/010。Python/C#契約fixtureを別jobで検査し、required `test` を常時集約 |
 | #118 有効化・GitHub実証 | default branch反映、検証PR、実在contextのrequired化、統合可否の再検証・証跡 | #67完了待ち。Phase #65の必須Taskとして追跡 |
 | #55 要件定義 / #57 基本・詳細設計 | [要件書](../../requirements/version_1/requirements.md) / [基本・詳細設計](design/architecture.md) / [ADR索引](design/adr/README.md) | 全22要件IDと採用方式・下流Issue反映表を管理。実機・製品試験は未実施 |
 

@@ -24,7 +24,10 @@ class DevelopmentBranchTest(unittest.TestCase):
 		ecosystems = re.findall(r"(?m)^  - package-ecosystem: (\S+)$", configuration)
 		targets = re.findall(r"(?m)^    target-branch: (\S+)$", configuration)
 
-		self.assertCountEqual(ecosystems, ["github-actions", "pip", "npm", "docker"])
+		self.assertCountEqual(
+			ecosystems,
+			["github-actions", "pip", "pip", "npm", "docker", "docker", "nuget"],
+		)
 		self.assertEqual(targets, ["develop"] * len(ecosystems))
 
 	def test_governance_documents_make_develop_the_default_and_gate_branch(self) -> None:

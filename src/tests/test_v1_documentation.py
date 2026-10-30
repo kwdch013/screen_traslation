@@ -148,7 +148,7 @@ class V1DocumentationTest(unittest.TestCase):
 			"Web版",
 			"client/ScreenTranslation.sln",
 			"client/global.json",
-			".github/workflows/client-bootstrap.yml",
+			".github/workflows/ci.yml",
 		):
 			with self.subTest(expected=expected):
 				self.assertIn(expected, guide)
