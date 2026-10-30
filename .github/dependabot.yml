@@ -16,6 +16,13 @@ updates:
     open-pull-requests-limit: 5
     target-branch: develop
 
+  - package-ecosystem: pip
+    directory: /server
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    target-branch: develop
+
   - package-ecosystem: npm
     directory: /frontend
     schedule:
@@ -28,4 +35,18 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    target-branch: develop
+
+  - package-ecosystem: docker
+    directory: /server
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    target-branch: develop
+
+  - package-ecosystem: nuget
+    directory: /client
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
     target-branch: develop
