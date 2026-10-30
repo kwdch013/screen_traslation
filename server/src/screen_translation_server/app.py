@@ -148,7 +148,7 @@ def create_app(
 				return
 			data = message.get("bytes")
 			if not isinstance(data, bytes) or len(data) > BINARY_MESSAGE_MAX_BYTES:
-				await websocket.close(code=1009)
+				await websocket.close(code=1008)
 				return
 			try:
 				validate_authenticated_binary_message(

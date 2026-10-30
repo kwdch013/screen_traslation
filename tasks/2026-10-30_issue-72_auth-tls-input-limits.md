@@ -18,16 +18,18 @@
 - `test_security.py` / `test_input_limits.py`: TDDで認証/権限/TLS/Host/Origin、秘密値非露出、fixture境界、偽装画像、ROI、認証前decode禁止を確認。
 - `app.py`: Starlette HTTP/WSS routeをUvicornへ接続。TLSなしの起動を拒否し、health/readyを含む全routeでAuthorization header認証を行う。管理専用PUT/routeをroleで分離し、認証済みの未実装操作は501を返す。
 - transport: HTTPはContent-Length事前拒否後にstreamを上限まで読み、超過chunkを蓄積せず413。WSSはUvicorn/websocketsへ4,198,408 bytesのmessage上限を設定。認証失敗はpeer address単位に60秒5回、同時認証4件/peer・32件全体、追跡peer 1,024件、Uvicorn同時数128件で制限する。forwarded headerは無効。
+- transport回帰: 固定Uvicornをテスト中にTLS付きloopbackで起動し、httpxの単一chunk HTTPとwebsocketsの単一message WSSで上限+1/上限ちょうどを検証。最大値のWSSは認証後routeまで届き、上限超過はtransport close code 1009で拒否される。`ws_max_size=None` mutationでは期待値1009に対してroute側1008となり失敗することを確認。
 - 対象外: セッション開始/停止の処理本体は#73、結果配信は#79、設定/辞書APIの処理本体は#84。入口の認証・長さ検査routeと501 stubはこのTaskに含む。
 
 ## 検証
 
 - TDD: 実装前に追加した入口テストは`create_app`が存在しないため失敗。
-- `docker compose -f server/compose.test.yml run --build --rm test python -B -m unittest discover -s tests` — 42件成功。
+- `docker compose -f server/compose.test.yml run --build --rm test python -B -m unittest discover -s tests` — 43件成功。
 - `docker build -t app:ci . && docker run --rm -e PYTHONPATH=/app/src app:ci python -B -m unittest discover -s src/tests` — 306件成功、72件skip。
 - app:ciマウント付き`src/tests`回帰 — 306件成功。
 - `mypy src` / `mypy --platform win32 src` — 各79 source files成功。
-- `ruff check --no-cache src scripts tests/ai_gate server/src server/tests` — 成功。
+- `ruff check --no-cache src scripts tests/ai_gate server/src server/tests` (app:ciへrepoをread-only mount) — 成功。
+- `ws_max_size=None` mutation — 実transport試験はclose code 1009を期待し、route側1008を観測して失敗。設定を4,198,408 bytesに戻して再検証。
 
 ## 制約
 
