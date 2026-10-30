@@ -24,6 +24,13 @@ client / server / contracts の変更を個別に検証し、文書だけの変�
 - 共通fixtureの `session-valid.expected` を一時的にacceptからrejectへ変更し、server Python契約試験とclient C#契約試験が各1件失敗することを確認。fixtureは元の内容へ復元。
 - Docker内PyYAMLでCI / CodeQL / Dependabot YAMLをparseし、`git diff --check` が成功。
 
+## PR #142 CodeQL C# 抽出失敗の修正
+
+- CodeQL jobをWindows runnerへ移し、`client/global.json` の.NET SDKをsetup-dotnetで導入してから `build-mode: manual` でSolution全体をビルドする。Windows専用ターゲットをLinux runnerでビルドできない問題を避け、C# extractorへコンパイル情報を渡す。
+- setup-dotnetは公式actionのv5タグが指すcommit SHAで固定。既存Python解析、権限、concurrency、CodeQL action設定は維持。
+- 構造テストへWindows runner・SDK設定・manual buildの期待値を先に追加し、旧設定で失敗、新設定で6件成功。
+- 更新後の全体テスト・mypy・ruffの結果はPR #142へ反映する。
+
 ## 作業情報
 
 - Issue: #69

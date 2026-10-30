@@ -51,6 +51,11 @@ class CiWorkflowStructureTest(unittest.TestCase):
 		dependabot = self._read(".github/dependabot.yml")
 
 		self.assertIn("languages: python, csharp", codeql)
+		self.assertRegex(codeql, r"(?m)^    runs-on: windows-latest$")
+		self.assertIn("actions/setup-dotnet@", codeql)
+		self.assertIn("global-json-file: client/global.json", codeql)
+		self.assertIn("build-mode: manual", codeql)
+		self.assertIn("dotnet build client/ScreenTranslation.sln --configuration Release", codeql)
 		for ecosystem, directory in (("pip", "/server"), ("docker", "/server"), ("nuget", "/client")):
 			with self.subTest(ecosystem=ecosystem):
 				self.assertRegex(
