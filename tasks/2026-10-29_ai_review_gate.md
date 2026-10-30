@@ -59,7 +59,14 @@ GitHub Rulesetは読み取りのみ。既存 `protect-dev-main` は旧dev/main�
 - [最新変更要求](https://github.com/kwdch013/screen_traslation/pull/117#issuecomment-6499293115)を確認。信頼済みコードのdefault branch反映前にはGitHub上での統合制御を実証できず、元の#67受け入れ条件とClosesリンクが整合していなかった。
 - Ownerの指示どおり、[新Task #118](https://github.com/kwdch013/screen_traslation/issues/118)（R1-P3-T2b）を起票し、level/task・issue/block・Milestone v1.0・wave/3を設定。Phase #65のnative Sub-issueとし、native blocked-by #67を登録した。起票のみで未Claim。
 - #67の受け入れ条件をコード・workflow・ローカル正常/拒否テスト・文書の導入へ整合。default branch反映→検証PRで未承認/自己承認/古いHEADの拒否と独立承認の受理→実在contextのrequired化→CIを含む統合可否の再検証・証跡記録は#118へ移した。
-- #54・#55・#68の既存依存は#67のまま維持。#118はPhase #65の必須Taskとして追跡し、#118とPhase結合テストが完了するまで#65を閉じない。mainへの基盤導入リリースはProject完了時の最終リリースと区別する。
+- #54・#55・#68の既存依存は#67のまま維持。#118はPhase #65の必須Taskとして追跡し、#118とPhase結合テストが完了するまで#65を閉じない。当初計画ではmainへの基盤導入リリースをProject完了時の最終リリースと区別していました。この案は2026-10-30に撤回済みです。
 - PR本文のCloses #67は導入範囲に整合するため維持し、#118を完了リンクへ含めない。GitHub上の強制を実証済みとは扱わない。
 - 今回のリポジトリ差分は本文書とdocs/v1.0/development.mdのみ。コード・workflowの挙動変更がないためテスト追加は行わず、既存コンテナテストと差分・Issue/PR・native関係のread-backで整合を検証する。
 - 指摘対応後の確認: Python 3.14コンテナで基盤テスト61件、構成/文書5モジュール24件が成功。`git diff --check`成功。native親子・依存とIssue #65/#67/#118・PR本文をread-backし、本文一致・Open状態・既存依存の維持を確認済み。
+
+## 2026-10-30 Owner決定による計画改定
+
+- 旧計画では#118でゲート基盤をmainへ先行リリースする案を記録していました。Ownerは2026-10-30に既定ブランチをdevelopへ変更し、Milestone完了まではmain向けrelease PRを作らない運用を決定しました。旧案は撤回し、履歴としてのみ残します。
+- #118本文とDraft PR #119はdevelop上でのゲート有効化、Ruleset #19132355をdevelop/main向けに整理する案、required化、required化前後それぞれの5ケース実証へ更新しました。
+- 既存release PR #123はClose済みです。今回Ruleset・repository settings・mainは変更していません。
+- 新運用では、全Milestone Issue完了とdevelop上のシナリオ試験・ユーザー受入後に限りdevelop→mainのrelease PRをmerge commitで行います。
