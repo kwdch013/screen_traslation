@@ -5,3 +5,14 @@ services:
       dockerfile: Dockerfile
     init: true
     network_mode: none
+    volumes:
+      - ../contracts:/workspace/contracts:ro
+    command:
+      - python
+      - -B
+      - -m
+      - unittest
+      - discover
+      - -s
+      - tests/contracts
+      - -v

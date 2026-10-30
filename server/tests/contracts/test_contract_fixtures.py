@@ -125,8 +125,6 @@ class ContractFixtureTests(unittest.TestCase):
 		if not 0 <= age <= 5_000_000_000:
 			return "expiry"
 		return "accept"
-				self.assertEqual(case["rejection"] if case["expected"] == "reject" else None,
-					"lifecycle" if case["expected"] == "reject" else None)
 
 	def test_existing_api_error_fixture_catalog_remains_schema_valid(self) -> None:
 		validator = Draft202012Validator(self.schemas["error"], format_checker=self.format_checker)

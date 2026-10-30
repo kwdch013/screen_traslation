@@ -164,4 +164,4 @@ WSS close reasonは固定code `AUTHENTICATION_FAILED`, `SESSION_MISMATCH`, `PROT
 | result | empty、旧generation、逆順frame、旧revision | 有効emptyのみ字幕を消去、他は表示せず |
 | protocol | STF1/length/JSON/payload truncation・trailing bytes | framing違反close、decode前拒否 |
 
-Python JSON Schema/fixtureテストは`src/tests/test_api_contract_schemas.py`。アプリ通常imageでは契約文書が無い場合に明示skipし、mount付き回帰では検証します。OpenAPIはRedocly CLI 1.34.5、Node 24.11.1でlintします。これらはschema整合性を検査するだけで、Python/C#実装の相互運用、TLS、失効反映時間、WebSocket上限/切断、性能、実機座標の合格を示しません。後続#64/#72/#74/#79/#89/#108/#109/#136がそれぞれ実装・実証します。
+契約fixtureの正本は[`contracts/fixtures/`](../../../contracts/fixtures/)です。Python 3.14の独立Draft 2020-12検証は`server/tests/contracts/`、同じ期待結論を読むC#の厳密検証は`client/tests/ScreenTranslation.Contracts.Tests/`で行います。実行はrootから`docker compose -f server/compose.test.yml run --build --rm test`と`docker compose -f client/compose.test.yml run --build --rm test`です。通常の`app:ci`は契約文書をコピーしないため、マウントなしの既存`src/tests`で契約テストをskipします。OpenAPIはRedocly CLI 1.34.5、Node 24.11.1でlintします。fixtureテストはschemaと計算例の一致を検査しますが、TLS、失効反映時間、実画像decoder、性能、実機座標の合格を示しません。後続#72/#74/#79/#89/#108/#109/#136がそれぞれ実装・実証します。

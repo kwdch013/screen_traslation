@@ -5,3 +5,13 @@ services:
       dockerfile: Dockerfile.test
     init: true
     network_mode: none
+    volumes:
+      - ../contracts:/workspace/contracts:ro
+    command:
+      - dotnet
+      - test
+      - tests/ScreenTranslation.Contracts.Tests/ScreenTranslation.Contracts.Tests.csproj
+      - --configuration
+      - Release
+      - --filter
+      - Category=Contract
