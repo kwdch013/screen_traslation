@@ -25,3 +25,4 @@
 ## 状態
 
 実装完了・PR作成前。Issue #81 Claim取得済み。作成PRは `develop` がbase。レビュー・mergeは別作業。
+- develop取り込みで競合解消。
