@@ -212,7 +212,13 @@ Work Unitとmarkerは同一credential内の論理的証跡です。悪意ある�
 
 ## v1.0 要件の参照と文書テスト
 
-要求の正本は[要件書](../../requirements/version_1/requirements.md)、基本/詳細設計は[architecture.md](design/architecture.md)、脅威モデルは[security.md](design/security.md)、検証条件は[受入計画](acceptance.md)、全要件ID→Phase/Taskは[ロードマップ](../../plan/version_1/roadmap.md)です。Ownerの対応環境・性能値・受入手順の承認は2026-10-29に記録済みです（[承認記録](https://github.com/kwdch013/screen_traslation/issues/55#issuecomment-6499965211)）。採用方式と下流Issueへの反映内容はarchitecture.md/ADR索引に確定し、実機/製品の未実施事項はロードマップに記録します。WGC/キャプチャ除外は#135相当、混在DPI/負座標/重畳は#136相当のWindows実機Taskで確認します。#66/#67/#118はREQ-NF-010に対応します。公式仕様と実機検証手順は[キャプチャ除外調査](research/capture-exclusion.md)と[混在DPI調査](research/mixed-dpi.md)を参照します。Web版の起動方法は現行ガイドを参照します。
+要求の正本は[要件書](../../requirements/version_1/requirements.md)、基本/詳細設計は[architecture.md](design/architecture.md)、脅威モデルは[security.md](design/security.md)、検証条件は[受入計画](acceptance.md)、全要件ID→Phase/Taskは[ロードマップ](../../plan/version_1/roadmap.md)です。Ownerの対応環境・性能値・受入手順の承認は2026-10-29に記録済みです（[承認記録](https://github.com/kwdch013/screen_traslation/issues/55#issuecomment-6499965211)）。座標の正本は[画像座標契約](../../contracts/coordinates.md)、状態・結果採否の正本は[session状態契約](../../contracts/session-state.md)、共通の座標fixtureは[geometry fixture](../../contracts/fixtures/geometry/coordinate-cases.json)です。WGC/キャプチャ除外は#135相当、混在DPI/負座標/重畳は#136相当のWindows実機Taskで確認します。#66/#67/#118はREQ-NF-010に対応します。公式仕様と実機検証手順は[キャプチャ除外調査](research/capture-exclusion.md)と[混在DPI調査](research/mixed-dpi.md)を参照します。Web版の起動方法は現行ガイドを参照します。
+
+既存の座標算術モデルとIssue #63の共通fixtureをPython 3.14コンテナで検証します。fixtureに期待座標・モニター物理矩形・ROI包含可否を記録し、Windows実機APIや重畳の検証とは分けます。
+
+```bash
+docker compose run --rm app python -m unittest src.tests.test_dpi_coordinates -v
+```
 
 文書をマウントしたPython 3.14コンテナで既存と次版の文書テストを実行します。標準ライブラリだけを使い、OCR/翻訳モデルは実行しません。通常アプリイメージには文書を含めないため、マウントなしでskipした結果を文書検証成功と扱いません。
 
