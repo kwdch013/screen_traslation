@@ -9,7 +9,7 @@
 
 ## 確認
 
-- `docker compose -f client/compose.test.yml run --build --rm test`: 成功。Core 1件、Client 8件、契約fixture 4件。
+- `docker compose -f client/compose.test.yml run --build --rm test`: 成功。Core 1件、Client 9件、契約fixture 4件。
 - `docker build -t app:ci .`: 成功。
 - `docker run --rm -e PYTHONPATH=/app/src app:ci python -B -m unittest discover -s src/tests`: 306件成功、72件skip。
 - リポジトリmount回帰: 306件成功。イメージ生成済み `frontend/dist` をread-onlyで重ねて、mountによる欠落を避けて実行。
