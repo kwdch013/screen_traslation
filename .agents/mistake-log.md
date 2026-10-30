@@ -15,3 +15,10 @@
 - 2026-10-30の差分: Issue #63のClaim前に、親worktreeでhelperを誤実行した。専用worktreeで再取得したIDをClaimに使い、Claim後のID不一致はない。
 - 再発原因: worktree作成とhelper実行を同じコマンド列にまとめた。
 - guard: guard-worktree-command-cwd
+
+## 2026-10-30 jsonschema validatorの存在しない例外属性を参照した
+- 何が起きたか: `Draft202012Validator.exceptions.ValidationError`を存在すると仮定して負例テストを書き、mount付き回帰でAttributeErrorになった。修正後、`jsonschema.ValidationError`を直接importして再実行した。
+- 根本原因: validator classの公開APIを確認せず、以前使ったvalidator構造の知識をそのまま当てはめた。
+- 正しいやり方: 外部ライブラリの例外型を使うテストを書く前に公開APIを確認し、対象ライブラリ自身から例外型をimportする。追加したテストをmount経路で実行してから完了とする。
+- 発生回数: 1
+- guard: なし
