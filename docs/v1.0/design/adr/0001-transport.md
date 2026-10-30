@@ -24,6 +24,8 @@ WindowsからLAN上のLinuxへROI画像を送り、状態・訳文・領域を�
 
 HTTPSで接続状態・開始/停止・設定/辞書等を扱い、認証済みの単一WSSで画像と結果/状態を双方向に運ぶ。WSS binary message内にUTF-8 JSONメタデータとPNG/JPEG bytesを含め、text messageは状態/結果に使う。routeは`/api/v1/stream`、HTTPS routeと入出力境界は[基本・詳細設計](../architecture.md#通信api詳細)で定める。具体schema/field長/frame fixtureは #62/#64 の`contracts/`が正本となる。
 
+Issue #72の入口骨格はStarlette `1.10.0`とUvicorn `0.52.4`を使用し、両依存はBSD-3-Clauseとして2026-10-30にPyPIで確認した。UvicornはWebSocket実装`websockets==15.0.1`を使い、message上限を4,198,408 bytes、同時接続/要求を128に制限する。TLS contextを直接Uvicornへ渡し、proxy headerを無効化する。開始/停止、結果配信、設定/辞書APIの処理本体はこの入口骨格に含めない。
+
 全経路にTLS 1.2以上と端末認証を適用する。WSSはUpgrade前に認証し、資格情報をURL/queryへ載せずAuthorization headerで渡す。health/readyも例外にしない。管理要求は別権限とし、通信接続の成立だけで画面取得を開始しない。WebSocketのmessage上限、ping間隔、実装ライブラリ別のUpgrade制御は#62/#74/#79/#89で実装前に照合する。
 
 ## 検証と確定担当

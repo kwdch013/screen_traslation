@@ -1,1 +1,4 @@
-# サーバー実装Taskで実行依存を追加します。
+# ADR-0001採用のASGI入口。両パッケージはBSD系ライセンス。
+starlette==1.10.0
+uvicorn==0.52.4
+websockets==15.0.1
