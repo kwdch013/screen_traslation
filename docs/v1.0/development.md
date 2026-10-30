@@ -18,7 +18,17 @@ docker compose -f client/compose.test.yml run --rm test
 docker compose -f server/compose.test.yml run --rm test
 ```
 
-`.NET SDK 10.0.402` とRuntime 10.0.14は設計基準のstable版です。`client/global.json` がSDKを固定し、テストイメージは同SDKタグにRuntime 10.0.14を加えます。通常設定はユーザーのLocal Application Data配下のJSONに保存し、端末tokenは別ファイルへ分離してWindows DPAPI CurrentUserで保護します。Linux clientコンテナでは設定モデル・入力検証・保存境界を試験し、DPAPI試験はWindows runnerのみで実行します。LinuxではWindows実機が必要なDPAPI試験を未実施とし、合格へ数えません。Windows専用UI/APIの実機試験もLinux Core/Clientテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。
+### サーバーのモデル準備とreadiness
+
+サーバーイメージには翻訳モデルを同梱・自動取得しません。管理者が設定した固定manifest（版、HTTPS取得先、サイズ、信頼済みSHA-256、ライセンス名/URLと確認済み状態）を`ModelProvisioner`へ渡して明示導入します。観測値だけのdigestや未確認のライセンスでは導入できず、1 GiBを超えるモデル、破損・不正なアーカイブも拒否します。取得・検証・導入の進捗は`downloading`、`verifying`、`installing`、`complete`として保持し、空のモデル領域からreadyまでの準備期限は1800秒です（REQ-F-004/011、REQ-NF-002）。`ModelProvisioner.provision()`と`EngineLifecycle.prepare()`には同じ`time.monotonic()`基準の絶対deadlineを渡します。各段階の前後に期限を検査し、期限超過は`failed`として診断理由を保持し、readyにはしません。
+
+installerは同期処理で、実行中の強制中断やArgos側の部分導入物の巻き戻しはできません。installerがdeadlineを越えた場合は戻った直後に失敗とし、readyにせず、検証済み`.argosmodel`は再試行用に残します。再試行ではそのファイルを再検証してinstallerを再実行し、導入処理が完了するまで準備失敗として扱います。download中の期限超過では`.part`を削除します。
+
+起動時はモデルのサイズとdigest、cgroup上限を検証してからエンジンを一度だけロードし、Tesseract/Argosのwarmupを行います。準備失敗・資源上限不明・上限超過ではreadyになりません。health値は常に`{"status":"alive"}`、ready完了時は`{"ready":true}`、未完了時は503 `MODEL_NOT_READY`です。health/readyのHTTPルート配線はAPI実装Taskで行います。このTaskは契約応答値を組み立てる関数までを提供します。
+
+アプリケーションの上限は2 CPU / 4 GiB、同時処理1件、待機画像は最新1件です（REQ-NF-005）。サーバーの実行コンテナにも同じCPU/メモリ制限を設定し、Composeテストサービスはその上限を使用します。導入済みモデルの検証・ロード・warmupが120秒を超える場合もreadyにはなりません。
+
+通常設定はユーザーのLocal Application Data配下のJSONに保存し、端末tokenは別ファイルへ分離してWindows DPAPI CurrentUserで保護します。Linux clientコンテナでは設定モデル・入力検証・保存境界を試験し、DPAPI試験はWindows runnerのみで実行します。LinuxではWindows実機が必要なDPAPI試験を未実施とし、合格へ数えません。Windows専用UI/APIの実機試験もLinux Core/Clientテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。
 
 Windows固有の資格情報保護テストはWindows runnerまたは対応Windows実機で実行します。
 
@@ -126,6 +136,7 @@ requiredにするcontextは、[公式のrequired status checkの条件](https://
 | #68 client/server/contractsの雛形 | `client/ScreenTranslation.sln`・`client/global.json`・Linux Core試験、`server/`のPython 3.14コンテナ、`contracts/README.md`、旧Web文書・共存テスト | .NET SDK 10.0.402 / Runtime 10.0.14とディレクトリ境界を固定。Windows API・製品機能・契約fixture・配布は後続Task |
 | #69 Linuxコンテナ・WindowsクライアントCI | `.github/workflows/ci.yml`・`codeql.yml`・`dependabot.yml`・`src/tests/test_ci_workflow_structure.py` | REQ-NF-008/009/010。Python/C#契約fixtureを別jobで検査し、required `test` を常時集約 |
 | #77 OCR・翻訳コア共有 | `server/src/screen_translation_server/engines/`から`src/app`のOCR/翻訳実装を利用し、同一fixtureと旧Web回帰を検証 | コアは旧Web側を正本として段階抽出。Tesseract/Argosモデルを含むserverコンテナで実エンジンも確認 |
+| #81 モデル準備・readiness・資源上限 | `server/src/screen_translation_server/engines/lifecycle.py`（モデル準備・engine lifecycle）・`server/src/screen_translation_server/readiness.py`（readiness）・CPU/メモリ/処理枠の制限・`server/tests/test_engine_lifecycle.py`。REQ-F-004/011、REQ-NF-002/005 | lifecycle/readiness・上限動作を単体テスト済み。初回準備1800秒・導入済み起動120秒・資源上限の実測は #60/#109 等で実施し、実エンジンの性能実測と受入は未実施 |
 | #118 有効化・GitHub実証 | default branch反映、検証PR、実在contextのrequired化、統合可否の再検証・証跡 | #67完了待ち。Phase #65の必須Taskとして追跡 |
 | #55 要件定義 / #57 基本・詳細設計 | [要件書](../../requirements/version_1/requirements.md) / [基本・詳細設計](design/architecture.md) / [ADR索引](design/adr/README.md) | 全22要件IDと採用方式・下流Issue反映表を管理。実機・製品試験は未実施 |
 
