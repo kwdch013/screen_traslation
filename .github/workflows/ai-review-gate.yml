@@ -1,7 +1,7 @@
 name: AI Review Gate
 
 # PR 内で改変された script を実行しないよう、pull_request ではなく pull_request_target を使い
-# default branch の信頼済み script だけを checkout する。
+# 既定ブランチdevelopの信頼済みscriptだけをcheckoutする。
 # PR Review 提出イベントも PR の merge ref 上の workflow 定義で動くため購読しない (ゲートは Review を参照しない)。
 on:
   pull_request_target:

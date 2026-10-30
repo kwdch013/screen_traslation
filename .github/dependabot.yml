@@ -1,7 +1,7 @@
 version: 2
 updates:
   # ワークフローが参照する action のバージョン (SHA ピン留めも更新される)
-  # 注: この設定は既定ブランチ (main) に反映されてから有効になる。
+  # 注: この設定は既定ブランチ (develop) に反映されてから有効になる。
   # PR は運用ルールに合わせて develop 宛てに作らせる。
   - package-ecosystem: github-actions
     directory: /
