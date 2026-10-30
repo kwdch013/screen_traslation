@@ -252,7 +252,9 @@ class CaptureExclusionResearchTest(unittest.TestCase):
 			"DXGI_ERROR_ACCESS_LOST",
 			"DWM",
 			"Windows 11 25H2",
-			"未実施(Windows実機が必要)",
+			"未実施",
+			"Windows実機が必要",
+			"独立 Task #135",
 		):
 			with self.subTest(expected=expected):
 				self.assertIn(expected, text)
@@ -275,7 +277,9 @@ class CaptureExclusionResearchTest(unittest.TestCase):
 			"OS ビルド",
 			"GetLastError",
 			"除外確認",
-			"未実施(Windows実機が必要)",
+			"未実施",
+			"Windows実機が必要",
+			"独立 Task #135",
 		):
 			with self.subTest(expected=expected):
 				self.assertIn(expected, text)

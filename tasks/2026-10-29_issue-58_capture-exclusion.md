@@ -23,4 +23,7 @@
 - Red (レビュー指摘再現): `docker build -t app:ci . && docker run --rm -e PYTHONPATH=/app/src app:ci python -m unittest discover -s src/tests` — 267件で failure 1 / errors 2 / skipped 38。文書を含まない通常イメージで新規文書テストが失敗することを確認。
 - Green (通常イメージ): `docker build -t app:ci . && docker run --rm -e PYTHONPATH=/app/src app:ci python -m unittest discover -s src/tests` — 267件 OK、skipped 41。
 - Green (文書マウント): `docker build -f tests/ai_gate/Dockerfile -t screen-v1-doc-test . && docker run --rm --cpus=2 --memory=512m -v "$PWD:/workspace:ro" -w /workspace screen-v1-doc-test python -B -m unittest src.tests.test_v1_documentation src.tests.test_web_documentation -v` — 28件 OK。調査資料と文書リンクの3検査を維持。
+- Red (再レビュー指摘再現): 同じ文書マウント回帰を修正前に実行し、28件中2件が `未実施(Windows実機が必要)` の完全一致で失敗することを確認。
+- Green (再レビュー修正後・文書マウント): 同コマンドを再実行し、28件 OK。文書未実施状態を `未実施`・`Windows実機が必要`・`独立 Task #135` の各断片で検査。
+- Green (再レビュー修正後・通常イメージ): `docker build -t app:ci . && docker run --rm -e PYTHONPATH=/app/src app:ci python -m unittest discover -s src/tests` — 267件 OK、skipped 41。
 - TDD / Issue 運用メモ: Work Unit helper の最初の呼び出し時に親 worktree を cwd にしてしまった。正しい issue-58 worktree で helper を再実行し、Claim Comment と helper が同じ ID を使うことを確認した。PR marker・commit trailer も同じ値になることを作成後に照合する。誤った呼び出しの根本原因をローカル `.agents/mistake-log.md` に追記。
