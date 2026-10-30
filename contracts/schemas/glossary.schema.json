@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-translation.invalid/contracts/v1/glossary.schema.json",
+  "title": "辞書取得応答",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "revision", "entries"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+    "entries": {
+      "type": "array", "maxItems": 1000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["source", "target"],
+        "properties": {
+          "source": {"type": "string", "minLength": 1, "maxLength": 128},
+          "target": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      }
+    }
+  }
+}

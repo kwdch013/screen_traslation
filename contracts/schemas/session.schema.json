@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-translation.invalid/contracts/v1/session.schema.json",
+  "title": "セッション開始応答",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["session_id", "generation", "dictionary_revision"],
+  "properties": {
+    "session_id": {"type": "string", "format": "uuid", "maxLength": 36},
+    "generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+    "dictionary_revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615}
+  }
+}
