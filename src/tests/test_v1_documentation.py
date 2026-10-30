@@ -232,6 +232,18 @@ class V1DesignDecisionTest(unittest.TestCase):
 			self.assertIn("Windows実機", document)
 		self.assertIn("docs/v1.0/design/adr/README.md", self.read(self.root / DOCUMENTS[2]))
 
+	def test_downstream_issue_transfer_table_names_every_target_and_design_reference(self) -> None:
+		document = self.read(self.root / "docs/v1.0/design/architecture.md")
+		section = document.split("## 下流Issueへの仕様反映", 1)[1].split("### 要件IDと設計要素", 1)[0]
+		rows = [line for line in section.splitlines() if re.match(r"\| #\d+ \|", line)]
+		self.assertGreaterEqual(len(rows), 35)
+		issues = [re.match(r"\| #(\d+) \|", row).group(1) for row in rows]
+		self.assertEqual(len(issues), len(set(issues)), "仕様転記対象のIssue番号を重複させない")
+		for issue, row in zip(issues, rows, strict=True):
+			with self.subTest(issue=issue):
+				self.assertIn("docs/v1.0/design/architecture.md", row)
+				self.assertTrue(row.strip().endswith("|"))
+
 
 class CaptureExclusionResearchTest(unittest.TestCase):
 	def setUp(self) -> None:

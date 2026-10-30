@@ -198,46 +198,46 @@ draw.io CLIでXMLを開き、同じ原本からSVGを出力した。出力SVGを
 
 | Issue | 設計反映内容 |
 | --- | --- |
-| #61 | 全22要件IDを下記対応表に結び、`contracts/`のfixture・互換性を#62～#64で扱う。 |
-| #62 | HTTPS制御/設定 + 1本のWSS。binaryフレームにsession/generation/frame/revision、幅/高さ/content_typeを含め、同一メッセージ内にPNG/JPEG bytes。HTTPは4 MiB画像境界、ROI64×32～1920×1080・2,073,600画素、+1/偽装拒否。詳細schema/field長/error fixtureを契約正本にする。 |
-| #63 | 画像座標は物理ROI左上を原点、矩形は半開区間。DPI contextごとに変換し、負座標を保持。session/generation/frame/revision/取得時単調時刻を照合。未確定の跨モニターROI許可/交差規則は本Taskで断定せず、契約Task内で確定。Windows誤差2px以下は#136で実測。 |
-| #64 | HTTP/WSS双方で同じsession所有権/roleを検証。frameとresultの相関、旧世代/逆順/revision不一致拒否。request/response fieldとstatus/close codeをfixture化。 |
-| #68 | .NET10 LTSの2026-10-30基準SDK 10.0.402とruntime 10.0.14、stable-only、global.json固定。client/server/contractsを同一repo内で分離し、Web版は受入前に保持。 |
-| #69 | Python3.14 CPU Torchを明示したlock、Linux client-independent server、既存Web試験と新契約試験の別jobを維持する。 |
-| #72 | 全HTTPS/WSSをTLS1.2以上+端末認証。偽/期限切れ/未信頼証明書、失効token、Host/Origin不許可を拒否。画像認証/受信長検証前のdecode禁止。 |
-| #73 | 単一所有session、2台目409拒否、明示停止で解放、切断検知5秒以内/解放10秒以内。復帰だけではstartしない。 |
-| #74 | Windows/サーバーのTLS、credential revoke反映1秒、WS切断5秒、owner解放10秒、旧generation/結果廃棄をコンテナ統合fixtureで検証する。 |
-| #75 | 端末tokenと管理tokenを分離。256-bit CSPRNG、salt付きverifier hash、Windows DPAPI CurrentUser。既存WSにも失効1秒以内反映。初回管理secret/証明書rotationは失敗時secure stop。 |
-| #77 | OCR/翻訳コアは副作用をadapterへ隔離して段階抽出。Tesseract英語 + Argos en→ja、CPU-only lock。Web経路/`#26`/任意LLM評価`#49`を変更しない。 |
-| #78 | serverは処理中1/待機最新1。画像は設定1～5fps、default2、max5・取得以下、静止10秒送信0。中断不能なOCRも結果を配信/表示しない。 |
-| #79 | 結果にsession/generation/frame/revision、region/source/translation/status/server_processing_msを含める。サーバー時刻とclient単調時計を混ぜず、旧結果を破棄する。 |
-| #80 | engine結合はCPU 2/4 GiB、4 MiB/2,073,600画素境界、処理1/待機1、失敗時ready/結果が安全側に落ちること。性能/品質の合否は#109で別測定。 |
-| #81 | livenessとreadinessを分離。導入済みready120秒、empty model領域から取得/検証/warmup ready1800秒。SHA-256/版/digest/CPU依存確認前はnot-ready。 |
-| #82 | 設定/辞書/モデル/credentialを別ストア/volumeへ分離。revision conflictは409、原子的保存、バックアップ復元でrevoked token復活なし。 |
-| #83 | 設定・辞書はschema_version/revisionを持つJSON。If-Match相当のrevision precondition、古いrevisionは409、atomic replace。 |
-| #84 | GETは端末token、設定/辞書PUTは管理token。新revisionは次の新frameで有効、保存前frameの旧revision結果は破棄。 |
-| #85 | 設定更新失敗/途中停止/再起動で最後の有効JSONを保持。healthは生存のみ、readyはmodel検証とwarmup完了時だけtrue。 |
-| #88 | HTTPS/WSSのserver trustを検証してからtokenを送信。端末tokenをDPAPI CurrentUserで保存、secret/接続先は外部設定、平文/URL/logへ出さない。 |
-| #89 | 1本のWSSをbinary frame + text status/resultに使用。disconnect時5秒以内検出、表示1秒以内消去、再接続後は明示start。 |
-| #90 | WPF上のTLS失敗、session in-use 409、WSS断、ready false、再接続停止状態を表示するWindows結合観点。UI実機/自動化結果を記録。 |
-| #92 | WGCの対象選択/終了/最小化を扱い、対象消失で停止。取得は設定1～5fps/既定2、変化frameのみ、ROI物理pxで制限する。 |
-| #93 | ROI画像物理pixelを基準に64×32～1920×1080/最大2,073,600 px。Per-Monitor V2、負座標、DPI changeで変換context/generationを更新。 |
-| #94 | PNG/JPEG encoded max4 MiB、変化時のみ、連続10秒 fps×10以内、設定fps以下。送信待ちを蓄積せずlatest frame優先。 |
-| #95 | source/overlay capture exclusion失敗時は送信停止。frame metadataと画像ROIの一致、旧generationの拒否を実機で確認する。 |
-| #97 | 別トップレベルWPF overlayを非アクティブ/クリック透過にする。WDA_EXCLUDEFROMCAPTURE/WGC実機が確認できない時はfail-closed。 |
-| #98 | 取得から5秒で字幕expire、stop/reselect/target loss/disconnectから1秒以内消去。履歴は最新100件/stop後閲覧可、reselect/new session/終了で消去。 |
-| #99 | 管理roleで設定/辞書編集。revision conflict 409を他者値で上書きせず表示し、成功revisionは新しいframeにだけ適用。 |
-| #100 | SCR-001～003と明示開始、停止、対象再選択、失効、100件履歴、revision変更をend-to-endで確認する。 |
-| #103 | Python3.14/Linux x86_64。server container 2 CPU/4 GiB以下。TLS private key/initial admin secretをread-only secret、設定/辞書/モデルを別volumeへ分離。 |
-| #104 | WPF win-x64自己完結配布、SDKなし起動。自己署名コード署名試験は隔離環境のみで公開発行元信頼と区別する。 |
-| #105 | TLS/credential/model provisioning、更新・失効、volume backup/restore、復旧後の明示再接続を文書化。端末固有情報/secretは載せない。 |
-| #106 | 新規導入/更新/復旧後、health/ready、revision、失効、model digest、旧Web回帰を別々に確認する。 |
-| #108 | Windows/Linux E2EでHTTPS/WSS・TLS不正・timeout5/1/10秒、session2台拒否、旧結果破棄、実画面とWGCを検証する。 |
-| #109 | warm p50≤2000ms/p95≤4000ms、5秒expire、OCR/翻訳品質、CPU2/4GiB、8時間継続をOwner承認条件そのままで測定。 |
-| #110 | ACC-01～15シナリオとユーザー見た目/操作感を確認。Windows実機のDPI/captureは#135/#136、skipを合格にしない。 |
-| #111 | 全Task/phase、レビュー、実測、ユーザー受入が完了した後だけrelease成果/運用を確定。 |
-| #135 | WGC/WDA_EXCLUDEFROMCAPTUREとDXGI/GDI比較、対象取得/自己混入/安全停止をWindows実機で測定し、ADR-0002/Q-02へ実績反映。設計や実装の前提に測定済みと記さない。 |
-| #136 | Windows 11 x64、2画面以上、100/150/200%と負座標、移動/resizeのROI四隅物理px誤差≤2、DPI通知、focus/overlayを実測。ACC-06/07を個別判定しADR-0002/Q-03と契約へ結果共有。 |
+| #61 | 全22要件IDを下記対応表に結び、`contracts/`のfixture・互換性を#62～#64で扱う。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #62 | HTTPS制御/設定 + 1本のWSS。binaryフレームにsession/generation/frame/revision、幅/高さ/content_typeを含め、同一メッセージ内にPNG/JPEG bytes。HTTPは4 MiB画像境界、ROI64×32～1920×1080・2,073,600画素、+1/偽装拒否。詳細schema/field長/error fixtureを契約正本にする。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #63 | 画像座標は物理ROI左上を原点、矩形は半開区間。DPI contextごとに変換し、負座標を保持。session/generation/frame/revision/取得時単調時刻を照合。未確定の跨モニターROI許可/交差規則は本Taskで断定せず、契約Task内で確定。Windows誤差2px以下は#136で実測。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #64 | HTTP/WSS双方で同じsession所有権/roleを検証。frameとresultの相関、旧世代/逆順/revision不一致拒否。request/response fieldとstatus/close codeをfixture化。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #68 | .NET10 LTSの2026-10-30基準SDK 10.0.402とruntime 10.0.14、stable-only、global.json固定。client/server/contractsを同一repo内で分離し、Web版は受入前に保持。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #69 | Python3.14 CPU Torchを明示したlock、Linux client-independent server、既存Web試験と新契約試験の別jobを維持する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #72 | 全HTTPS/WSSをTLS1.2以上+端末認証。偽/期限切れ/未信頼証明書、失効token、Host/Origin不許可を拒否。画像認証/受信長検証前のdecode禁止。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #73 | 単一所有session、2台目409拒否、明示停止で解放、切断検知5秒以内/解放10秒以内。復帰だけではstartしない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #74 | Windows/サーバーのTLS、credential revoke反映1秒、WS切断5秒、owner解放10秒、旧generation/結果廃棄をコンテナ統合fixtureで検証する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #75 | 端末tokenと管理tokenを分離。256-bit CSPRNG、salt付きverifier hash、Windows DPAPI CurrentUser。既存WSにも失効1秒以内反映。初回管理secret/証明書rotationは失敗時secure stop。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #77 | OCR/翻訳コアは副作用をadapterへ隔離して段階抽出。Tesseract英語 + Argos en→ja、CPU-only lock。Web経路/`#26`/任意LLM評価`#49`を変更しない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #78 | serverは処理中1/待機最新1。画像は設定1～5fps、default2、max5・取得以下、静止10秒送信0。中断不能なOCRも結果を配信/表示しない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #79 | 結果にsession/generation/frame/revision、region/source/translation/status/server_processing_msを含める。サーバー時刻とclient単調時計を混ぜず、旧結果を破棄する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #80 | engine結合はCPU 2/4 GiB、4 MiB/2,073,600画素境界、処理1/待機1、失敗時ready/結果が安全側に落ちること。性能/品質の合否は#109で別測定。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #81 | livenessとreadinessを分離。導入済みready120秒、empty model領域から取得/検証/warmup ready1800秒。SHA-256/版/digest/CPU依存確認前はnot-ready。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #82 | 設定/辞書/モデル/credentialを別ストア/volumeへ分離。revision conflictは409、原子的保存、バックアップ復元でrevoked token復活なし。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #83 | 設定・辞書はschema_version/revisionを持つJSON。If-Match相当のrevision precondition、古いrevisionは409、atomic replace。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #84 | GETは端末token、設定/辞書PUTは管理token。新revisionは次の新frameで有効、保存前frameの旧revision結果は破棄。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #85 | 設定更新失敗/途中停止/再起動で最後の有効JSONを保持。healthは生存のみ、readyはmodel検証とwarmup完了時だけtrue。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #88 | HTTPS/WSSのserver trustを検証してからtokenを送信。端末tokenをDPAPI CurrentUserで保存、secret/接続先は外部設定、平文/URL/logへ出さない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #89 | 1本のWSSをbinary frame + text status/resultに使用。disconnect時5秒以内検出、表示1秒以内消去、再接続後は明示start。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #90 | WPF上のTLS失敗、session in-use 409、WSS断、ready false、再接続停止状態を表示するWindows結合観点。UI実機/自動化結果を記録。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #92 | WGCの対象選択/終了/最小化を扱い、対象消失で停止。取得は設定1～5fps/既定2、変化frameのみ、ROI物理pxで制限する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #93 | ROI画像物理pixelを基準に64×32～1920×1080/最大2,073,600 px。Per-Monitor V2、負座標、DPI changeで変換context/generationを更新。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #94 | PNG/JPEG encoded max4 MiB、変化時のみ、連続10秒 fps×10以内、設定fps以下。送信待ちを蓄積せずlatest frame優先。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #95 | source/overlay capture exclusion失敗時は送信停止。frame metadataと画像ROIの一致、旧generationの拒否を実機で確認する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #97 | 別トップレベルWPF overlayを非アクティブ/クリック透過にする。WDA_EXCLUDEFROMCAPTURE/WGC実機が確認できない時はfail-closed。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #98 | 取得から5秒で字幕expire、stop/reselect/target loss/disconnectから1秒以内消去。履歴は最新100件/stop後閲覧可、reselect/new session/終了で消去。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #99 | 管理roleで設定/辞書編集。revision conflict 409を他者値で上書きせず表示し、成功revisionは新しいframeにだけ適用。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #100 | SCR-001～003と明示開始、停止、対象再選択、失効、100件履歴、revision変更をend-to-endで確認する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #103 | Python3.14/Linux x86_64。server container 2 CPU/4 GiB以下。TLS private key/initial admin secretをread-only secret、設定/辞書/モデルを別volumeへ分離。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #104 | WPF win-x64自己完結配布、SDKなし起動。自己署名コード署名試験は隔離環境のみで公開発行元信頼と区別する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #105 | TLS/credential/model provisioning、更新・失効、volume backup/restore、復旧後の明示再接続を文書化。端末固有情報/secretは載せない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #106 | 新規導入/更新/復旧後、health/ready、revision、失効、model digest、旧Web回帰を別々に確認する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #108 | Windows/Linux E2EでHTTPS/WSS・TLS不正・timeout5/1/10秒、session2台拒否、旧結果破棄、実画面とWGCを検証する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #109 | warm p50≤2000ms/p95≤4000ms、5秒expire、OCR/翻訳品質、CPU2/4GiB、8時間継続をOwner承認条件そのままで測定。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #110 | ACC-01～15シナリオとユーザー見た目/操作感を確認。Windows実機のDPI/captureは#135/#136、skipを合格にしない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #111 | 全Task/phase、レビュー、実測、ユーザー受入が完了した後だけrelease成果/運用を確定。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #135 | WGC/WDA_EXCLUDEFROMCAPTUREとDXGI/GDI比較、対象取得/自己混入/安全停止をWindows実機で測定し、ADR-0002/Q-02へ実績反映。設計や実装の前提に測定済みと記さない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #136 | Windows 11 x64、2画面以上、100/150/200%と負座標、移動/resizeのROI四隅物理px誤差≤2、DPI通知、focus/overlayを実測。ACC-06/07を個別判定しADR-0002/Q-03と契約へ結果共有。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 
 ### 要件IDと設計要素
 
