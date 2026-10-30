@@ -3,7 +3,7 @@
 ## 作業内容
 
 - `ScreenTranslation.Client` にHTTPS接続先・証明書指紋の入力検証、通常設定のJSON保存、資格情報保護インターフェースと分離保存を追加。
-- WPF設定画面で接続設定の保存/取消、端末tokenの独立登録を可能にし、Windows実装にDPAPI CurrentUserを使用。
+- WPF設定画面と設定モデル、端末tokenの分離保存を追加し、Windows実装にDPAPI CurrentUserを使用。
 - LinuxコンテナはCore/Client共通コードと契約fixtureだけをビルド・試験し、Windows固有プロジェクトはWindows CIに分離。
 - 詳細は [Issue #88](https://github.com/kwdch013/screen_traslation/issues/88) と作成するPRを参照。
 
@@ -15,9 +15,10 @@
 - リポジトリmount回帰: 306件成功。イメージ生成済み `frontend/dist` をread-onlyで重ねて、mountによる欠落を避けて実行。
 - `mypy src` / `mypy --platform win32 src`: 79 source filesで問題なし。
 - `ruff check --no-cache src scripts tests/ai_gate`: 成功。
-- DPAPI Windows統合テスト: **未実施 (Windows実機が必要)**。Linuxでのskipは合格扱いにしない。push後のWindows CI結果を確認する。
+- DPAPI保護/復号と改ざん検出: [Windows CI `windows-client` 成功](https://github.com/kwdch013/screen_traslation/actions/runs/41137230257)。改ざんしたDPAPIデータが拒否されることを確認。
+- 設定保存データの改ざん検出: 認証タグ付きテストprotectorで保存bytesを破損させ、`LoadAsync` が `InvalidDataException` で拒否することを確認。復号を一時的に迂回するとテストが失敗することも確認。
 
 ## 未完了
 
-- push・PR作成後に `gh pr checks` で `windows-client` を含むCI結果を読み戻し、Issue/PRを `issue/review-required` / `pr/review-required` に遷移する。
+- **未実施はWPF画面での起動・設定保存/再読込/取消のWindows実機操作のみ**。手順・結果記録テンプレートを含む独立Task [#148](https://github.com/kwdch013/screen_traslation/issues/148)で実施する。DPAPIテストはWindows CIで実行済みであり、実機画面操作とは区別する。
 - 独立レビュー・mergeはこのTaskでは行わない。
