@@ -8,18 +8,82 @@
   "cases": [
     {
       "name": "上限ちょうど",
+      "magic": "STF1",
       "header_bytes": 8,
       "metadata_bytes": 4096,
       "image_payload_bytes": 4194304,
+      "declared_payload_bytes": 4194304,
       "message_bytes": 4198408,
       "accepted": true
     },
     {
       "name": "上限に1 byte超過",
+      "magic": "STF1",
       "header_bytes": 8,
       "metadata_bytes": 4096,
       "image_payload_bytes": 4194305,
+      "declared_payload_bytes": 4194305,
       "message_bytes": 4198409,
+      "accepted": false
+    },
+    {
+      "name": "メタデータ長の最小値",
+      "magic": "STF1",
+      "header_bytes": 8,
+      "metadata_bytes": 1,
+      "image_payload_bytes": 1,
+      "declared_payload_bytes": 1,
+      "message_bytes": 10,
+      "accepted": true
+    },
+    {
+      "name": "メタデータ長が0",
+      "magic": "STF1",
+      "header_bytes": 8,
+      "metadata_bytes": 0,
+      "image_payload_bytes": 1,
+      "declared_payload_bytes": 1,
+      "message_bytes": 9,
+      "accepted": false
+    },
+    {
+      "name": "メタデータ長が上限を1 byte超過",
+      "magic": "STF1",
+      "header_bytes": 8,
+      "metadata_bytes": 4097,
+      "image_payload_bytes": 1,
+      "declared_payload_bytes": 1,
+      "message_bytes": 4106,
+      "accepted": false
+    },
+    {
+      "name": "宣言payloadが実データより短い",
+      "magic": "STF1",
+      "header_bytes": 8,
+      "metadata_bytes": 32,
+      "image_payload_bytes": 100,
+      "declared_payload_bytes": 99,
+      "message_bytes": 140,
+      "accepted": false
+    },
+    {
+      "name": "binary magic不一致",
+      "magic": "STF2",
+      "header_bytes": 8,
+      "metadata_bytes": 32,
+      "image_payload_bytes": 100,
+      "declared_payload_bytes": 100,
+      "message_bytes": 140,
+      "accepted": false
+    },
+    {
+      "name": "メッセージ長が実データより短い",
+      "magic": "STF1",
+      "header_bytes": 8,
+      "metadata_bytes": 32,
+      "image_payload_bytes": 100,
+      "declared_payload_bytes": 100,
+      "message_bytes": 139,
       "accepted": false
     }
   ]

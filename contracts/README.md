@@ -119,6 +119,23 @@ WSSではUpgrade前は同じJSONエラーをHTTP応答として返し、Upgrade�
 - minor/patch番号を独立したruntime negotiationに使いません。両端がmajor 1を実装することを接続要件とし、未知version/magicは拒否します。
 - #63は座標/世代/session状態と意味検証の正本、#62はHTTP/WSS API形状・メタデータschema・サイズ/文字上限・共通エラーの正本、#64は両言語fixture/互換検証の正本です。#63の成果物はコピーせず相対リンクで参照します。
 
+## Fixtureと両言語の互換性検証
+
+[`fixtures/compatibility.json`](fixtures/compatibility.json)は全schemaの正常/異常入力と期待結論の共有一覧です。拒否理由は`schema`（JSON Schema違反）または`semantic`（画像内の半開矩形・空結果と領域の不一致）に分類します。Pythonは固定版`jsonschema`のDraft 2020-12 validatorとUUID形式checkerでschema正本を検証し、C#は`System.Text.Json`で同じケースを厳密に検査します。C#に追加のschema packageは導入していません。
+
+追加fixtureはbinary messageのmagic/metadata/payload長・総byte境界、画像座標/DPI/ROI、許可・拒否するsession遷移を含みます。既存のcontrol、frame、translation、settings、HTTP/WSS error fixtureもPython側でschema検証します。座標とsession状態の詳細値はそれぞれ[`coordinates.md`](coordinates.md)と[`session-state.md`](session-state.md)を正本とし、fixtureから仕様を二重定義しません。
+
+対応する要件はREQ-F-002（座標/表示領域）、REQ-F-003（単一session）、REQ-F-006（処理結果）、REQ-F-008（設定・辞書revision）、REQ-F-010（frame送信と間引き）、REQ-NF-001（応答/期限）、REQ-NF-004（世代・sessionをまたぐ結果の拒否）です。fixture検証は実機の性能・TLS・画像decoderの安全性を証明しません。
+
+リポジトリrootから次を実行します。通常の`app:ci`は`contracts/`を含めないため、既存`src/tests`をマウントなしで実行した場合に契約schemaテストは明示skipします。server/clientの専用compose testは契約をread-only mountして検証します。
+
+```bash
+docker compose -f server/compose.test.yml run --build --rm test
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+Pythonの独立Draft 2020-12検証とC#の期待結果が同じ`compatibility.json`を読み、各caseの受理/拒否を照合します。契約schemaやfixtureを変更した場合は両compose testを実行し、OpenAPI変更時は上記の固定版Redocly CLI lintも実行します。
+
 ## 検証コマンド
 
 Python 3.14標準ライブラリでJSON Schema文書とfixturesを検証し、Redocly CLIの固定版でOpenAPIをlintします。作業ツリーをマウントしたコンテナで実行してください。
