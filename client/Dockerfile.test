@@ -6,7 +6,9 @@ COPY --from=runtime /usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.14 /usr/
 WORKDIR /workspace
 COPY . .
 
-RUN dotnet build ScreenTranslation.sln --configuration Release \
-    && dotnet test tests/ScreenTranslation.Core.Tests/ScreenTranslation.Core.Tests.csproj --configuration Release
+RUN dotnet build src/ScreenTranslation.Core/ScreenTranslation.Core.csproj --configuration Release \
+    && dotnet build src/ScreenTranslation.Client/ScreenTranslation.Client.csproj --configuration Release \
+    && dotnet test tests/ScreenTranslation.Core.Tests/ScreenTranslation.Core.Tests.csproj --configuration Release \
+    && dotnet test tests/ScreenTranslation.Client.Tests/ScreenTranslation.Client.Tests.csproj --configuration Release
 
 CMD ["dotnet", "test", "tests/ScreenTranslation.Core.Tests/ScreenTranslation.Core.Tests.csproj", "--configuration", "Release"]
