@@ -35,10 +35,10 @@ def install_settings_routes(app: FastAPI, service: SettingsService) -> None:
         try:
             changes = await _json_object(request)
             body = await run_in_threadpool(service.update_config, changes)
-        except FileLockTimeoutError as error:
-            return JSONResponse({"detail": str(error)}, status_code=503)
-        except ValueError as error:
-            return JSONResponse({"detail": str(error)}, status_code=400)
+        except FileLockTimeoutError:
+            return JSONResponse({"detail": "現在設定を更新できません。しばらくしてから再試行してください。"}, status_code=503)
+        except ValueError:
+            return JSONResponse({"detail": "リクエストが不正です。"}, status_code=400)
         return JSONResponse(body)
 
     @app.get("/api/glossary")
@@ -53,12 +53,12 @@ def install_settings_routes(app: FastAPI, service: SettingsService) -> None:
             payload = await _json_object(request)
             source, target = _glossary_values(payload)
             body = await run_in_threadpool(service.register_glossary_term, source, target)
-        except FileLockTimeoutError as error:
-            return JSONResponse({"detail": str(error)}, status_code=503)
-        except GlossaryTermExistsError as error:
-            return JSONResponse({"detail": str(error)}, status_code=409)
-        except ValueError as error:
-            return JSONResponse({"detail": str(error)}, status_code=400)
+        except FileLockTimeoutError:
+            return JSONResponse({"detail": "現在用語を登録できません。しばらくしてから再試行してください。"}, status_code=503)
+        except GlossaryTermExistsError:
+            return JSONResponse({"detail": "用語は既に登録されています。"}, status_code=409)
+        except ValueError:
+            return JSONResponse({"detail": "リクエストが不正です。"}, status_code=400)
         return JSONResponse(body, status_code=201)
 
     @app.delete("/api/glossary/{source:path}")
