@@ -16,16 +16,19 @@
 - `security/auth.py`: 256-bit token生成、salt付きSHA-256 verifier作成、定数時間比較、期限/失効/role検証、汎用認証失敗、環境設定からのHost/Origin/TLS証明書読込、TLS 1.2以上を強制。
 - `api/input_limits.py`: HTTP JSON 1 MiB、設定から渡すHTTP受信期限、画像4 MiB、ROI寸法/画素数、STF1 binary header・metadata・総byte上限、metadata型/UUID/重複key、PNG/JPEG実形式/実寸法を検証。TLS/Host/Origin/role資格情報の共通認証入口を通ってから画像decodeする。
 - `test_security.py` / `test_input_limits.py`: TDDで認証/権限/TLS/Host/Origin、秘密値非露出、fixture境界、偽装画像、ROI、認証前decode禁止を確認。
+- `app.py`: Starlette HTTP/WSS routeをUvicornへ接続。TLSなしの起動を拒否し、health/readyを含む全routeでAuthorization header認証を行う。管理専用PUT/routeをroleで分離し、認証済みの未実装操作は501を返す。
+- transport: HTTPはContent-Length事前拒否後にstreamを上限まで読み、超過chunkを蓄積せず413。WSSはUvicorn/websocketsへ4,198,408 bytesのmessage上限を設定。認証失敗はpeer address単位に60秒5回、同時認証4件/peer・32件全体、追跡peer 1,024件、Uvicorn同時数128件で制限する。forwarded headerは無効。
+- 対象外: セッション開始/停止の処理本体は#73、結果配信は#79、設定/辞書APIの処理本体は#84。入口の認証・長さ検査routeと501 stubはこのTaskに含む。
 
 ## 検証
 
-- `docker compose -f server/compose.test.yml run --build --rm test python -B -m unittest discover -s tests` — 33件成功。
+- TDD: 実装前に追加した入口テストは`create_app`が存在しないため失敗。
+- `docker compose -f server/compose.test.yml run --build --rm test python -B -m unittest discover -s tests` — 42件成功。
 - `docker build -t app:ci . && docker run --rm -e PYTHONPATH=/app/src app:ci python -B -m unittest discover -s src/tests` — 306件成功、72件skip。
-- app:ci mount付きAPI schema / 文書回帰 — 36件成功。
+- app:ciマウント付き`src/tests`回帰 — 306件成功。
 - `mypy src` / `mypy --platform win32 src` — 各79 source files成功。
-- 認証・入力制限モジュールのmypy — 4 source files成功。
-- `ruff check server/src server/tests` — 成功。
+- `ruff check --no-cache src scripts tests/ai_gate server/src server/tests` — 成功。
 
 ## 制約
 
-資格情報台帳の永続化・発行/失効API、ASGI routeへの接続、証明書運用と実接続試験は、それぞれ後続Taskの責務。サーバー起動側は`create_server_tls_context_from_environment()`を使い、未設定時に平文へfallbackしないこと。
+資格情報台帳の永続化・発行/失効API、実際のセッション/設定/結果処理、証明書の運用手順と実機接続試験は後続Taskの責務。#73/#79/#84の本体routeは501 stubのままとする。サーバー起動側は`create_server_tls_context_from_environment()`を使い、未設定時に平文へfallbackしないこと。
