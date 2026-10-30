@@ -13,7 +13,7 @@ public sealed class DpapiCredentialProtectorTests
 		var protector = new DpapiCredentialProtector();
 		var protectedData = protector.Protect(Encoding.UTF8.GetBytes(token));
 
-		Assert.NotEqual(Encoding.UTF8.GetBytes(token), protectedData);
+		Assert.False(protectedData.AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(token)));
 		Assert.Equal(Encoding.UTF8.GetBytes(token), protector.Unprotect(protectedData));
 	}
 }
