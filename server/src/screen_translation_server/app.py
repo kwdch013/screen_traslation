@@ -190,7 +190,7 @@ def create_server(app: Starlette, *, tls_context: ssl.SSLContext | None) -> uvic
 		host=os.environ.get("SCREEN_TRANSLATION_BIND_HOST", "0.0.0.0"),
 		port=int(os.environ.get("SCREEN_TRANSLATION_PORT", "8443")),
 		ssl_context_factory=lambda _config, _default: tls_context,
-		ws="websockets",
+		ws="websockets-sansio",
 		ws_max_size=BINARY_MESSAGE_MAX_BYTES,
 		ws_max_queue=1,
 		limit_concurrency=128,

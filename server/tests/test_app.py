@@ -160,9 +160,11 @@ class ServerBootstrapTest(unittest.TestCase):
 		import ssl
 		server = create_server(self.app, tls_context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER))
 		self.assertEqual(server.config.ws_max_size, 4_198_408)
-		self.assertEqual(server.config.ws, "websockets")
+		self.assertEqual(server.config.ws, "websockets-sansio")
 		self.assertEqual(server.config.limit_concurrency, 128)
 		self.assertEqual(server.config.proxy_headers, False)
+		server.config.load()
+		self.assertEqual(server.config.ws_protocol_class.__name__, "WebSocketsSansIOProtocol")
 
 
 if __name__ == "__main__":
