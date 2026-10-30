@@ -191,7 +191,7 @@ Work Unitとmarkerは同一credential内の論理的証跡です。悪意ある�
 
 ## v1.0 要件の参照と文書テスト
 
-要求の正本は[要件書](../../requirements/version_1/requirements.md)、検証条件は[受入計画](acceptance.md)、全要件ID→Phase/Taskは[ロードマップ](../../plan/version_1/roadmap.md)です。Ownerの対応環境・性能値・受入手順の承認は2026-10-29に記録済みです（[承認記録](https://github.com/kwdch013/screen_traslation/issues/55#issuecomment-6499965211)）。後続Issueへ合意済み要求を反映し、方式選定と実測・本人受入の残件をロードマップに記録します。#66/#67/#118はREQ-NF-010に対応します。Web版の起動方法は現行ガイドを参照します。
+要求の正本は[要件書](../../requirements/version_1/requirements.md)、検証条件は[受入計画](acceptance.md)、全要件ID→Phase/Taskは[ロードマップ](../../plan/version_1/roadmap.md)です。Ownerの対応環境・性能値・受入手順の承認は2026-10-29に記録済みです（[承認記録](https://github.com/kwdch013/screen_traslation/issues/55#issuecomment-6499965211)）。後続Issueへ合意済み要求を反映し、方式選定と実測・本人受入の残件をロードマップに記録します。#66/#67/#118はREQ-NF-010に対応します。Windows API の公式仕様と未実施の実機検証手順は[キャプチャ除外調査](research/capture-exclusion.md)を参照します。Web版の起動方法は現行ガイドを参照します。
 
 文書をマウントしたPython 3.14コンテナで既存と次版の文書テストを実行します。標準ライブラリだけを使い、OCR/翻訳モデルは実行しません。通常アプリイメージには文書を含めないため、マウントなしでskipした結果を文書検証成功と扱いません。
 

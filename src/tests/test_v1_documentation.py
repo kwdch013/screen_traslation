@@ -229,3 +229,65 @@ class V1DesignDecisionTest(unittest.TestCase):
 			self.assertIn("v1.0/design/adr/README.md", document)
 			self.assertIn("v1.0/design/security.md", document)
 		self.assertIn("docs/v1.0/design/adr/README.md", self.read(self.root / DOCUMENTS[2]))
+
+
+class CaptureExclusionResearchTest(unittest.TestCase):
+	def setUp(self) -> None:
+		self.root = Path(__file__).resolve().parents[2]
+		if not (self.root / "README.md").is_file():
+			self.skipTest("文書を含むリポジトリをマウントして実行してください")
+		self.document = self.root / "docs/v1.0/research/capture-exclusion.md"
+
+	def test_research_cites_official_api_docs_and_states_constraints(self) -> None:
+		self.assertTrue(self.document.is_file())
+		text = self.document.read_text(encoding="utf-8")
+		for expected in (
+			"Windows.Graphics.Capture",
+			"DXGI Desktop Duplication",
+			"GDI",
+			"WDA_EXCLUDEFROMCAPTURE",
+			"Windows 10 version 1803",
+			"Windows 10 version 1903",
+			"Windows 10 version 2004",
+			"DXGI_ERROR_ACCESS_LOST",
+			"DWM",
+			"Windows 11 25H2",
+			"未実施",
+			"Windows実機が必要",
+			"独立 Task #135",
+		):
+			with self.subTest(expected=expected):
+				self.assertIn(expected, text)
+		for url in (
+			"https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.graphicscaptureitem",
+			"https://learn.microsoft.com/en-us/windows/win32/api/windows.graphics.capture.interop/nf-windows-graphics-capture-interop-igraphicscaptureiteminterop-createforwindow",
+			"https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity",
+			"https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/desktop-dup-api",
+			"https://learn.microsoft.com/en-us/windows/win32/gdi/capturing-an-image",
+		):
+			with self.subTest(url=url):
+				self.assertIn(url, text)
+
+	def test_windows_runbook_and_result_template_mark_measurements_unperformed(self) -> None:
+		text = self.document.read_text(encoding="utf-8")
+		for expected in (
+			"実機検証手順",
+			"検証プログラム雛形",
+			"実測記録テンプレート",
+			"OS ビルド",
+			"GetLastError",
+			"除外確認",
+			"未実施",
+			"Windows実機が必要",
+			"独立 Task #135",
+		):
+			with self.subTest(expected=expected):
+				self.assertIn(expected, text)
+		self.assertNotRegex(text, r"実測結果: (?:成功|合格)")
+
+	def test_related_design_and_development_guides_link_to_research(self) -> None:
+		text = self.document.read_text(encoding="utf-8")
+		self.assertIn("REQ-F-001 / ACC-03", text)
+		self.assertIn("REQ-F-005 / ACC-07", text)
+		self.assertIn("capture-exclusion.md", (self.root / "docs/v1.0/design/adr/0002-windows-client.md").read_text(encoding="utf-8"))
+		self.assertIn("capture-exclusion.md", (self.root / "docs/v1.0/development.md").read_text(encoding="utf-8"))
