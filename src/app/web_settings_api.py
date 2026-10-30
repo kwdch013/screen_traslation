@@ -67,8 +67,8 @@ def install_settings_routes(app: FastAPI, service: SettingsService) -> None:
             return JSONResponse({}, status_code=403)
         try:
             await run_in_threadpool(service.delete_glossary_term, source)
-        except FileLockTimeoutError as error:
-            return JSONResponse({"detail": str(error)}, status_code=503)
+        except FileLockTimeoutError:
+            return JSONResponse({"detail": "現在この操作を処理できません。しばらくしてから再試行してください。"}, status_code=503)
         except GlossaryTermNotFoundError:
             return JSONResponse({"detail": f"用語が見つかりません: {source}"}, status_code=404)
         return Response(status_code=204)
