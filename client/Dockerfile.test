@@ -1,0 +1,12 @@
+FROM mcr.microsoft.com/dotnet/runtime:10.0.14 AS runtime
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0.402
+COPY --from=runtime /usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.14 /usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.14
+
+WORKDIR /workspace
+COPY . .
+
+RUN dotnet build ScreenTranslation.sln --configuration Release \
+    && dotnet test tests/ScreenTranslation.Core.Tests/ScreenTranslation.Core.Tests.csproj --configuration Release
+
+CMD ["dotnet", "test", "tests/ScreenTranslation.Core.Tests/ScreenTranslation.Core.Tests.csproj", "--configuration", "Release"]

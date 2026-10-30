@@ -5,11 +5,15 @@
 - バックエンド: Python 3.14、FastAPI、uvicorn
 - OCR・翻訳: Tesseract、任意のローカル OpenAI 互換 API、Argos Translate
 - フロントエンド: Node.js 24、React、TypeScript、Vite
+- v1.0 Windowsクライアント: C#、.NET 10 SDK 10.0.402、WPF
+- v1.0 Linuxサーバー: Python 3.14
 - Python テスト: `unittest`
 - フロントエンドテスト: Vitest、Testing Library
 - lint: ruff、oxlint
 - 型チェック: mypy
 - コンテナ: Docker のマルチステージビルド、Docker Compose
+
+v1.0の `client/`・`server/`・`contracts/` は既存Web版と同じリポジトリにあります。`src/` と `frontend/` のWeb版の起動・検証手順は引き続き使用できます。責務とコマンドは [v1.0開発手順](v1.0/development.md) を参照してください。
 
 `src/app/contracts.py` の `CaptureSource`、`OcrEngine`、`Translator`、`OverlayRenderer`、`ResultPublisher` を主な境界とし、`WebAppService` が Web セッションとパイプラインのライフサイクルを管理します。
 

@@ -29,9 +29,17 @@
 ```
 {repo}
 ├ docs/ 
+├ client/                  # v1.0 Windowsクライアント (.NET 10)
+│ ├ src/                   # CoreとWindows UI
+│ └ tests/                 # Linuxで実行できるCoreテスト
+├ server/                  # v1.0 Linuxサーバー (Python 3.14)
+│ ├ src/
+│ └ tests/
+├ contracts/               # client/server共通契約
 ├ src/
 | ├ app/
 | └ tests/
+├ frontend/                # 既存Web版。v1.0受入までは維持
 ├ tasks/
 ├ docker-compose.yml
 ├ Dockerfile
