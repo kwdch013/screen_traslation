@@ -11,14 +11,20 @@ v1.0のソースは `client/`・`server/`・`contracts/` に分け、既存Web�
 | 共通契約 | `contracts/README.md`・`contracts/fixtures/` | Linux serverとclientの両fixture試験をCIで実行 |
 | 既存Web版 | `src/`・`frontend/` | 既存CI・利用手順を継続 |
 
-リポジトリルートから次を実行します。
+リポジトリルートから次を実行します。Client共通の設定保存・接続先検証テストもテストイメージのビルド時に実行し、compose commandで契約fixtureを実行します。
 
 ```bash
 docker compose -f client/compose.test.yml run --rm test
 docker compose -f server/compose.test.yml run --rm test
 ```
 
-`.NET SDK 10.0.402` とRuntime 10.0.14は設計基準のstable版です。`client/global.json` がSDKを固定し、テストイメージは同SDKタグにRuntime 10.0.14を加えます。Windows専用UI/APIの実機試験はLinux Coreテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。
+`.NET SDK 10.0.402` とRuntime 10.0.14は設計基準のstable版です。`client/global.json` がSDKを固定し、テストイメージは同SDKタグにRuntime 10.0.14を加えます。通常設定はユーザーのLocal Application Data配下のJSONに保存し、端末tokenは別ファイルへ分離してWindows DPAPI CurrentUserで保護します。Linux clientコンテナでは設定モデル・入力検証・保存境界を試験し、DPAPI試験はWindows runnerのみで実行します。LinuxではWindows実機が必要なDPAPI試験を未実施とし、合格へ数えません。Windows専用UI/APIの実機試験もLinux Core/Clientテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。
+
+Windows固有の資格情報保護テストはWindows runnerまたは対応Windows実機で実行します。
+
+```powershell
+dotnet test tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release
+```
 
 ### CI・CodeQL・依存更新
 

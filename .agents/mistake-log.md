@@ -1,5 +1,19 @@
 # ミス記録
 
+## 2026-10-30 .NETビルド生成物をindexへ追加しかけた
+- 何が起きたか: `client/src`・`client/tests`をディレクトリ単位でstageし、Container buildでworktreeへ生成された`bin/obj`を一時的にindexへ追加した。コミット前の差分確認で検出し、indexを戻して生成物を外した。
+- 根本原因: client配下に.NET生成物を除外する規則がなく、stage対象をディレクトリ指定した。
+- 正しいやり方: `client/.gitignore`で`.vs/`・`bin/`・`obj/`を除外し、stage後に`git diff --cached --stat`と`git status --short`で生成物が無いことを確認する。
+- 発生回数: 1
+- guard: なし
+
+## 2026-10-30 Windows専用プロジェクトをLinuxコンテナでクロスビルドした
+- 何が起きたか: Issue #88のLinuxコンテナ確認中、既存DockerfileのSolution全体ビルドを実行し、Windows専用DPAPI実装をLinux上で一度ビルドした。実行試験はしていない。最終的にLinux用DockerfileをOS非依存プロジェクトだけへ限定した。
+- 根本原因: compose/Dockerfileの既存範囲を再利用し、今回の「Windows専用実装はWindowsだけでビルド・試験する」というIssue固有条件を実行前に適用しなかった。
+- 正しいやり方: OS固有コードを追加するTaskでは、テスト用Dockerfile・Solution・workflowのビルド対象を着手前に確認する。Linux用コンテナからWindows専用projectを除き、Windows runnerにのみビルド・テストを割り当てる。
+- 発生回数: 1
+- guard: なし
+
 ## 2026-10-30 Issue依存APIへIssue番号を内部IDとして渡した
 - 何が起きたか: `gh api` の依存追加で `issue_id` にIssue番号を渡し、意図しない #18 を一時的に #136 の blocker として登録した。確認後、削除して #59 と #93 に修正した。
 - 根本原因: REST APIの `issue_id` がIssue表示番号ではなく内部IDであることを確認せず、パラメーター名から表示番号と推測した。
