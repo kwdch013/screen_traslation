@@ -113,8 +113,15 @@ class ApiContractSchemaTests(unittest.TestCase):
 		for case in fixture["cases"]:
 			with self.subTest(case=case["name"]):
 				message_bytes = case["header_bytes"] + case["metadata_bytes"] + case["image_payload_bytes"]
-				self.assertEqual(message_bytes, case["message_bytes"])
-				self.assertEqual(message_bytes <= fixture["maximum_message_bytes"], case["accepted"])
+				accepted = (
+					case["magic"] == "STF1"
+					and 1 <= case["metadata_bytes"] <= fixture["components"]["metadata_bytes"]
+					and 1 <= case["image_payload_bytes"] <= fixture["components"]["image_payload_bytes"]
+					and case["declared_payload_bytes"] == case["image_payload_bytes"]
+					and message_bytes <= fixture["maximum_message_bytes"]
+					and case["message_bytes"] == message_bytes
+				)
+				self.assertEqual(accepted, case["accepted"])
 		self.assertEqual(fixture["cases"][0]["message_bytes"], fixture["maximum_message_bytes"])
 		self.assertEqual(fixture["cases"][1]["message_bytes"], fixture["maximum_message_bytes"] + 1)
 

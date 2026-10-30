@@ -8,6 +8,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Windows",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Core.Tests", "tests\ScreenTranslation.Core.Tests\ScreenTranslation.Core.Tests.csproj", "{B171E95D-259B-4D25-BF68-CB50C6F8A003}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Contracts.Tests", "tests\ScreenTranslation.Contracts.Tests\ScreenTranslation.Contracts.Tests.csproj", "{B171E95D-259B-4D25-BF68-CB50C6F8A004}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -26,5 +28,9 @@ Global
 		{B171E95D-259B-4D25-BF68-CB50C6F8A003}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B171E95D-259B-4D25-BF68-CB50C6F8A003}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B171E95D-259B-4D25-BF68-CB50C6F8A003}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A004}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A004}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A004}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A004}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
