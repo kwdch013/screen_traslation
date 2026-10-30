@@ -1,0 +1,10 @@
+<Window x:Class="ScreenTranslation.Windows.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Screen Translation" Height="240" Width="400">
+    <Grid>
+        <TextBlock HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Text="Screen Translation" />
+    </Grid>
+</Window>

@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Core", "src\ScreenTranslation.Core\ScreenTranslation.Core.csproj", "{B171E95D-259B-4D25-BF68-CB50C6F8A001}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Windows", "src\ScreenTranslation.Windows\ScreenTranslation.Windows.csproj", "{B171E95D-259B-4D25-BF68-CB50C6F8A002}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Core.Tests", "tests\ScreenTranslation.Core.Tests\ScreenTranslation.Core.Tests.csproj", "{B171E95D-259B-4D25-BF68-CB50C6F8A003}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B171E95D-259B-4D25-BF68-CB50C6F8A001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A001}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A001}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A001}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A002}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A002}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A002}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A002}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A003}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A003}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A003}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A003}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

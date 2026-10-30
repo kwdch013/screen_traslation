@@ -25,6 +25,16 @@ class DesktopRemovalTest(unittest.TestCase):
             with self.subTest(path=path.name):
                 self.assertIsNone(forbidden_import.search(path.read_text(encoding="utf-8")))
 
+    def test_v1_projects_coexist_with_legacy_web_application(self) -> None:
+        if not (self.repository_root / "README.md").is_file():
+            self.skipTest("実行用コンテナにはリポジトリ文書を含めていません")
+
+        self.assertTrue((self.repository_root / "client" / "ScreenTranslation.sln").is_file())
+        self.assertTrue((self.repository_root / "server" / "src").is_dir())
+        self.assertTrue((self.repository_root / "contracts" / "README.md").is_file())
+        self.assertTrue((self.repository_root / "src" / "app" / "main.py").is_file())
+        self.assertTrue((self.repository_root / "frontend" / "package.json").is_file())
+
 
 class DesktopRepositoryRemovalTest(unittest.TestCase):
     def setUp(self) -> None:

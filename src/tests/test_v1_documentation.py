@@ -134,6 +134,33 @@ class V1DocumentationTest(unittest.TestCase):
 				self.assertIn("requirements/version_1/requirements.md", document)
 				self.assertNotRegex(document, r"Owner確認待ち|Ownerの対応環境・性能値・受入手順の確認は未実施")
 
+	def test_development_guide_documents_client_server_and_contract_bootstrap(self) -> None:
+		guide = self.read("docs/v1.0/development.md")
+		for expected in (
+			"client/compose.test.yml",
+			"server/compose.test.yml",
+			"docker compose -f client/compose.test.yml run --rm test",
+			"docker compose -f server/compose.test.yml run --rm test",
+			".NET SDK 10.0.402",
+			"Runtime 10.0.14",
+			"Python 3.14",
+			"contracts/README.md",
+			"Web版",
+			"client/ScreenTranslation.sln",
+			"client/global.json",
+			".github/workflows/client-bootstrap.yml",
+		):
+			with self.subTest(expected=expected):
+				self.assertIn(expected, guide)
+
+	def test_roadmap_maps_bootstrap_to_v1_requirements(self) -> None:
+		roadmap = self.read("plan/version_1/roadmap.md")
+		row = next(line for line in roadmap.splitlines() if line.startswith("| #68/#69/#103/#104/#105/#106 |"))
+		for expected in ("REQ-F-012", "REQ-NF-008/009/010", "10.0.402", "10.0.14", "client/server/contracts"):
+			with self.subTest(expected=expected):
+				self.assertIn(expected, row)
+		self.assertIn("#68 client/server/contractsの雛形", self.read("docs/v1.0/development.md"))
+
 
 class V1DesignDecisionTest(unittest.TestCase):
 	def setUp(self) -> None:
