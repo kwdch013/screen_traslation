@@ -65,24 +65,48 @@ public sealed class TransportTests
 	}
 
 	[Fact]
-	public void BinaryMessageBoundaryFixtureMatchesWireLimits()
+	public void BinaryMessageBoundaryFixtureUsesProductionFrameBuilderAndValidator()
 	{
 		using var fixture = JsonDocument.Parse(File.ReadAllText(FindContractFixture("binary-message-boundaries.json")));
 		Assert.Equal(FrameMessage.MaximumMessageBytes, fixture.RootElement.GetProperty("maximum_message_bytes").GetInt32());
-		foreach (var item in fixture.RootElement.GetProperty("cases").EnumerateArray())
-		{
-			var metadataLength = item.GetProperty("metadata_bytes").GetInt32();
-			var payloadLength = item.GetProperty("image_payload_bytes").GetInt32();
-			var declaredPayloadLength = item.GetProperty("declared_payload_bytes").GetInt32();
-			var messageLength = item.GetProperty("message_bytes").GetInt32();
-			var accepted = item.GetProperty("magic").GetString() == "STF1"
-				&& metadataLength is >= 1 and <= FrameMessage.MaximumMetadataBytes
-				&& payloadLength is >= 1 and <= FrameMessage.MaximumImageBytes
-				&& declaredPayloadLength == payloadLength
-				&& messageLength == 8 + metadataLength + payloadLength
-				&& messageLength <= FrameMessage.MaximumMessageBytes;
-			Assert.Equal(item.GetProperty("accepted").GetBoolean(), accepted);
-		}
+		var maximumCase = fixture.RootElement.GetProperty("cases").EnumerateArray()
+			.Single(item => item.GetProperty("name").GetString() == "上限ちょうど");
+		var imageLength = maximumCase.GetProperty("image_payload_bytes").GetInt32();
+		var metadataLength = maximumCase.GetProperty("metadata_bytes").GetInt32();
+		var image = new byte[imageLength];
+		var metadata = new FrameMetadata(1, SessionId, 1, 1, 1, 1920, 1080, "image/jpeg", imageLength);
+		var built = FrameMessage.Create(metadata, image).Bytes.ToArray();
+		var originalMetadataLength = (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(built.AsSpan(4, 4));
+		var messageAtLimit = new byte[8 + metadataLength + imageLength];
+		built.AsSpan(0, 8 + originalMetadataLength).CopyTo(messageAtLimit);
+		messageAtLimit.AsSpan(8 + originalMetadataLength, imageLength).CopyTo(messageAtLimit.AsSpan(8 + metadataLength));
+		messageAtLimit.AsSpan(8 + originalMetadataLength, metadataLength - originalMetadataLength).Fill((byte)' ');
+		System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(messageAtLimit.AsSpan(4, 4), (uint)metadataLength);
+
+		Assert.Equal(FrameMessage.MaximumMessageBytes, messageAtLimit.Length);
+		Assert.Equal(metadata, TransportProtocol.ValidateFrame(messageAtLimit));
+		Assert.Throws<InvalidDataException>(() => TransportProtocol.ValidateFrame([.. messageAtLimit, 0]));
+
+		var metadataLimit = BuildPaddedFrame(metadata with { ImageLength = 1 }, [1], FrameMessage.MaximumMetadataBytes);
+		Assert.Equal(metadata with { ImageLength = 1 }, TransportProtocol.ValidateFrame(metadataLimit));
+		var oversizedMetadata = BuildPaddedFrame(metadata with { ImageLength = 1 }, [1], FrameMessage.MaximumMetadataBytes + 1);
+		Assert.Throws<InvalidDataException>(() => TransportProtocol.ValidateFrame(oversizedMetadata));
+
+		var invalidHeader = messageAtLimit.ToArray();
+		invalidHeader[0] = (byte)'X';
+		Assert.Throws<InvalidDataException>(() => TransportProtocol.ValidateFrame(invalidHeader));
+	}
+
+	private static byte[] BuildPaddedFrame(FrameMetadata metadata, byte[] image, int paddedMetadataLength)
+	{
+		var built = FrameMessage.Create(metadata, image).Bytes.ToArray();
+		var currentLength = (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(built.AsSpan(4, 4));
+		var padded = new byte[8 + paddedMetadataLength + image.Length];
+		built.AsSpan(0, 8 + currentLength).CopyTo(padded);
+		built.AsSpan(8 + currentLength, image.Length).CopyTo(padded.AsSpan(8 + paddedMetadataLength));
+		padded.AsSpan(8 + currentLength, paddedMetadataLength - currentLength).Fill((byte)' ');
+		System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(padded.AsSpan(4, 4), (uint)paddedMetadataLength);
+		return padded;
 	}
 
 	[Fact]
@@ -192,10 +216,73 @@ public sealed class TransportTests
 				return Task.CompletedTask;
 			},
 			policy,
-			CancellationToken.None);
+			CancellationToken.None,
+			() => 1.0);
 
 		Assert.Equal(4, calls);
 		Assert.Equal([TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(250)], delays);
+	}
+
+	[Fact]
+	public void ReconnectPolicy_FullJitterStaysWithinExponentialAndMaximumBounds()
+	{
+		var policy = new ReconnectPolicy(3, TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(250));
+
+		Assert.Equal(TimeSpan.Zero, policy.DelayForRetry(1, 0));
+		Assert.Equal(TimeSpan.FromMilliseconds(50), policy.DelayForRetry(1, 0.5));
+		Assert.Equal(TimeSpan.FromMilliseconds(100), policy.DelayForRetry(1, 1));
+		Assert.Equal(TimeSpan.FromMilliseconds(250), policy.DelayForRetry(3, 1));
+		Assert.Throws<ArgumentOutOfRangeException>(() => policy.DelayForRetry(1, 1.1));
+	}
+
+	[Fact]
+	public async Task StreamTransport_StopsAfterMaximumConsecutiveDisconnects()
+	{
+		var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+		var credentials = new ProtectedCredentialStore(path, new TestCredentialProtector());
+		await credentials.SaveAsync("fixture-device-token");
+		var factory = new TestSocketFactory { Receive = (_, _) => Task.FromException<string?>(new IOException("immediate disconnect")) };
+		var transport = new StreamTransportClient(
+			new ConnectionSettings("https://service.example"), credentials, factory,
+			new ReconnectPolicy(2, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.FromSeconds(10)),
+			(_, _) => Task.CompletedTask,
+			() => 0);
+		var notifications = new List<TransportConnectionStatus>();
+		transport.ConnectionStatusChanged += notifications.Add;
+
+		await Assert.ThrowsAsync<ReconnectLimitException>(() => transport.RunReceiveLoopAsync(_ => Task.CompletedTask));
+
+		Assert.Equal(3, factory.Sockets.Count);
+		Assert.Equal(TransportConnectionStatus.Failed, transport.Status);
+		Assert.Contains(TransportConnectionStatus.Failed, notifications);
+		File.Delete(path);
+	}
+
+	[Fact]
+	public async Task StreamTransport_ResetsDisconnectCountOnlyAfterStableConnection()
+	{
+		var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+		var credentials = new ProtectedCredentialStore(path, new TestCredentialProtector());
+		await credentials.SaveAsync("fixture-device-token");
+		long now = 0;
+		var factory = new TestSocketFactory
+		{
+			Receive = (index, _) =>
+			{
+				if (index == 1) now = 10_000_000_000;
+				return Task.FromException<string?>(new IOException("immediate disconnect"));
+			},
+		};
+		var transport = new StreamTransportClient(
+			new ConnectionSettings("https://service.example"), credentials, factory,
+			new ReconnectPolicy(2, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.FromSeconds(10)),
+			(_, _) => Task.CompletedTask,
+			() => now);
+
+		await Assert.ThrowsAsync<ReconnectLimitException>(() => transport.RunReceiveLoopAsync(_ => Task.CompletedTask));
+
+		Assert.Equal(4, factory.Sockets.Count);
+		File.Delete(path);
 	}
 
 	[Fact]
@@ -279,7 +366,7 @@ public sealed class TransportTests
 		var factory = new TestSocketFactory { DisconnectFirstSocket = true };
 		var transport = new StreamTransportClient(
 			new ConnectionSettings("https://service.example"), credentials, factory,
-			new ReconnectPolicy(0, TimeSpan.Zero, TimeSpan.Zero),
+			new ReconnectPolicy(1, TimeSpan.Zero, TimeSpan.Zero),
 			(_, _) => Task.CompletedTask);
 		using var cancellation = new CancellationTokenSource();
 		var disconnected = 0;
@@ -334,16 +421,17 @@ public sealed class TransportTests
 	{
 		public List<TestSocket> Sockets { get; } = [];
 		public bool DisconnectFirstSocket { get; init; }
+		public Func<int, CancellationToken, Task<string?>>? Receive { get; init; }
 
 		public IStreamSocket Create(ConnectionSettings settings)
 		{
-			var socket = new TestSocket(DisconnectFirstSocket && Sockets.Count == 0);
+			var socket = new TestSocket(DisconnectFirstSocket && Sockets.Count == 0, Sockets.Count, Receive);
 			Sockets.Add(socket);
 			return socket;
 		}
 	}
 
-	private sealed class TestSocket(bool disconnectOnReceive) : IStreamSocket
+	private sealed class TestSocket(bool disconnectOnReceive, int index, Func<int, CancellationToken, Task<string?>>? receive) : IStreamSocket
 	{
 		public Uri? Endpoint { get; private set; }
 		public string? DeviceToken { get; private set; }
@@ -363,7 +451,8 @@ public sealed class TransportTests
 		}
 
 		public Task<string?> ReceiveTextAsync(CancellationToken cancellationToken) =>
-			disconnectOnReceive ? Task.FromException<string?>(new IOException("test disconnect")) : Task.FromResult<string?>(null);
+			receive?.Invoke(index, cancellationToken)
+			?? (disconnectOnReceive ? Task.FromException<string?>(new IOException("test disconnect")) : Task.FromResult<string?>(null));
 
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 	}
