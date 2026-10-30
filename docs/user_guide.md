@@ -206,4 +206,4 @@ PYTHONPATH=src python -m app.main --install-argos-en-ja
 
 ## v1.0 の方式候補と脅威モデル
 
-次版の[技術選定ADR・要件ID対応表](v1.0/design/adr/README.md)と[脅威モデル](v1.0/design/security.md)は #56 の提案です。自己取得除外・混在DPI・Python 3.14依存は #58/#59/#60 で検証し、#57で最終採否・TLS/資格情報の運用を確定します。実機検証・性能合格は未実施で、現行Web版の起動/利用契約は維持します。新版の利用時には、設定で与える接続先・信頼情報と管理者が発行する端末資格情報が必要になる候補です。現段階で新版を導入済みとは扱いません。
+次版の[基本・詳細設計](v1.0/design/architecture.md)、[技術選定ADR](v1.0/design/adr/README.md)、[脅威モデル](v1.0/design/security.md)は#57で設計採用済みです。実装・Windows実機検証・性能/品質合格は未実施です。WGC/キャプチャ除外は#135相当、混在DPI/負座標/重畳は#136相当のWindows実機Taskで確認します。現行Web版の操作と起動は本書の現行手順を参照してください。新版を導入済みとは扱いません。

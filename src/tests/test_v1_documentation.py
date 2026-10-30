@@ -176,9 +176,9 @@ class V1DesignDecisionTest(unittest.TestCase):
 		for path in adrs:
 			with self.subTest(adr=path.name):
 				document = self.read(path)
-				for heading in ("状態", "対象要件", "背景", "比較", "採用候補", "検証と確定担当", "影響", "根拠"):
+				for heading in ("状態", "対象要件", "背景", "比較", "採用方式", "検証と確定担当", "影響", "根拠"):
 					self.assertIn(f"## {heading}", document)
-				self.assertIn("提案", document)
+				self.assertIn("設計採用", document)
 				self.assertIn("未実施", document)
 				self.assertRegex(document, r"Q-\d{2}")
 				self.assertRegex(document, r"#57")
@@ -187,7 +187,7 @@ class V1DesignDecisionTest(unittest.TestCase):
 
 	def test_threats_have_boundary_countermeasure_owner_and_failure_oracle(self) -> None:
 		document = self.read(self.security)
-		for heading in ("資産と信頼境界", "脅威と対策候補", "認証とTLS", "残余リスク"):
+		for heading in ("前提/仮定", "資産と信頼境界", "脅威と設計対策", "認証とTLS", "残余リスク"):
 			self.assertIn(f"## {heading}", document)
 		rows = self.rows(document, "TH-")
 		self.assertGreaterEqual(len(rows), 10)
@@ -223,12 +223,30 @@ class V1DesignDecisionTest(unittest.TestCase):
 					if "://" not in target and not target.startswith("#"):
 						self.assertTrue(path.parent.joinpath(target.split("#")[0]).is_file(), target)
 
-	def test_existing_guides_expose_proposals_as_future_design(self) -> None:
+	def test_existing_guides_link_to_adopted_design_and_open_validation(self) -> None:
 		for name in ("specification.md", "developer_guide.md", "user_guide.md"):
 			document = self.read(self.root / "docs" / name)
 			self.assertIn("v1.0/design/adr/README.md", document)
 			self.assertIn("v1.0/design/security.md", document)
+			self.assertIn("設計採用", document)
+			self.assertIn("Windows実機", document)
 		self.assertIn("docs/v1.0/design/adr/README.md", self.read(self.root / DOCUMENTS[2]))
+
+	def test_downstream_issue_transfer_table_names_every_target_and_design_reference(self) -> None:
+		document = self.read(self.root / "docs/v1.0/design/architecture.md")
+		section = document.split("## 下流Issueへの仕様反映", 1)[1].split("### 要件IDと設計要素", 1)[0]
+		rows = [line for line in section.splitlines() if re.match(r"\| #\d+ \|", line)]
+		self.assertGreaterEqual(len(rows), 35)
+		issues: list[str] = []
+		for row_number, row in enumerate(rows, start=1):
+			match = re.match(r"\| #(\d+) \|", row)
+			assert match is not None, f"仕様転記対象の表の{row_number}行目がIssue行ではありません: {row}"
+			issues.append(match.group(1))
+		self.assertEqual(len(issues), len(set(issues)), "仕様転記対象のIssue番号を重複させない")
+		for issue, row in zip(issues, rows, strict=True):
+			with self.subTest(issue=issue):
+				self.assertIn("docs/v1.0/design/architecture.md", row)
+				self.assertTrue(row.strip().endswith("|"))
 
 
 class CaptureExclusionResearchTest(unittest.TestCase):
@@ -291,3 +309,85 @@ class CaptureExclusionResearchTest(unittest.TestCase):
 		self.assertIn("REQ-F-005 / ACC-07", text)
 		self.assertIn("capture-exclusion.md", (self.root / "docs/v1.0/design/adr/0002-windows-client.md").read_text(encoding="utf-8"))
 		self.assertIn("capture-exclusion.md", (self.root / "docs/v1.0/development.md").read_text(encoding="utf-8"))
+
+
+class V1ArchitectureDesignTest(unittest.TestCase):
+	def setUp(self) -> None:
+		self.root = Path(__file__).resolve().parents[2]
+		if not (self.root / "README.md").is_file():
+			self.skipTest("文書を含むリポジトリをマウントして実行してください")
+		self.design = self.root / "docs/v1.0/design"
+		self.architecture = self.design / "architecture.md"
+
+	def read(self, path: Path) -> str:
+		self.assertTrue(path.is_file(), f"設計文書が必要です: {path.relative_to(self.root)}")
+		return path.read_text(encoding="utf-8")
+
+	def test_architecture_maps_all_requirements_to_detailed_design(self) -> None:
+		document = self.read(self.architecture)
+		requirements = set(re.findall(
+			r"(?m)^\| (REQ-(?:F|NF)-\d{3}) \|",
+			(self.root / DOCUMENTS[0]).read_text(encoding="utf-8"),
+		))
+		rows = re.findall(r"(?m)^\| (REQ-(?:F|NF)-\d{3}) \| (.+)$", document)
+		self.assertEqual(requirements, {requirement for requirement, _ in rows})
+		self.assertEqual(len(rows), len(requirements))
+		for requirement, row in rows:
+			with self.subTest(requirement=requirement):
+				self.assertRegex(row, r"ACC-\d{2}")
+				self.assertRegex(row, r"(?:ADR-\d{4}|INF-\d{3}|CMP-\d{3}|FLW-\d{3})")
+		for heading in ("文書情報", "前提/仮定", "システム構成", "技術スタック", "画面", "レイヤー", "業務フロー", "通信・API詳細", "データと状態", "セキュリティ、運用、復旧", "詳細テスト観点", "下流Issueへの仕様反映"):
+			with self.subTest(heading=heading):
+				self.assertIn(f"## {heading}", document)
+		for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", document):
+			if "//" not in target and not target.startswith("#"):
+				with self.subTest(target=target):
+					self.assertTrue((self.architecture.parent / target.split("#")[0]).exists(), target)
+
+	def test_final_design_decisions_include_limits_and_real_device_assumptions(self) -> None:
+		document = self.read(self.architecture)
+		for expected in (
+			"採用", ".NET 10", "WPF", "Windows.Graphics.Capture", "WDA_EXCLUDEFROMCAPTURE",
+			"HTTPS", "WSS", "TLS 1.2", "Per-Monitor V2", "Tesseract", "Argos",
+			"2 fps", "5 fps", "4 MiB", "2,073,600", "4 GiB", "2 CPU",
+			"5秒", "10秒", "1秒", "1920×1080", "#135", "#136", "未実施",
+		):
+			with self.subTest(expected=expected):
+				self.assertIn(expected, document)
+		self.assertRegex(document, r"(?s)前提/仮定.*Windows実機.*未実施")
+
+	def test_design_diagrams_are_editable_svg_pairs_and_embed_consistently(self) -> None:
+		document = self.read(self.architecture)
+		for stem in ("system-architecture", "layers"):
+			with self.subTest(diagram=stem):
+				drawio = self.design / "diagrams" / f"{stem}.drawio"
+				svg = self.design / "diagrams" / f"{stem}.svg"
+				self.assertTrue(drawio.is_file())
+				svg_text = self.read(svg)
+				self.assertIn("<svg", svg_text)
+				self.assertIn(f"diagrams/{stem}.svg", document)
+				self.assertIn(f"diagrams/{stem}.drawio", document)
+
+	def test_adr_and_security_show_decisions_separately_from_unperformed_measurements(self) -> None:
+		index = self.read(self.design / "adr/README.md")
+		adrs = index + "\n".join(path.read_text(encoding="utf-8") for path in sorted((self.design / "adr").glob("[0-9]*.md")))
+		for decision in ("HTTPS制御", "WSS", "WPF", "Windows.Graphics.Capture", "段階抽出", "アプリ内TLS終端", "単一所有者", "Tesseract", "Argos"):
+			with self.subTest(decision=decision):
+				self.assertIn(decision, adrs)
+		self.assertIn("採用", index)
+		self.assertIn("未実施", index)
+		self.assertIn("前提/仮定", self.read(self.design / "security.md"))
+		self.assertIn("#135", self.read(self.design / "adr/0002-windows-client.md"))
+		self.assertIn("#136", self.read(self.design / "adr/0002-windows-client.md"))
+
+	def test_downstream_issue_specification_reflection_is_complete_and_explicit(self) -> None:
+		document = self.read(self.architecture)
+		section = document.split("## 下流Issueへの仕様反映", 1)[1]
+		issues = {int(number) for number in re.findall(r"(?m)^\| #(\d+) \|", section)}
+		self.assertGreaterEqual(len(issues), 20)
+		self.assertTrue({61, 62, 63, 68, 72, 73, 75, 77, 78, 79, 80, 81, 82, 83, 84, 85, 88, 89, 90, 92, 93, 94, 95, 97, 98, 99, 100, 103, 104, 105, 106, 108, 109, 110, 111} <= issues)
+		for issue in issues:
+			with self.subTest(issue=issue):
+				row = next(line for line in section.splitlines() if line.startswith(f"| #{issue} |"))
+				self.assertGreaterEqual(len(row.split("|")), 4)
+				self.assertTrue(row.split("|")[2].strip())

@@ -2,7 +2,7 @@
 
 ## 状態
 
-2026-10-29、提案。抽出と新旧回帰は未実施。#57で境界を確定し #68/#69 へ渡す。[索引・検証課題](README.md)。
+2026-10-30、**設計採用**。Windows client / Linux server / shared contractsを同じrepository内に分離し、翻訳コアをport経由で段階抽出する。抽出・新旧回帰は未実施で、#68/#69が構造とCIを整える。[索引・検証課題](README.md) / [基本・詳細設計](../architecture.md)。
 
 ## 対象要件
 
@@ -21,11 +21,11 @@ REQ-F-004、REQ-F-008、REQ-F-012、REQ-NF-007、REQ-NF-009、REQ-NF-010。
 | WebAppServiceをそのまま外部公開 | 既存経路を利用できる | ループバック前提・Web契約・機微ログを引き継ぐ危険がある。不採用候補 |
 | 全面書き直し/別repo | 新方式を独立設計できる | 回帰資産を失い、repo分割は要求外。採用しない |
 
-## 採用候補
+## 採用方式
 
-OCR/翻訳/辞書の純粋な入出力と副作用を棚卸しし、小さな単位で抽出して新旧アダプターから呼ぶ案を推奨する。Windowsが取得/選択/重畳/履歴、LinuxがOCR/英日翻訳/辞書を担当する。`contracts/` は両言語の版付き外部契約とfixture、既存のPython Protocolは内部境界として区別する。実際の配置とimport依存は #57/#69 で決め、今回ソースを移動しない。
+OCR/翻訳/辞書の副作用をadapterに閉じ、小さなport単位で抽出して旧Web adapterと新server adapterから呼ぶ。Windowsが取得/選択/重畳/履歴、Linuxが認証/セッション/OCR/英日翻訳/辞書を担当する。`contracts/`は両言語の版付き外部契約とfixture、Python Protocolは内部境界とする。`client/`・`server/`・`contracts/`を同repo内に配置し、#68/#69で依存と回帰を確定する。本Taskではソース移動をしない。
 
-既存 `JsonlTranslationLogger` 等の内容保存、任意LLMの外部接続、Web用の設定既定値を新版へ暗黙に引き継がない。新版は機微内容を永続ログに残さず、英日Tesseract/Argosを既定にする。旧Web版の利用法を変更せず、新版の資格情報・モデル・設定/辞書は別の設定名前空間/保存先へ分離する案とする。同時に同じ永続ファイルへ書く構成を既定にしない。
+既存`JsonlTranslationLogger`等の内容保存、任意LLM外部接続、Web用設定既定値を新版へ引き継がない。新版は機微内容を永続ログに残さず、英日Tesseract/Argosを使う。旧Web版の利用法を変更せず、新版の資格情報・モデル・設定/辞書は別namespace/保存先へ分離する。同一の永続ファイルを旧新両方から更新しない。
 
 ## 検証と確定担当
 
