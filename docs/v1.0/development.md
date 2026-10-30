@@ -2,7 +2,7 @@
 
 ## client・server・contractsの雛形
 
-v1.0のソースは `client/`・`server/`・`contracts/` に分け、既存Web版の `src/`・`frontend/` はv1.0受入まで維持します。Windows APIを使う機能は後続Taskで実装し、この段階のLinuxテスト対象はOS非依存のCoreだけです。
+v1.0のソースは `client/`・`server/`・`contracts/` に分け、既存Web版の `src/`・`frontend/` はv1.0受入まで維持します。対象列挙と取得ライフサイクルのOS非依存部分はIssue #92で追加し、WGC実取得・自己キャプチャ除外・混在DPIはWindows runner/実機Taskで検証します。
 
 | 領域 | 技術・配置 | 現在の検証範囲 |
 | --- | --- | --- |
@@ -16,6 +16,7 @@ v1.0のソースは `client/`・`server/`・`contracts/` に分け、既存Web�
 ```bash
 docker compose -f client/compose.test.yml run --rm test
 docker compose -f server/compose.test.yml run --rm test
+docker compose -f client/compose.test.yml run --rm -v "$PWD/client:/workspace" test dotnet test tests/ScreenTranslation.Client.Tests/ScreenTranslation.Client.Tests.csproj --configuration Release --filter FullyQualifiedName~CaptureLifecycle
 ```
 
 `.NET SDK 10.0.402` とRuntime 10.0.14は設計基準のstable版です。`client/global.json` がSDKを固定し、テストイメージは同SDKタグにRuntime 10.0.14を加えます。通常設定はユーザーのLocal Application Data配下のJSONに保存し、端末tokenは別ファイルへ分離してWindows DPAPI CurrentUserで保護します。Linux clientコンテナでは設定モデル・入力検証・保存境界を試験し、DPAPI試験はWindows runnerのみで実行します。LinuxではWindows実機が必要なDPAPI試験を未実施とし、合格へ数えません。Windows専用UI/APIの実機試験もLinux Core/Clientテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。

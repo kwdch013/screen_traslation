@@ -21,6 +21,7 @@
 - Linuxコンテナ: `CaptureLifecycleTests` 9件成功 (fake session)。
 - Windows-targeted build: `ScreenTranslation.Windows.Tests.csproj` 成功、0 warning / 0 error。
 - Client compose: Core 1件、Client 18件、Contract 4件成功。
+- 文書整合テスト: 26件成功。architectureの#92仕様行、REQ-F-006追跡表、開発用のCaptureLifecycle実行手順を更新。
 - Python 3.14: 通常回帰と`src/`のみを`/app/src`へmountした回帰が各306件成功 (72 skip)。
 - 静的検査: `mypy src`、`mypy --platform win32 src` (各79 source files)、`ruff check src` 成功。
 - Windows上の列挙テスト実行、WGC実画面取得、自己キャプチャ除外、`SetWindowDisplayAffinity`、混在DPIの実測: **未実施(Windows実機が必要)**。この結果を合格扱いにしない。列挙テストのWindows CI実行と実機確認は #135/#136/#148 系Taskで行う。
@@ -32,3 +33,6 @@
 - `client/src/ScreenTranslation.Windows/Capture/`
 - `client/tests/ScreenTranslation.Windows.Tests/`
 - `tasks/92-window-capture-lifecycle.md`
+- `docs/v1.0/development.md`
+- `docs/v1.0/design/architecture.md`
+- `plan/version_1/roadmap.md`

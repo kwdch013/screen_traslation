@@ -220,7 +220,7 @@ draw.io CLIでXMLを開き、同じ原本からSVGを出力した。出力SVGを
 | #88 | HTTPS/WSSのserver trustを検証してからtokenを送信。端末tokenをDPAPI CurrentUserで保存、secret/接続先は外部設定、平文/URL/logへ出さない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #89 | 1本のWSSをbinary frame + text status/resultに使用。disconnect時5秒以内検出、表示1秒以内消去、再接続後は明示start。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #90 | WPF上のTLS失敗、session in-use 409、WSS断、ready false、再接続停止状態を表示するWindows結合観点。UI実機/自動化結果を記録。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
-| #92 | WGCの対象選択/終了/最小化を扱い、対象消失で停止。取得は設定1～5fps/既定2、変化frameのみ、ROI物理pxで制限する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #92 | Clientの対象catalogで外部可視ウィンドウ/モニターを列挙し、明示開始・停止・再選択・対象消失/最小化・取得拒否・DPI変更を世代無効化して解放する。取得は設定1～5fps/既定2、変化frameのみ、ROI物理pxで制限する。WGC/WDAと実DPI結果は#135/#136/#148系で検証し、未実施を合格にしない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #93 | ROI画像物理pixelを基準に64×32～1920×1080/最大2,073,600 px。Per-Monitor V2、負座標、DPI changeで変換context/generationを更新。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #94 | PNG/JPEG encoded max4 MiB、変化時のみ、連続10秒 fps×10以内、設定fps以下。送信待ちを蓄積せずlatest frame優先。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #95 | source/overlay capture exclusion失敗時は送信停止。frame metadataと画像ROIの一致、旧generationの拒否を実機で確認する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
