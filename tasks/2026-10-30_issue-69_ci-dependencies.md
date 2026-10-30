@@ -26,9 +26,9 @@ client / server / contracts の変更を個別に検証し、文書だけの変�
 
 ## PR #142 CodeQL C# 抽出失敗の修正
 
-- CodeQL jobをWindows runnerへ移し、`client/global.json` の.NET SDKをsetup-dotnetで導入してから `build-mode: manual` でSolution全体をビルドする。Windows専用ターゲットをLinux runnerでビルドできない問題を避け、C# extractorへコンパイル情報を渡す。
+- CodeQLを言語別jobへ分割。PythonはUbuntuで`build-mode: none`、C#はWindowsで`client/global.json` の.NET SDKをsetup-dotnetで導入してから`build-mode: manual`でSolution全体をビルドする。Windows専用ターゲットをLinux runnerでビルドできない問題を避け、C# extractorへコンパイル情報を渡す。
 - setup-dotnetは公式actionのv5タグが指すcommit SHAで固定。既存Python解析、権限、concurrency、CodeQL action設定は維持。
-- 構造テストへWindows runner・SDK設定・manual buildの期待値を先に追加し、旧設定で失敗、新設定で6件成功。
+- 構造テストへ言語別runner/build-mode・SDK設定・manual buildの期待値を先に追加。GitHub実行でmanualがPython extractorにも適用される不具合を確認したため、言語別jobへ分割し、mount構造テスト6件成功を再確認。
 - 更新後の全体テスト・mypy・ruffの結果はPR #142へ反映する。
 
 ## 作業情報

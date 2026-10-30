@@ -50,12 +50,17 @@ class CiWorkflowStructureTest(unittest.TestCase):
 		codeql = self._read(".github/workflows/codeql.yml")
 		dependabot = self._read(".github/dependabot.yml")
 
-		self.assertIn("languages: python, csharp", codeql)
-		self.assertRegex(codeql, r"(?m)^    runs-on: windows-latest$")
-		self.assertIn("actions/setup-dotnet@", codeql)
-		self.assertIn("global-json-file: client/global.json", codeql)
-		self.assertIn("build-mode: manual", codeql)
-		self.assertIn("dotnet build client/ScreenTranslation.sln --configuration Release", codeql)
+		python_job = codeql.split("  analyze-python:\n", maxsplit=1)[1].split("  analyze-csharp:\n", maxsplit=1)[0]
+		csharp_job = codeql.split("  analyze-csharp:\n", maxsplit=1)[1]
+		self.assertRegex(python_job, r"(?m)^    runs-on: ubuntu-latest$")
+		self.assertIn("languages: python", python_job)
+		self.assertIn("build-mode: none", python_job)
+		self.assertRegex(csharp_job, r"(?m)^    runs-on: windows-latest$")
+		self.assertIn("languages: csharp", csharp_job)
+		self.assertIn("actions/setup-dotnet@", csharp_job)
+		self.assertIn("global-json-file: client/global.json", csharp_job)
+		self.assertIn("build-mode: manual", csharp_job)
+		self.assertIn("dotnet build client/ScreenTranslation.sln --configuration Release", csharp_job)
 		for ecosystem, directory in (("pip", "/server"), ("docker", "/server"), ("nuget", "/client")):
 			with self.subTest(ecosystem=ecosystem):
 				self.assertRegex(
