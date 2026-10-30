@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-translation.invalid/contracts/v1/stream-message.schema.json",
+  "title": "WSS text message",
+  "oneOf": [
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "session_id", "generation", "dictionary_revision", "state"],
+      "properties": {
+        "type": {"const": "state"},
+        "session_id": {"type": "string", "format": "uuid", "maxLength": 36},
+        "generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+        "dictionary_revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+        "state": {"type": "string", "enum": ["accepted", "processing", "ready", "stopped"]}
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "session_id", "generation", "frame_id", "dictionary_revision", "status", "image_width", "image_height", "regions", "server_processing_ms"],
+      "properties": {
+        "type": {"const": "result"},
+        "session_id": {"type": "string", "format": "uuid", "maxLength": 36},
+        "generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+        "frame_id": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+        "dictionary_revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+        "status": {"type": "string", "enum": ["ok", "empty"]},
+        "image_width": {"type": "integer", "minimum": 64, "maximum": 1920},
+        "image_height": {"type": "integer", "minimum": 32, "maximum": 1080},
+        "regions": {
+          "type": "array", "maxItems": 500,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["rect", "source", "translation", "confidence"],
+            "properties": {
+              "rect": {
+                "type": "object", "additionalProperties": false,
+                "required": ["left", "top", "right", "bottom"],
+                "properties": {
+                  "left": {"type": "integer", "minimum": 0, "maximum": 1920},
+                  "top": {"type": "integer", "minimum": 0, "maximum": 1080},
+                  "right": {"type": "integer", "minimum": 1, "maximum": 1920},
+                  "bottom": {"type": "integer", "minimum": 1, "maximum": 1080}
+                }
+              },
+              "source": {"type": "string", "minLength": 1, "maxLength": 2048},
+              "translation": {"type": "string", "minLength": 1, "maxLength": 2048},
+              "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          }
+        },
+        "server_processing_ms": {"type": "integer", "minimum": 0, "maximum": 30000}
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "code", "correlation_id"],
+      "properties": {
+        "type": {"const": "error"},
+        "code": {"type": "string", "enum": ["AUTHENTICATION_FAILED", "SESSION_MISMATCH", "PROTOCOL_VIOLATION", "INVALID_IMAGE", "MESSAGE_TOO_LARGE", "PROCESSING_FAILED", "MODEL_NOT_READY"]},
+        "correlation_id": {"type": "string", "format": "uuid", "maxLength": 36},
+        "frame_id": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615}
+      }
+    }
+  ]
+}

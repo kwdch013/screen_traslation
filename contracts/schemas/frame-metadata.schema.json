@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-translation.invalid/contracts/v1/frame-metadata.schema.json",
+  "title": "WSS binary画像メタデータ",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "session_id", "generation", "frame_id", "dictionary_revision", "image_width", "image_height", "content_type", "image_length"],
+  "properties": {
+    "contract_version": {"type": "integer", "const": 1},
+    "session_id": {"type": "string", "format": "uuid", "maxLength": 36},
+    "generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+    "frame_id": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+    "dictionary_revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+    "image_width": {"type": "integer", "minimum": 64, "maximum": 1920},
+    "image_height": {"type": "integer", "minimum": 32, "maximum": 1080},
+    "content_type": {"type": "string", "enum": ["image/png", "image/jpeg"]},
+    "image_length": {"type": "integer", "minimum": 1, "maximum": 4194304}
+  }
+}

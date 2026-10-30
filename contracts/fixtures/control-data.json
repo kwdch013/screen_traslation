@@ -1,0 +1,7 @@
+[
+  {"schema": "session", "value": {"session_id": "11111111-1111-4111-8111-111111111111", "generation": 1, "dictionary_revision": 1}},
+  {"schema": "settings", "value": {"schema_version": 1, "revision": 2, "capture_fps": 2}},
+  {"schema": "settings-update", "value": {"capture_fps": 5}},
+  {"schema": "glossary", "value": {"schema_version": 1, "revision": 7, "entries": [{"source": "Start", "target": "開始"}]}},
+  {"schema": "glossary-update", "value": {"entries": []}}
+]

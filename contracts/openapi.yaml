@@ -1,0 +1,370 @@
+openapi: 3.1.0
+info:
+  title: Screen Translation v1 API
+  version: 1.0.0
+  description: |
+    Windows client と Linux server 間の HTTPS 制御・設定API。
+    画像と翻訳結果は認証済みの単一WSS `/api/v1/stream` を使用する。
+    要求/応答の上限と画像フレームのwire形式は contracts/README.md を参照。
+servers:
+  - url: https://{host}
+    description: TLS 1.2以上で接続するサーバー。hostとportは利用者設定。
+    variables:
+      host:
+        default: server.invalid
+        description: 接続先。実環境の値を契約へ固定しない。
+tags:
+  - name: control
+    description: 準備状態と単一セッションの制御
+  - name: settings
+    description: 管理者専用の設定・辞書更新
+  - name: credentials
+    description: 管理者による端末資格情報の発行・失効
+paths:
+  /api/v1/health:
+    get:
+      operationId: getHealth
+      tags: [control]
+      summary: プロセス生存状態
+      security:
+        - deviceToken: []
+        - adminToken: []
+      responses:
+        '200':
+          description: プロセスが応答可能
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status: {type: string, const: alive}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        default: {$ref: '#/components/responses/InternalError'}
+  /api/v1/ready:
+    get:
+      operationId: getReadiness
+      tags: [control]
+      summary: 翻訳処理の準備状態
+      security:
+        - deviceToken: []
+        - adminToken: []
+      responses:
+        '200':
+          description: 必要なモデルとエンジンが利用可能
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ready]
+                properties:
+                  ready: {type: boolean, const: true}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503':
+          description: モデル不足またはwarmup失敗
+          content:
+            application/json:
+              schema: {$ref: './schemas/error.schema.json'}
+        default: {$ref: '#/components/responses/InternalError'}
+  /api/v1/sessions:
+    post:
+      operationId: startSession
+      tags: [control]
+      summary: 利用者の明示操作でセッションを開始
+      description: |
+        接続・再接続で自動実行しない。1アクティブ所有者のみを許し、所有権を奪取しない。
+        成功時のgenerationは1。dictionary_revisionは現在のサーバー確定値。
+      security:
+        - deviceToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              maxProperties: 0
+      responses:
+        '201':
+          description: 新しいsessionを開始
+          content:
+            application/json:
+              schema: {$ref: './schemas/session.schema.json'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409':
+          description: 他端末がsessionを所有中。所有者は変わらない。
+          content:
+            application/json:
+              schema: {$ref: './schemas/error.schema.json'}
+        '503':
+          description: readyでないため開始できない
+          content:
+            application/json:
+              schema: {$ref: './schemas/error.schema.json'}
+        default: {$ref: '#/components/responses/InternalError'}
+  /api/v1/sessions/{session_id}:
+    delete:
+      operationId: stopSession
+      tags: [control]
+      summary: 所有中のsessionを停止・解放
+      security:
+        - deviceToken: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204': {description: 停止済み。すでに解放済みでも成功}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403':
+          description: session所有者でない
+          content:
+            application/json:
+              schema: {$ref: './schemas/error.schema.json'}
+        '404':
+          description: session_idが存在しない
+          content:
+            application/json:
+              schema: {$ref: './schemas/error.schema.json'}
+        default: {$ref: '#/components/responses/InternalError'}
+  /api/v1/settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: 現在の設定とrevisionを取得
+      security:
+        - deviceToken: []
+        - adminToken: []
+      responses:
+        '200':
+          description: 設定値
+          content:
+            application/json:
+              schema: {$ref: './schemas/settings.schema.json'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        default: {$ref: '#/components/responses/InternalError'}
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      summary: 管理者権限で設定を条件付き更新
+      description: If-MatchにはGETで取得したrevisionを引用符付き十進文字列で指定する。
+      security:
+        - adminToken: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatchRevision'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './schemas/settings-update.schema.json'}
+      responses:
+        '200':
+          description: 保存確定後の新revisionと設定値
+          content:
+            application/json:
+              schema: {$ref: './schemas/settings.schema.json'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: revision競合。保存せず再読込を促す。
+          headers:
+            ETag:
+              required: true
+              description: サーバーの現在revisionを引用符付きで返す。
+              schema: {type: string, pattern: '^"[1-9][0-9]{0,19}"$'}
+          content:
+            application/json:
+              schema: {$ref: './schemas/error.schema.json'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        default: {$ref: '#/components/responses/InternalError'}
+  /api/v1/glossary:
+    get:
+      operationId: getGlossary
+      tags: [settings]
+      summary: 現在の用語辞書とrevisionを取得
+      security:
+        - deviceToken: []
+        - adminToken: []
+      responses:
+        '200':
+          description: 辞書の確定値
+          content:
+            application/json:
+              schema: {$ref: './schemas/glossary.schema.json'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        default: {$ref: '#/components/responses/InternalError'}
+    put:
+      operationId: updateGlossary
+      tags: [settings]
+      summary: 管理者権限で辞書を条件付き更新
+      description: If-MatchにはGETで取得したrevisionを引用符付き十進文字列で指定する。
+      security:
+        - adminToken: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatchRevision'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './schemas/glossary-update.schema.json'}
+      responses:
+        '200':
+          description: 保存確定後の新revisionと辞書
+          content:
+            application/json:
+              schema: {$ref: './schemas/glossary.schema.json'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: revision競合。保存せず再読込を促す。
+          headers:
+            ETag:
+              required: true
+              description: サーバーの現在revisionを引用符付きで返す。
+              schema: {type: string, pattern: '^"[1-9][0-9]{0,19}"$'}
+          content:
+            application/json:
+              schema: {$ref: './schemas/error.schema.json'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        default: {$ref: '#/components/responses/InternalError'}
+  /api/v1/admin/credentials:
+    post:
+      operationId: issueDeviceCredential
+      tags: [credentials]
+      summary: 端末資格情報を発行
+      description: 平文tokenはこの応答で一度だけ返す。保存せず安全な場所へ移す。
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expires_in_days]
+              properties:
+                expires_in_days: {type: integer, minimum: 1, maximum: 365}
+      responses:
+        '201':
+          description: 発行した平文tokenを一度だけ返す
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [credential_id, token, expires_at]
+                properties:
+                  credential_id: {type: string, format: uuid}
+                  token: {type: string, minLength: 32, maxLength: 256}
+                  expires_at: {type: string, format: date-time}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        default: {$ref: '#/components/responses/InternalError'}
+  /api/v1/admin/credentials/{credential_id}:
+    delete:
+      operationId: revokeDeviceCredential
+      tags: [credentials]
+      summary: 端末資格情報を失効
+      security:
+        - adminToken: []
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '204': {description: 失効済み}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: credential_idが存在しない
+          content:
+            application/json:
+              schema: {$ref: './schemas/error.schema.json'}
+        default: {$ref: '#/components/responses/InternalError'}
+  /api/v1/stream:
+    get:
+      operationId: openTranslationStream
+      tags: [control]
+      summary: 単一の認証済み双方向WebSocketを開く
+      description: |
+        HTTPSと同じホストの `/api/v1/stream` をWSS Upgradeする。Upgrade前に端末tokenを検証する。
+        Authorization: Bearerを使い、query stringに資格情報を含めない。通信とmessage形式はcontracts/README.md。
+      security:
+        - deviceToken: []
+      x-websocket:
+        subprotocol: screen-translation.v1
+        binaryMessage:
+          metadataSchema: ./schemas/frame-metadata.schema.json
+          imageFormats: [image/png, image/jpeg]
+          maximumImageBytes: 4194304
+          maximumMetadataBytes: 4096
+          maximumMessageBytes: 4198408
+        textMessage:
+          schema: ./schemas/stream-message.schema.json
+          direction: server-to-client
+      responses:
+        '101': {description: tokenとsession所有権を確認した後にUpgrade}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: 認証された接続が現在のsession所有者と一致しない
+          content:
+            application/json:
+              schema: {$ref: './schemas/error.schema.json'}
+        default: {$ref: '#/components/responses/InternalError'}
+components:
+  securitySchemes:
+    deviceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque device token
+      description: TLS確立後にAuthorization headerで送る端末token。
+    adminToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque admin token
+      description: 管理操作専用token。端末tokenでは代用できない。
+  parameters:
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    IfMatchRevision:
+      name: If-Match
+      in: header
+      required: true
+      description: GET応答revisionを引用符で囲んだ十進整数。ワイルドカード不可。
+      schema: {type: string, pattern: '^"[1-9][0-9]{0,19}"$', maxLength: 22}
+  responses:
+    Unauthorized:
+      description: 資格情報なし・不正・期限切れ・失効
+      content:
+        application/json:
+          schema: {$ref: './schemas/error.schema.json'}
+    Forbidden:
+      description: roleまたは所有権が不足
+      content:
+        application/json:
+          schema: {$ref: './schemas/error.schema.json'}
+    InvalidRequest:
+      description: JSONまたは項目制約違反
+      content:
+        application/json:
+          schema: {$ref: './schemas/error.schema.json'}
+    PayloadTooLarge:
+      description: 要求サイズ上限超過
+      content:
+        application/json:
+          schema: {$ref: './schemas/error.schema.json'}
+    InternalError:
+      description: 想定外の処理失敗。correlation_idを添えて運用者へ報告。
+      content:
+        application/json:
+          schema: {$ref: './schemas/error.schema.json'}

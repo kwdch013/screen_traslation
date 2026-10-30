@@ -1,0 +1,12 @@
+[
+  {"status": 400, "body": {"code": "INVALID_REQUEST", "message": "要求形式が不正です。", "correlation_id": "00000000-0000-4000-8000-000000000001", "retryable": false}},
+  {"status": 401, "body": {"code": "UNAUTHENTICATED", "message": "認証が必要です。", "correlation_id": "00000000-0000-4000-8000-000000000002", "retryable": false}},
+  {"status": 403, "body": {"code": "FORBIDDEN", "message": "この操作は許可されていません。", "correlation_id": "00000000-0000-4000-8000-000000000003", "retryable": false}},
+  {"status": 404, "body": {"code": "NOT_FOUND", "message": "対象が見つかりません。", "correlation_id": "00000000-0000-4000-8000-000000000009", "retryable": false}},
+  {"status": 409, "body": {"code": "SESSION_IN_USE", "message": "別の端末がセッションを使用中です。", "correlation_id": "00000000-0000-4000-8000-000000000004", "retryable": false}},
+  {"status": 409, "body": {"code": "REVISION_CONFLICT", "message": "設定が更新されています。再読み込みしてください。", "correlation_id": "00000000-0000-4000-8000-000000000005", "retryable": false}},
+  {"status": 413, "body": {"code": "PAYLOAD_TOO_LARGE", "message": "画像または要求サイズが上限を超えています。", "correlation_id": "00000000-0000-4000-8000-000000000006", "retryable": false}},
+  {"status": 422, "body": {"code": "INVALID_REQUEST", "message": "設定または辞書の内容が不正です。", "correlation_id": "00000000-0000-4000-8000-000000000007", "retryable": false}},
+  {"status": 503, "body": {"code": "MODEL_NOT_READY", "message": "翻訳エンジンの準備ができていません。", "correlation_id": "00000000-0000-4000-8000-000000000008", "retryable": true}},
+  {"status": 500, "body": {"code": "INTERNAL_ERROR", "message": "処理に失敗しました。", "correlation_id": "00000000-0000-4000-8000-000000000010", "retryable": false}}
+]

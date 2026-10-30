@@ -1,0 +1,26 @@
+{
+  "components": {
+    "header_bytes": 8,
+    "metadata_bytes": 4096,
+    "image_payload_bytes": 4194304
+  },
+  "maximum_message_bytes": 4198408,
+  "cases": [
+    {
+      "name": "上限ちょうど",
+      "header_bytes": 8,
+      "metadata_bytes": 4096,
+      "image_payload_bytes": 4194304,
+      "message_bytes": 4198408,
+      "accepted": true
+    },
+    {
+      "name": "上限に1 byte超過",
+      "header_bytes": 8,
+      "metadata_bytes": 4096,
+      "image_payload_bytes": 4194305,
+      "message_bytes": 4198409,
+      "accepted": false
+    }
+  ]
+}
