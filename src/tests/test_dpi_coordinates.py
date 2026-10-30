@@ -1,6 +1,6 @@
 import unittest
 
-from src.app.dpi_coordinates import (
+from app.dpi_coordinates import (
 	Point,
 	Rect,
 	logical_to_physical,
@@ -10,6 +10,29 @@ from src.app.dpi_coordinates import (
 
 
 class DpiCoordinateTests(unittest.TestCase):
+	def test_one_and_quarter_scale_rounds_positive_and_negative_half_pixels_away_from_zero(self):
+		origin = Point(0, 0)
+		self.assertEqual(
+			logical_to_physical(Point(2, -2), origin, dpi=120),
+			Point(3, -3),
+		)
+
+	def test_one_and_quarter_scale_rounds_non_integer_pixel_results(self):
+		origin = Point(-1920, -200)
+		self.assertEqual(
+			logical_to_physical(Point(1, -1), origin, dpi=120),
+			Point(-1919, -201),
+		)
+
+	def test_points_on_both_sides_of_monitor_boundary_use_each_monitor_context(self):
+		left_monitor = (Point(1919, 400), Point(0, 0), 96, Point(1919, 400))
+		right_monitor = (Point(1920, 400), Point(1920, 0), 120, Point(0, 320))
+		for physical, origin, dpi, expected_logical in (left_monitor, right_monitor):
+			with self.subTest(physical=physical, dpi=dpi):
+				logical = physical_to_logical(physical, origin, dpi)
+				self.assertEqual(logical, expected_logical)
+				self.assertEqual(logical_to_physical(logical, origin, dpi), physical)
+
 	def test_negative_physical_origin_is_preserved_in_logical_conversion(self):
 		point = Point(-1920, 120)
 		self.assertEqual(
