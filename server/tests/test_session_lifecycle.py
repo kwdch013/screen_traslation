@@ -92,6 +92,58 @@ class SessionLifecycleTest(unittest.IsolatedAsyncioTestCase):
 		self.assertNotEqual(restarted.session_id, session.session_id)
 		self.assertEqual(restarted.generation, 1)
 
+	async def test_reselection_cancels_and_drains_ocr_and_rejects_its_late_result(self) -> None:
+		session = await self.manager.start("device-a")
+		started = asyncio.Event()
+		cancel_received = asyncio.Event()
+		finish_drain = asyncio.Event()
+		async def ocr_operation() -> tuple[str, int, str]:
+			started.set()
+			try:
+				await asyncio.Event().wait()
+			except asyncio.CancelledError:
+				cancel_received.set()
+				await finish_drain.wait()
+				return session.session_id, session.generation, "old-result"
+		task = await self.manager.track_operation(session.session_id, ocr_operation())
+		await started.wait()
+
+		reselection = asyncio.create_task(self.manager.reselect(session.session_id, "device-a"))
+		await asyncio.sleep(0)
+		cancellation_was_requested = cancel_received.is_set()
+		finish_drain.set()
+		await reselection
+		self.assertTrue(cancellation_was_requested)
+		self.assertTrue(task.done())
+		self.assertEqual(session._operations, set())
+		new_session = await self.manager.start("device-a")
+		old_session_id, old_generation, old_result = task.result()
+		accepted_results: list[str] = []
+		if await self.manager.is_current(old_session_id, old_generation):
+			accepted_results.append(old_result)
+		self.assertEqual(accepted_results, [])
+		self.assertTrue(await self.manager.is_current(new_session.session_id, new_session.generation))
+		self.assertEqual(await self.manager.active_operation_count, 0)
+
+	async def test_disconnect_cancels_and_drains_running_ocr_without_residual_tasks(self) -> None:
+		session = await self.manager.start("device-a")
+		started = asyncio.Event()
+		finalized = asyncio.Event()
+		async def ocr_operation() -> None:
+			started.set()
+			try:
+				await asyncio.Event().wait()
+			finally:
+				finalized.set()
+		task = await self.manager.track_operation(session.session_id, ocr_operation())
+		await started.wait()
+
+		await self.manager.disconnected(session.session_id, "device-a")
+		self.assertTrue(task.cancelled())
+		self.assertTrue(finalized.is_set())
+		self.assertEqual(session._operations, set())
+		self.assertEqual(await self.manager.active_operation_count, 0)
+
 	async def test_explicit_disconnect_invalidates_and_releases_session(self) -> None:
 		session = await self.manager.start("device-a")
 		await self.manager.disconnected(session.session_id, "device-a")
