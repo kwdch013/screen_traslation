@@ -99,6 +99,14 @@ class SessionLifecycleTest(unittest.IsolatedAsyncioTestCase):
 		self.assertFalse(await self.manager.is_current(session.session_id, old_generation))
 		self.assertTrue(await self.manager.is_current(session.session_id, session.generation))
 
+	async def test_frame_heartbeat_requires_the_active_session_generation(self) -> None:
+		session = await self.manager.start("device-a")
+		await self.manager.heartbeat(session.session_id, "device-a", generation=session.generation)
+		for stale_generation in (session.generation - 1, session.generation + 1):
+			with self.subTest(generation=stale_generation):
+				with self.assertRaises(SessionConflict):
+					await self.manager.heartbeat(session.session_id, "device-a", generation=stale_generation)
+
 	async def test_reselection_cancels_and_drains_ocr_and_rejects_its_late_result(self) -> None:
 		session = await self.manager.start("device-a")
 		old_generation = session.generation

@@ -283,17 +283,14 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 			+ chunk(b"IDAT", zlib.compress(image_data))
 			+ chunk(b"IEND", b"")
 		)
-		metadata = json.dumps({
-			"contract_version": 1,
+		metadata_fields = json.loads((CONTRACTS / "fixtures/frame-metadata.json").read_text(encoding="utf-8"))[0]
+		metadata_fields.update({
 			"session_id": session_id,
 			"generation": generation,
-			"frame_id": 1,
 			"dictionary_revision": dictionary_revision,
-			"image_width": 64,
-			"image_height": 32,
-			"content_type": "image/png",
 			"image_length": len(image),
-		}, separators=(",", ":")).encode()
+		})
+		metadata = json.dumps(metadata_fields, separators=(",", ":")).encode()
 		return b"STF1" + struct.pack(">I", len(metadata)) + metadata + image
 
 	def test_state_notifications_stop_and_reselection_over_tls_wss(self) -> None:
@@ -324,6 +321,33 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 		self.assertEqual(self.client.delete(
 			f"/api/v1/sessions/{second['session_id']}", headers=self._headers(),
 		).status_code, 204)
+
+	def test_current_session_rejects_frame_with_mismatched_generation_over_tls_wss(self) -> None:
+		session = self._start().json()
+		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
+		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+			self._state_message(websocket, "accepted", session)
+			self._state_message(websocket, "ready", session)
+			websocket.send(self._png_frame(
+				session["session_id"], session["generation"] + 1, session["dictionary_revision"],
+			))
+			with self.assertRaises(ConnectionClosed) as closed:
+				websocket.recv(timeout=2)
+		self.assertEqual(closed.exception.rcvd.code, 1008)
+
+	def test_current_generation_frame_passes_session_validation_over_tls_wss(self) -> None:
+		session = self._start().json()
+		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
+		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+			self._state_message(websocket, "accepted", session)
+			self._state_message(websocket, "ready", session)
+			websocket.send(self._png_frame(
+				session["session_id"], session["generation"], session["dictionary_revision"],
+			))
+			self.assertEqual(json.loads(websocket.recv(timeout=2)), {"detail": "not implemented"})
+			with self.assertRaises(ConnectionClosed) as closed:
+				websocket.recv(timeout=2)
+		self.assertEqual(closed.exception.rcvd.code, 1011)
 
 	def test_authenticated_start_state_reselection_stop_and_contract_fixture(self) -> None:
 		response = self._start()
