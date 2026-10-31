@@ -8,7 +8,9 @@ COPY . .
 
 RUN dotnet build client/src/ScreenTranslation.Core/ScreenTranslation.Core.csproj --configuration Release \
     && dotnet build client/src/ScreenTranslation.Client/ScreenTranslation.Client.csproj --configuration Release \
+    && dotnet build client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTranslation.Client.IntegrationTests.csproj --configuration Release \
     && dotnet test client/tests/ScreenTranslation.Core.Tests/ScreenTranslation.Core.Tests.csproj --configuration Release \
-    && dotnet test client/tests/ScreenTranslation.Client.Tests/ScreenTranslation.Client.Tests.csproj --configuration Release
+    && dotnet test client/tests/ScreenTranslation.Client.Tests/ScreenTranslation.Client.Tests.csproj --configuration Release \
+    && dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTranslation.Client.IntegrationTests.csproj --configuration Release --filter Category=ConnectionIntegration
 
 CMD ["dotnet", "test", "client/tests/ScreenTranslation.Core.Tests/ScreenTranslation.Core.Tests.csproj", "--configuration", "Release"]

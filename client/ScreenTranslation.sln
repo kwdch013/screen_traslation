@@ -11,13 +11,13 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Core.Test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Contracts.Tests", "tests\ScreenTranslation.Contracts.Tests\ScreenTranslation.Contracts.Tests.csproj", "{B171E95D-259B-4D25-BF68-CB50C6F8A004}"
 EndProject
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Client", "src\ScreenTranslation.Client\ScreenTranslation.Client.csproj", "{C770FD8D-7571-48D9-A234-8076CC536966}"
-EndProject
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Client.Tests", "tests\ScreenTranslation.Client.Tests\ScreenTranslation.Client.Tests.csproj", "{6A53482D-BE40-498C-B59E-63F66CD4366F}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Windows.Tests", "tests\ScreenTranslation.Windows.Tests\ScreenTranslation.Windows.Tests.csproj", "{0F015263-DDC9-475D-96C8-D5E37756813D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScreenTranslation.Client.IntegrationTests", "tests\ScreenTranslation.Client.IntegrationTests\ScreenTranslation.Client.IntegrationTests.csproj", "{B171E95D-259B-4D25-BF68-CB50C6F8A005}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -53,6 +53,10 @@ Global
 		{0F015263-DDC9-475D-96C8-D5E37756813D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0F015263-DDC9-475D-96C8-D5E37756813D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0F015263-DDC9-475D-96C8-D5E37756813D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A005}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A005}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A005}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B171E95D-259B-4D25-BF68-CB50C6F8A005}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

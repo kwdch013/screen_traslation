@@ -104,6 +104,7 @@ jobs:
 
   windows-client:
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v5
@@ -114,7 +115,7 @@ jobs:
         run: dotnet build ScreenTranslation.sln --configuration Release
       - name: C#テストを実行
         working-directory: client
-        run: dotnet test ScreenTranslation.sln --configuration Release --no-build
+        run: dotnet test ScreenTranslation.sln --configuration Release --no-build --blame-hang --blame-hang-timeout 5m --logger "console;verbosity=detailed"
 
   # Rulesetが要求する既存の「test」checkを常に発行する集約ジョブ
   test:

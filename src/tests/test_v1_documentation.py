@@ -19,6 +19,14 @@ class V1DocumentationTest(unittest.TestCase):
 	def read(self, path: str) -> str:
 		return (self.root / path).read_text(encoding="utf-8")
 
+	def test_結合試験文書はOS信頼ストアを変更しない現行設計を説明する(self) -> None:
+		document = self.read("docs/v1.0/testing.md")
+		self.assertNotIn("信頼ストアへ一時登録", document)
+		self.assertNotIn("CurrentUserの信頼ストア", document)
+		self.assertIn("OSの信頼ストアは変更しません", document)
+		self.assertIn("CustomRootTrust", document)
+		self.assertIn("UserKeySet | Exportable", document)
+
 	def requirement_ids(self) -> set[str]:
 		document = self.read(DOCUMENTS[0])
 		ids = re.findall(r"(?m)^\| (REQ-(?:F|NF)-\d{3}) \|", document)

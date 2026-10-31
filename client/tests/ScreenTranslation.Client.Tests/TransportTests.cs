@@ -358,6 +358,67 @@ public sealed class TransportTests
 	}
 
 	[Fact]
+	public async Task StreamTransport_SerializesConcurrentConnectsToOneSocket()
+	{
+		var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+		var credentials = new ProtectedCredentialStore(path, new TestCredentialProtector());
+		await credentials.SaveAsync("fixture-device-token");
+		var connectStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseConnect = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var factory = new TestSocketFactory
+		{
+			Connect = async (_, _) =>
+			{
+				connectStarted.TrySetResult();
+				await releaseConnect.Task;
+			},
+		};
+		var transport = new StreamTransportClient(new ConnectionSettings("https://service.example"), credentials, factory,
+			new ReconnectPolicy(0, TimeSpan.Zero, TimeSpan.Zero), (_, _) => Task.CompletedTask);
+		var firstConnect = transport.ConnectAsync();
+		await connectStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+		var secondConnect = transport.ConnectAsync();
+		releaseConnect.TrySetResult();
+		await Task.WhenAll(firstConnect, secondConnect);
+
+		Assert.Single(factory.Sockets);
+		await transport.DisconnectAsync();
+		File.Delete(path);
+	}
+
+	[Fact]
+	public async Task StreamTransport_DropsLateConnectCompletionWhenShutdownRacesIt()
+	{
+		var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+		var credentials = new ProtectedCredentialStore(path, new TestCredentialProtector());
+		await credentials.SaveAsync("fixture-device-token");
+		var connectStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseConnect = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var factory = new TestSocketFactory
+		{
+			Connect = async (_, _) =>
+			{
+				connectStarted.TrySetResult();
+				await releaseConnect.Task;
+			},
+		};
+		var transport = new StreamTransportClient(new ConnectionSettings("https://service.example"), credentials, factory,
+			new ReconnectPolicy(0, TimeSpan.Zero, TimeSpan.Zero), (_, _) => Task.CompletedTask);
+		var connectTask = transport.ConnectAsync();
+		await connectStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+		var disconnectTask = transport.DisconnectAsync();
+		releaseConnect.TrySetResult();
+
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connectTask);
+		await disconnectTask;
+		Assert.False(transport.IsConnected);
+		Assert.Equal(TransportConnectionStatus.Stopped, transport.Status);
+		Assert.Single(factory.Sockets);
+		Assert.Equal(1, factory.Sockets[0].DisposeCount);
+		File.Delete(path);
+	}
+
+	[Fact]
 	public async Task StreamTransport_InvalidatesSessionAndReconnectsWithoutRestartingIt()
 	{
 		var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -423,26 +484,28 @@ public sealed class TransportTests
 		public List<TestSocket> Sockets { get; } = [];
 		public bool DisconnectFirstSocket { get; init; }
 		public Func<int, CancellationToken, Task<string?>>? Receive { get; init; }
+		public Func<int, CancellationToken, Task>? Connect { get; init; }
 
 		public IStreamSocket Create(ConnectionSettings settings)
 		{
-			var socket = new TestSocket(DisconnectFirstSocket && Sockets.Count == 0, Sockets.Count, Receive);
+			var socket = new TestSocket(DisconnectFirstSocket && Sockets.Count == 0, Sockets.Count, Receive, Connect);
 			Sockets.Add(socket);
 			return socket;
 		}
 	}
 
-	private sealed class TestSocket(bool disconnectOnReceive, int index, Func<int, CancellationToken, Task<string?>>? receive) : IStreamSocket
+	private sealed class TestSocket(bool disconnectOnReceive, int index, Func<int, CancellationToken, Task<string?>>? receive, Func<int, CancellationToken, Task>? connect) : IStreamSocket
 	{
 		public Uri? Endpoint { get; private set; }
 		public string? DeviceToken { get; private set; }
 		public List<byte[]> SentMessages { get; } = [];
+		public int DisposeCount { get; private set; }
 
 		public Task ConnectAsync(Uri endpoint, string deviceToken, CancellationToken cancellationToken)
 		{
 			Endpoint = endpoint;
 			DeviceToken = deviceToken;
-			return Task.CompletedTask;
+			return connect?.Invoke(index, cancellationToken) ?? Task.CompletedTask;
 		}
 
 		public Task SendBinaryAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
@@ -455,6 +518,6 @@ public sealed class TransportTests
 			receive?.Invoke(index, cancellationToken)
 			?? (disconnectOnReceive ? Task.FromException<string?>(new IOException("test disconnect")) : Task.FromResult<string?>(null));
 
-		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+		public ValueTask DisposeAsync() { DisposeCount++; return ValueTask.CompletedTask; }
 	}
 }
