@@ -350,7 +350,7 @@ def _load_engines() -> object:
 
 
 def _warmup_engines(engines: object) -> None:
-	from app.contracts import Frame  # type: ignore[import-untyped]
+	from app.contracts import Frame
 
 	ocr, translator = cast(tuple[Any, Any], engines)
 	validate = getattr(ocr, "validate", None)

@@ -94,6 +94,14 @@ class SessionManager:
 				return session.owner_id
 			return None
 
+	async def active_for_owner(self, owner_id: str) -> Session | None:
+		"""所有者に対応する稼働中sessionを返す。"""
+		async with self._lock:
+			session = self._active
+			if session is not None and session.active and session.owner_id == owner_id:
+				return session
+			return None
+
 	async def is_current(self, session_id: str, generation: int) -> bool:
 		async with self._lock:
 			session = self._active

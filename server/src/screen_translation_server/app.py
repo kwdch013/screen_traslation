@@ -78,6 +78,7 @@ def create_app(
 	app.state.engine = engine
 	app.state.ready = is_ready
 	app.state.sessions = session_manager
+	app.state.streams = {}
 	app.state.http_body_timeout = float(os.environ.get("SCREEN_TRANSLATION_HTTP_BODY_TIMEOUT_SECONDS", "10"))
 
 	async def authenticated(request: Request, roles: frozenset[Role]) -> Credential | Response:
@@ -194,6 +195,9 @@ def create_app(
 			return _session_error("FORBIDDEN", "セッションを操作する権限がありません。", 403)
 		except SessionNotFound:
 			return _session_error("NOT_FOUND", "セッションが見つかりません。", 404)
+		stream_websocket = app.state.streams.pop(request.path_params["session_id"], None)
+		if stream_websocket is not None:
+			await stream_websocket.close(code=1000)
 		return Response(status_code=204)
 
 	async def stream(websocket: WebSocket) -> None:
@@ -220,6 +224,17 @@ def create_app(
 			return
 		app.state.limiter.finish(remote, success=True)
 		await websocket.accept()
+		session = await app.state.sessions.active_for_owner(credential.credential_id)
+		if session is not None:
+			app.state.streams[session.session_id] = websocket
+			for state in ("accepted", "ready"):
+				await websocket.send_json({
+					"type": "state",
+					"session_id": session.session_id,
+					"generation": session.generation,
+					"dictionary_revision": session.dictionary_revision,
+					"state": state,
+				})
 		revocation_watch = asyncio.create_task(
 			_watch_websocket_revocation(
 				websocket,
@@ -263,6 +278,8 @@ def create_app(
 			return
 		finally:
 			revocation_watch.cancel()
+			if session is not None and app.state.streams.get(session.session_id) is websocket:
+				app.state.streams.pop(session.session_id, None)
 
 	app.routes.extend([
 		Route("/api/v1/health", health, methods=["GET"]),

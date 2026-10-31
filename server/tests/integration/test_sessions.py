@@ -12,12 +12,14 @@ import secrets
 import shutil
 import socket
 import ssl
+import struct
 import subprocess
 import tempfile
 import threading
 import time
 import unittest
 import unittest.mock
+import zlib
 
 import httpx
 import jsonschema
@@ -256,6 +258,72 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 		jsonschema.validate(response.json(), schema, format_checker=jsonschema.FormatChecker())
 		for field in ("code", "message", "retryable"):
 			self.assertEqual(response.json()[field], fixture["body"][field], field)
+		self.assertEqual(response.status_code, status)
+
+	def _state_message(self, websocket: object, expected_state: str, session: dict[str, object]) -> None:
+		message = json.loads(websocket.recv(timeout=2))
+		schema = json.loads((CONTRACTS / "schemas/stream-message.schema.json").read_text(encoding="utf-8"))
+		jsonschema.validate(message, schema, format_checker=jsonschema.FormatChecker())
+		self.assertEqual(message["type"], "state")
+		self.assertEqual(message["state"], expected_state)
+		self.assertEqual(message["session_id"], session["session_id"])
+		self.assertEqual(message["generation"], session["generation"])
+		self.assertEqual(message["dictionary_revision"], session["dictionary_revision"])
+
+	@staticmethod
+	def _png_frame(session_id: str, generation: int, dictionary_revision: int) -> bytes:
+		def chunk(name: bytes, payload: bytes) -> bytes:
+			return struct.pack(">I", len(payload)) + name + payload + struct.pack(">I", zlib.crc32(name + payload))
+
+		image_data = b"\x00" + b"\x00\x00\x00" * 64
+		image_data = b"".join(image_data for _ in range(32))
+		image = (
+			b"\x89PNG\r\n\x1a\n"
+			+ chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 32, 8, 2, 0, 0, 0))
+			+ chunk(b"IDAT", zlib.compress(image_data))
+			+ chunk(b"IEND", b"")
+		)
+		metadata = json.dumps({
+			"contract_version": 1,
+			"session_id": session_id,
+			"generation": generation,
+			"frame_id": 1,
+			"dictionary_revision": dictionary_revision,
+			"image_width": 64,
+			"image_height": 32,
+			"content_type": "image/png",
+			"image_length": len(image),
+		}, separators=(",", ":")).encode()
+		return b"STF1" + struct.pack(">I", len(metadata)) + metadata + image
+
+	def test_state_notifications_stop_and_reselection_over_tls_wss(self) -> None:
+		first = self._start().json()
+		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
+		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+			self._state_message(websocket, "accepted", first)
+			self._state_message(websocket, "ready", first)
+			stopped = self.client.delete(f"/api/v1/sessions/{first['session_id']}", headers=self._headers())
+			self.assertEqual(stopped.status_code, 204)
+			with self.assertRaises(ConnectionClosed) as closed:
+				websocket.recv(timeout=2)
+		self.assertEqual(closed.exception.rcvd.code, 1000)
+		self.assertFalse(self._is_current(first["session_id"], first["generation"]))
+
+		second = self._start().json()
+		self.assertNotEqual(second["session_id"], first["session_id"])
+		self.assertEqual(second["generation"], 1)
+		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+			self._state_message(websocket, "accepted", second)
+			self._state_message(websocket, "ready", second)
+			websocket.send(self._png_frame(
+				first["session_id"], first["generation"], first["dictionary_revision"],
+			))
+			with self.assertRaises(ConnectionClosed) as closed:
+				websocket.recv(timeout=2)
+		self.assertEqual(closed.exception.rcvd.code, 1008)
+		self.assertEqual(self.client.delete(
+			f"/api/v1/sessions/{second['session_id']}", headers=self._headers(),
+		).status_code, 204)
 
 	def test_authenticated_start_state_reselection_stop_and_contract_fixture(self) -> None:
 		response = self._start()
@@ -302,6 +370,8 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 		session = self._active_session()
 		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
 		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers(self.revoked_token)) as websocket:
+			self._state_message(websocket, "accepted", started.json())
+			self._state_message(websocket, "ready", started.json())
 			revoked_at = time.monotonic()
 			self.credential_manager.revoke("device-revoked")
 			with self.assertRaises(ConnectionClosed) as closed:
@@ -354,6 +424,8 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 		started = self._start()
 		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
 		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+			self._state_message(websocket, "accepted", started.json())
+			self._state_message(websocket, "ready", started.json())
 			websocket.send(b"x" * boundaries["maximum_message_bytes"] + b"x")
 			with self.assertRaises(ConnectionClosed) as closed:
 				websocket.recv(timeout=3)
