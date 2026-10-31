@@ -45,6 +45,16 @@ public interface ICaptureSession : IAsyncDisposable
 	ValueTask StopAsync(CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// 取得対象ウィンドウの位置の変化を報告できる取得セッション。大きさが変わらない移動だけを報告し、
+/// 大きさの変化は <see cref="CaptureInvalidationReason.Resized"/> の失効で伝える。
+/// 画面を対象とする取得では実装しない(画面の変化は失効で止める)。
+/// </summary>
+public interface IBoundsReportingCaptureSession
+{
+	event Action<CaptureBounds>? BoundsChanged;
+}
+
 public enum CaptureClientState
 {
 	Disconnected,
@@ -59,5 +69,7 @@ public enum CaptureInvalidationReason
 	TargetUnavailable,
 	Minimized,
 	DpiChanged,
-	CaptureDenied
+	CaptureDenied,
+	/// <summary>対象ウィンドウの大きさが変わった。ROIの意味が変わるため、再選択まで取得しない。</summary>
+	Resized
 }
