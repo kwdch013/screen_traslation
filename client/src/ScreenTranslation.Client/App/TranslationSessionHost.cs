@@ -3,6 +3,7 @@ using ScreenTranslation.Client.Capture;
 using ScreenTranslation.Client.Geometry;
 using ScreenTranslation.Client.Overlay;
 using ScreenTranslation.Client.Transport;
+using ScreenTranslation.Client.ViewModels;
 
 namespace ScreenTranslation.Client.App;
 
@@ -12,7 +13,7 @@ namespace ScreenTranslation.Client.App;
 /// 停止・再選択・対象消失・切断・除外失敗・送信失敗では、取得経路の遮断・待機画像と通信中の送信の破棄・
 /// 変化判定の基準の破棄・表示消去を、イベントの発火スレッドで同期的に行う(資源の解放はその後に完了する)。
 /// </summary>
-public sealed partial class TranslationSessionHost : IAsyncDisposable
+public sealed partial class TranslationSessionHost : ISessionOperations
 {
 	private readonly ITranslationTransport transport;
 	private readonly CaptureLifecycleController lifecycle;
@@ -70,18 +71,24 @@ public sealed partial class TranslationSessionHost : IAsyncDisposable
 
 		lifecycle.GenerationInvalidated += OnGenerationInvalidated;
 		overlay.FailedClosed += OnOverlayFailed;
+		overlay.Presented += OnPresented;
 		transport.ConnectionLost += OnConnectionLost;
 		tickTask = Task.Run(() => RunTickLoopAsync(lifetime.Token));
 	}
 
 	public CaptureClientState State => lifecycle.State;
 	public bool IsStreaming { get { lock (sync) return active; } }
+	public bool IsConnected => transport.IsConnected;
 	public ulong Generation { get { lock (sync) return generation; } }
 	/// <summary>停止・再選択・対象消失・切断・除外失敗・送信失敗で、送信と表示が止まった。理由を通知する。</summary>
 	public event Action<OverlayClearReason>? SessionEnded;
 	/// <summary>復旧に利用者の操作が必要な失敗。画像・訳文・session_idを含まない文言だけを渡す。</summary>
 	public event Action<string>? Faulted;
 	public event Action<OverlayFailure>? OverlayFailed;
+	/// <summary>接続が切れた(送信中でなくても発火する)。再接続しても自動では送信を再開しない。</summary>
+	public event Action? ConnectionLost;
+	/// <summary>採用して表示した結果(世代と領域。空の結果を含む)。履歴の記録元。</summary>
+	public event Action<ulong, IReadOnlyList<OverlayRegion>>? TranslationsPresented;
 	/// <summary>result以外のサーバー通知(状態・エラー等)。</summary>
 	public event Action<JsonElement>? MessageReceived;
 

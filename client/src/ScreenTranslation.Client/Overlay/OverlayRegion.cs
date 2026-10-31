@@ -6,8 +6,9 @@ namespace ScreenTranslation.Client.Overlay;
 /// <summary>
 /// 表示する訳文1件。<see cref="PhysicalRect"/>は仮想デスクトップ物理座標。
 /// サーバーが位置を決められなかった領域は null で、ROI全体に対する位置不明の字幕として扱う。
+/// <paramref name="Source"/>は履歴用の原文(結果に無ければ null)で、画面には表示しない。
 /// </summary>
-public sealed record OverlayRegion(Rect2D? PhysicalRect, string Text)
+public sealed record OverlayRegion(Rect2D? PhysicalRect, string Text, string? Source = null)
 {
 	// 訳文本文をログやテスト失敗メッセージへ出さない
 	private bool PrintMembers(StringBuilder builder)

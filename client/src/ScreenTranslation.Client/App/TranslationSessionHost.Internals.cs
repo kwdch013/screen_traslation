@@ -92,7 +92,10 @@ public sealed partial class TranslationSessionHost
 	private void OnConnectionLost()
 	{
 		if (EndSession(OverlayClearReason.Disconnected)) _ = StopAfterFailureAsync();
+		ConnectionLost?.Invoke();
 	}
+
+	private void OnPresented(ulong generation, IReadOnlyList<OverlayRegion> regions) => TranslationsPresented?.Invoke(generation, regions);
 
 	private void OnOverlayFailed(OverlayFailure failure)
 	{
