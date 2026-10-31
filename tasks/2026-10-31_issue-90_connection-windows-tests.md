@@ -44,6 +44,7 @@
 ## 未実施事項
 
 - WPF画面の設定変更・終了時UI競合、実画面の見た目、混在DPI/複数モニターは未実施 (OwnerのWindows実機が必要)。`docs/v1.0/testing.md`に担当・手順・未実施結果を記載し、合格とは扱わない。
+- Linux SDKからSolution全体を追加ビルドする試行は、`Microsoft.WindowsDesktop.App.Ref`取得時のNuGet接続retryで中断した。Core/Client/Integrationのbuild/testはComposeで成功。Windows/WPF Solution全体はPR後の`windows-client` CIで確認する。
 - 混在DPI/負座標は#136系、キャプチャ除外/実画面取得は#135/#148系、Windows/Linux実サーバー間E2Eは#108等で検証する。
 - Windows hosted runnerの`windows-client`を含むCI結果はPR作成後に確認する。
 - `origin/develop`の最新commit `b231da4` (#165) を実装後にmergeし、最終回帰を再実行した。#165由来のサーバー変更と文書テストを含む全体が成功した。
