@@ -144,7 +144,7 @@ requiredにするcontextは、[公式のrequired status checkの条件](https://
 | #69 Linuxコンテナ・WindowsクライアントCI | `.github/workflows/ci.yml`・`codeql.yml`・`dependabot.yml`・`src/tests/test_ci_workflow_structure.py` | REQ-NF-008/009/010。Python/C#契約fixtureを別jobで検査し、required `test` を常時集約 |
 | #77 OCR・翻訳コア共有 | `server/src/screen_translation_server/engines/`から`src/app`のOCR/翻訳実装を利用し、同一fixtureと旧Web回帰を検証 | コアは旧Web側を正本として段階抽出。Tesseract/Argosモデルを含むserverコンテナで実エンジンも確認 |
 | #81 モデル準備・readiness・資源上限 | `server/src/screen_translation_server/engines/lifecycle.py`（モデル準備・engine lifecycle）・`server/src/screen_translation_server/readiness.py`（readiness）・CPU/メモリ/処理枠の制限・`server/tests/test_engine_lifecycle.py`。REQ-F-004/011、REQ-NF-002/005 | lifecycle/readiness・上限動作を単体テスト済み。初回準備1800秒・導入済み起動120秒・資源上限の実測は #60/#109 等で実施し、実エンジンの性能実測と受入は未実施 |
-| #89 フレーム通信・再接続 | `client/src/ScreenTranslation.Client/Transport/` のWSS送受信・binary frame検証・結果採否・上限付き再接続。REQ-F-003/006/009/010、REQ-NF-001/004/006 | 契約fixture・偽socketによる境界/状態/再接続試験を実施。切断後の表示消去・明示再開始と実サーバー接続はWindows実機/後続Task #90で確認 |
+| #89 フレーム通信・再接続 | `client/src/ScreenTranslation.Client/Transport/` のWSS送受信・binary frame検証・結果採否・上限付き再接続。REQ-F-003/006/008/009/010、REQ-NF-001/004/006/009 | 契約fixture・偽socketによる境界/状態/再接続試験を実施。切断後の表示消去・明示再開始と実サーバー接続はWindows実機/後続Task #90で確認 |
 | #118 有効化・GitHub実証 | default branch反映、検証PR、実在contextのrequired化、統合可否の再検証・証跡 | #67完了待ち。Phase #65の必須Taskとして追跡 |
 | #55 要件定義 / #57 基本・詳細設計 | [要件書](../../requirements/version_1/requirements.md) / [基本・詳細設計](design/architecture.md) / [ADR索引](design/adr/README.md) | 全22要件IDと採用方式・下流Issue反映表を管理。実機・製品試験は未実施 |
 
