@@ -16,6 +16,14 @@
    表示された管理tokenは一度しか表示されません。安全なsecret管理へ直接登録し、端末・通常ログ・シェル履歴・チケット・設定APIへ貼り付けません。管理tokenはサーバー起動後の管理CLIへ `SCREEN_TRANSLATION_ADMIN_TOKEN` 環境変数で渡します。値をコマンド引数へ書きません。
 3. 初期化が完了してからサーバーを起動し、HTTPSのhealth/readyを確認します。未設定・破損した台帳は認証入口がfail closedとなります。
 
+## モデル準備とready
+
+サーバーは起動直後にlistenし、モデル検証とエンジンのロード・warmupをバックグラウンドで行います。設定は環境変数 `SCREEN_TRANSLATION_MODEL_MANIFEST`（モデルmanifestのJSONファイルパス）と `SCREEN_TRANSLATION_MODEL_DIR`（導入済みモデルの置き場）で与えます。どちらかが未設定、またはmanifestが不正なら、サーバーは起動せず終了コード2で終わります。起動は `python -m screen_translation_server` です。
+
+- 準備中は `GET /api/v1/ready` とセッション開始が `503 MODEL_NOT_READY`（理由メッセージ付き、`retryable: true`）を返します。`/api/v1/health` は準備状態に関係なく200です。
+- 未導入・破損・資源不足などで準備に失敗しても、プロセスは落ちず、約5秒間隔で再試行します。理由（パスや内容を含まない）はreadyの503本文に出ます。管理者が正しいモデルを `SCREEN_TRANSLATION_MODEL_DIR` へ配置すると、再起動なしで自動的に200へ遷移します。
+- 停止時は準備ループを取り消してreadyを落とします。ロード中の準備スレッドは次の区切り（最大120秒の期限）で終わるまでプロセス終了が待たされることがあります。
+
 管理CLIの共通入口は次のとおりです。
 
 ```sh

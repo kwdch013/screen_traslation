@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-import shutil
 import sys
-import tempfile
 from typing import Any
 
 from websockets.exceptions import ConnectionClosed
@@ -17,9 +15,9 @@ from pipeline_support import (
 	frame_message,
 	is_result,
 	load_cases,
-	model_directory,
 	read_until,
 )
+from readiness_support import RetryGate, install_model, make_directory, make_readiness, model_file_name
 from screen_translation_server.engines.lifecycle import EngineLifecycle, ModelState
 
 
@@ -46,31 +44,31 @@ def drain_until_closed(websocket: Any) -> list[dict[str, Any]]:
 
 class PreparationRecoveryTests(PipelineCase):
 	def test_missing_and_corrupt_models_keep_the_server_unready_until_recovery(self) -> None:
-		server = self.make_server(is_ready=False)
-		model_name = f"translate-en_ja-{self.engines.manifest.version}.argosmodel"
-		with tempfile.TemporaryDirectory(prefix="model-recovery-") as directory:
-			lifecycle = EngineLifecycle(self.engines.manifest, directory)
+		directory = make_directory(self)
+		gate = RetryGate()
+		lifecycle = EngineLifecycle(self.engines.manifest, directory)
+		readiness = make_readiness(lifecycle, gate, retry_interval=0.05)
+		server = self.make_server(readiness=readiness)
+		model_name = model_file_name(self.engines.manifest)
 
-			def assert_not_ready(expected_state: ModelState) -> None:
-				self.assertEqual(lifecycle.state, expected_state)
-				server.app.state.ready = lifecycle.ready_response()["ready"]
-				response = server.start_session()
-				self.assertEqual((response.status_code, response.json()["code"]), (503, "MODEL_NOT_READY"))
+		def assert_not_ready(expected_state: ModelState) -> None:
+			self.assertTrue(gate.waiting.wait(120))  # 失敗して再試行待ちに入るまでを条件で待つ
+			self.assertEqual(lifecycle.state, expected_state)
+			response = server.start_session()
+			self.assertEqual((response.status_code, response.json()["code"]), (503, "MODEL_NOT_READY"))
+			self.assertEqual(server.client.get("/api/v1/ready", headers=server.headers()).status_code, 503)
 
-			with self.assertRaises(FileNotFoundError):
-				lifecycle.prepare()
-			assert_not_ready(ModelState.MISSING)
+		assert_not_ready(ModelState.MISSING)
+		Path(directory, model_name).write_bytes(b"corrupt")  # サイズ・SHA-256が一致しない破損モデル
+		gate.resume()
+		assert_not_ready(ModelState.FAILED)
+		self.assertNotIn("corrupt", server.client.get("/api/v1/ready", headers=server.headers()).text)
+		self.assertNotIn("corrupt", lifecycle.failure_reason or "")
 
-			Path(directory, model_name).write_bytes(b"corrupt")  # サイズ・SHA-256が一致しない破損モデル
-			with self.assertRaises(ValueError):
-				lifecycle.prepare()
-			assert_not_ready(ModelState.FAILED)
-			self.assertNotIn("corrupt", lifecycle.failure_reason or "")
-
-			shutil.copyfile(model_directory() / model_name, Path(directory, model_name))
-			lifecycle.prepare()  # 実Tesseract/Argosのロードとwarmupを再実行して復旧する
-			self.assertEqual(lifecycle.state, ModelState.READY)
-			server.app.state.ready = lifecycle.ready_response()["ready"]
+		install_model(self.engines.manifest, directory)
+		gate.resume()  # 再試行で実Tesseract/Argosのロードとwarmupが走り、自動でreadyになる
+		self.assertTrue(readiness.ready_event.wait(120))
+		self.assertEqual(lifecycle.state, ModelState.READY)
 		session, websocket = self.open_session(server)
 		websocket.send(frame_message(session, 1, clear_cases()[0]))
 		result = read_until(websocket, is_result(1))[-1]

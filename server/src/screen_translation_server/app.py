@@ -54,9 +54,11 @@ from screen_translation_server.sessions import (
 	SessionNotFound,
 )
 from screen_translation_server.events import EventHub
+from screen_translation_server.lifecycle_readiness import LifecycleReadiness, ReadinessSource, ReadinessStatus
+from screen_translation_server.startup import StartupConfigurationError, lifecycle_from_environment
 from screen_translation_server.observability import ProcessingObserver
 from screen_translation_server.result_delivery import build_result_callbacks, drain_cancel_tasks, schedule_pipeline_cancel
-from screen_translation_server.pipeline import FrameInput, PipelineLimitError, TranslationPipeline, create_default_pipeline
+from screen_translation_server.pipeline import FrameInput, PipelineLimitError, TranslationPipeline, create_default_pipeline, create_pipeline_from_engines
 
 
 _UNIMPLEMENTED = {"detail": "not implemented"}
@@ -76,14 +78,19 @@ def create_app(
 	settings_store: SettingsStore | None = None,
 	glossary_store: GlossaryStore | None = None,
 	glossary_runtime: GlossaryRuntime | None = None,
+	readiness: ReadinessSource | None = None,
 ) -> Starlette:
 	"""テスト可能なASGIアプリを作る。環境設定に転送元ヘッダーを信頼させない。"""
 	session_manager = sessions or SessionManager(clock=time.monotonic, sleep=asyncio.sleep)
 	@asynccontextmanager
 	async def lifespan(_app: Starlette):
+		if readiness is not None:
+			await readiness.start()
 		try:
 			yield
 		finally:
+			if readiness is not None:
+				await readiness.stop()
 			app.state.events.close()
 			await drain_cancel_tasks(app)
 			await session_manager.close()
@@ -93,7 +100,9 @@ def create_app(
 	app.state.policy = policy or SecurityPolicy.from_environment()
 	app.state.limiter = limiter or AuthAttemptLimiter()
 	app.state.engine = engine
+	# readinessがあればEngineLifecycleが真実源。無ければ従来のis_ready固定値を使う。
 	app.state.ready = is_ready
+	app.state.readiness = readiness
 	app.state.sessions = session_manager
 	app.state.observer = ProcessingObserver()
 	app.state.events = EventHub(observer=app.state.observer)
@@ -144,7 +153,12 @@ def create_app(
 		result = await authenticated(request, frozenset({Role.DEVICE, Role.ADMIN}))
 		if isinstance(result, Response):
 			return result
-		return JSONResponse({"ready": app.state.ready}, status_code=200 if app.state.ready else 503)
+		status = _readiness_status(app)
+		if status.ready:
+			return JSONResponse({"ready": True})
+		if app.state.readiness is None:
+			return JSONResponse({"ready": False}, status_code=503)
+		return _session_error("MODEL_NOT_READY", status.reason or "翻訳エンジンの準備ができていません。", 503, retryable=True)
 
 	async def admin_status(request: Request) -> Response:
 		result = await authenticated(request, frozenset({Role.ADMIN}))
@@ -173,8 +187,11 @@ def create_app(
 			if request.headers.get("content-type") != "application/json":
 				return JSONResponse(_UNIMPLEMENTED, status_code=501)
 			return _session_error("INVALID_REQUEST", "開始要求の形式が不正です。", 422)
-		if not app.state.ready:
-			return _session_error("MODEL_NOT_READY", "サーバーの準備が完了していません。", 503, retryable=True)
+		status = _readiness_status(app)
+		if not status.ready:
+			return _session_error(
+				"MODEL_NOT_READY", status.reason or "サーバーの準備が完了していません。", 503, retryable=True,
+			)
 		try:
 			session = await app.state.sessions.start(result.credential_id)
 		except SessionConflict:
@@ -373,20 +390,40 @@ def create_server(app: Starlette, *, tls_context: ssl.SSLContext | None) -> uvic
 def main() -> int:
 	"""TLS未設定なら起動せず、HTTP/WSS入口をUvicornで稼働させる。"""
 	context = create_server_tls_context_from_environment()
-	create_server(create_app(), tls_context=context).run()
+	try:
+		lifecycle = lifecycle_from_environment()
+	except StartupConfigurationError as error:
+		_LOGGER.error("%s", error)
+		return 2
+	# モデル準備はバックグラウンドで行い、完了までは/readyと開始要求が理由付き503を返す。
+	create_server(create_app(readiness=LifecycleReadiness(lifecycle)), tls_context=context).run()
 	return 0
+
+
+def _readiness_status(app: Starlette) -> ReadinessStatus:
+	readiness: ReadinessSource | None = app.state.readiness
+	if readiness is None:
+		return ReadinessStatus(bool(app.state.ready))
+	return readiness.status()
 
 
 def _ensure_pipeline(app: Starlette) -> TranslationPipeline:
 	pipeline = app.state.pipeline
 	if pipeline is None:
-		pipeline = create_default_pipeline(
+		options = dict(
 			is_current=app.state.sessions.is_current,
 			is_frame_current=app.state.sessions.is_frame_current,
 			observer=app.state.observer,
 			capture_fps=app.state.capture_fps,
 			translator_wrapper=app.state.glossary_runtime.wrap,
 		)
+		readiness: ReadinessSource | None = app.state.readiness
+		engines = readiness.engines if readiness is not None else None
+		if engines is not None:
+			# EngineLifecycleが検証・warmup済みのエンジンをそのまま使う(二重ロードしない)。
+			pipeline = create_pipeline_from_engines(*engines, **options)  # type: ignore[arg-type]
+		else:
+			pipeline = create_default_pipeline(**options)
 		app.state.pipeline = pipeline
 	if hasattr(pipeline, "set_frame_current_check"):
 		pipeline.set_frame_current_check(app.state.sessions.is_frame_current)

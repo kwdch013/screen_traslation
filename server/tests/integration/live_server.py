@@ -26,6 +26,7 @@ from starlette.applications import Starlette
 
 from screen_translation_server.admin.credentials import CredentialManager
 from screen_translation_server.app import create_app, create_server
+from screen_translation_server.lifecycle_readiness import ReadinessSource
 from screen_translation_server.pipeline import TranslationPipeline
 from screen_translation_server.security.auth import (
 	CredentialStore,
@@ -95,7 +96,10 @@ class LiveServer:
 		*,
 		is_ready: bool = True,
 		site: Site | None = None,
+		readiness: ReadinessSource | None = None,
 	) -> None:
+		# readinessを渡すと、readyはEngineLifecycleから反映される(製品のmain()と同じ経路)。
+		self.readiness = readiness
 		self._owns_site = site is None
 		self.site = site or Site()
 		self.directory = self.site.directory
@@ -119,6 +123,7 @@ class LiveServer:
 			is_ready=is_ready,
 			sessions=sessions,
 			pipeline=pipeline,
+			readiness=readiness,
 		)
 		# accessログのURLにsession_idが載るため、試験出力へは出さない。
 		logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 import threading
 from typing import Any
 import unittest
@@ -17,8 +16,9 @@ from websockets.exceptions import ConnectionClosed
 
 from pipeline_case import gated
 from pipeline_support import JAPANESE, frame_message, is_result, normalize, read_until
+from readiness_support import RetryGate, install_model, make_directory
 from scenario_support import CLEAR_CASE, GLOSSARY_TARGET, ScenarioCase
-from screen_translation_server.engines.lifecycle import EngineLifecycle, ModelState
+from screen_translation_server.engines.lifecycle import ModelState
 
 
 def results(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -64,13 +64,15 @@ class ReadUntilDeadlineTests(unittest.TestCase):
 
 class RestartScenarioTests(ScenarioCase):
 	def test_translate_update_stop_restart_and_translate_again(self) -> None:
-		server = self.start(is_ready=False)
-		# 認証と準備確認: 未認証は401、準備前はready/sessionが503
+		hold = threading.Event()
+		server = self.start(lifecycle=self.shared_lifecycle(hold=hold))
+		# 認証と準備確認: 未認証は401、準備中はready/sessionが理由付き503
 		self.assertEqual(server.client.get("/api/v1/ready").status_code, 401)
 		self.assertEqual(self.get(server, "/api/v1/ready").status_code, 503)
 		refused = server.start_session()
 		self.assertEqual((refused.status_code, refused.json()["code"]), (503, "MODEL_NOT_READY"))
-		self.mark_ready_from_lifecycle(server)
+		hold.set()  # 準備完了後は、試験側の補完なしでappのreadyが200になる
+		self.assertTrue(server.readiness.ready_event.wait(120))
 		self.assertEqual(self.get(server, "/api/v1/ready").status_code, 200)
 		self.assertEqual(self.get(server, "/api/v1/glossary").json()["revision"], 1)
 		self.assertEqual(self.get(server, "/api/v1/settings").json()["capture_fps"], 2)
@@ -103,9 +105,11 @@ class RestartScenarioTests(ScenarioCase):
 		self.settle(server)
 		websocket.__exit__(None, None, None)
 		server.stop()
-		restarted = self.start(server.site, is_ready=False)
+		hold = threading.Event()
+		restarted = self.start(server.site, lifecycle=self.shared_lifecycle(hold=hold))
 		self.assertEqual(self.get(restarted, "/api/v1/ready").status_code, 503)
-		self.mark_ready_from_lifecycle(restarted)
+		hold.set()
+		self.assertTrue(restarted.readiness.ready_event.wait(120))
 		glossary = self.get(restarted, "/api/v1/glossary").json()
 		self.assertEqual((glossary["revision"], glossary["entries"]), (2, [{"source": source.strip(), "target": GLOSSARY_TARGET}]))
 		self.assertEqual(self.get(restarted, "/api/v1/settings", admin=True).json()["capture_fps"], 3)
@@ -193,20 +197,24 @@ class UpdateFailureScenarioTests(ScenarioCase):
 		self.assert_not_logged(marker, "/secret/data/path", server.token, server.admin_token, original, GLOSSARY_TARGET)
 
 	def test_model_preparation_failure_refuses_sessions_but_keeps_updates(self) -> None:
-		server = self.start(is_ready=False)
-		with tempfile.TemporaryDirectory(prefix="scenario-model-") as directory:
-			lifecycle = EngineLifecycle(self.engines.manifest, directory)
-			with self.assertRaises(FileNotFoundError):
-				lifecycle.prepare()
-			self.assertEqual(lifecycle.state, ModelState.MISSING)
-		server.app.state.ready = lifecycle.ready_response()["ready"]
+		directory = make_directory(self)  # モデル未導入の置き場
+		gate = RetryGate()
+		lifecycle = self.shared_lifecycle(directory)
+		server = self.start(lifecycle=lifecycle, gate=gate)
+		self.assertTrue(gate.waiting.wait(120))  # 未導入で失敗し、再試行待ちへ入った
+		self.assertEqual(lifecycle.state, ModelState.MISSING)
 		refused = server.start_session()
 		self.assertEqual((refused.status_code, refused.json()["code"]), (503, "MODEL_NOT_READY"))
+		self.assertIn("未導入", refused.json()["message"])
 		# 準備失敗中でも管理操作(辞書更新)は成功し、再起動後に実エンジンで反映される
 		self.assertEqual(self.put_glossary(server, "alpha", GLOSSARY_TARGET, 1).status_code, 200)
+		# モデルを導入すると、再起動なしで自動的にreadyへ復旧する
+		install_model(self.engines.manifest, directory)
+		gate.resume()
+		self.assertTrue(server.readiness.ready_event.wait(120))
+		self.assertEqual(self.get(server, "/api/v1/ready").status_code, 200)
 		server.stop()
-		restarted = self.start(server.site, is_ready=False)
-		self.mark_ready_from_lifecycle(restarted)
+		restarted = self.start(server.site)  # 復旧後の再起動(準備済みlifecycle)
 		self.assertEqual(self.get(restarted, "/api/v1/glossary").json()["revision"], 2)
 		session, websocket = self.open_session(restarted)
 		self.assertEqual(session["dictionary_revision"], 2)

@@ -354,6 +354,11 @@ def create_default_pipeline(**options: object) -> TranslationPipeline:
 	from screen_translation_server.engines import build_engines
 
 	ocr, translator = build_engines()
+	return create_pipeline_from_engines(ocr, translator, **options)
+
+
+def create_pipeline_from_engines(ocr: Ocr, translator: Translator, **options: object) -> TranslationPipeline:
+	"""準備済み(EngineLifecycle経由)のエンジンを再構築せずpipelineへ渡す。"""
 	wrap = cast("Callable[[Translator], Translator] | None", options.pop("translator_wrapper", None))
 	if wrap is not None:
 		translator = wrap(translator)
@@ -400,4 +405,5 @@ def _recognize_and_translate(
 __all__ = [
 	"FrameInput", "PipelineLimitError", "PipelineResult", "TranslationPipeline",
 	"create_default_pipeline",
+	"create_pipeline_from_engines",
 ]

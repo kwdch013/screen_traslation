@@ -17,6 +17,7 @@ from pipeline_support import (
 	use_installed_stanza_resources,
 )
 from screen_translation_server.engines.lifecycle import EngineLifecycle, ModelManifest
+from screen_translation_server.lifecycle_readiness import ReadinessSource
 from screen_translation_server.pipeline import TranslationPipeline
 from screen_translation_server.sessions import SessionManager
 from live_server import LiveServer
@@ -55,13 +56,15 @@ class PipelineCase(unittest.TestCase):
 	def setUpClass(cls) -> None:
 		cls.engines = real_engines()
 
-	def make_server(self, ocr: Any = None, *, observer: Any = None, is_ready: bool = True) -> LiveServer:
+	def make_server(
+		self, ocr: Any = None, *, observer: Any = None, readiness: ReadinessSource | None = None,
+	) -> LiveServer:
 		sessions = SessionManager(clock=time.monotonic, sleep=asyncio.sleep, disconnect_timeout=60)
 		pipeline = TranslationPipeline(
 			ocr or self.engines.ocr, self.engines.translator, clock=time.monotonic,
 			is_current=sessions.is_current, observer=observer,
 		)
-		server = LiveServer(pipeline, sessions, is_ready=is_ready)
+		server = LiveServer(pipeline, sessions, is_ready=readiness is None, readiness=readiness)
 		self.addCleanup(server.close)
 		return server
 

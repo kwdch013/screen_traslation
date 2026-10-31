@@ -360,9 +360,13 @@ def _warmup_engines(engines: object) -> None:
 	ocr.recognize(Frame(image=None, captured_at=time.monotonic()))
 
 
+# ファイルパス(区切り2つ以上、絶対パス、Windowsドライブ)やOSErrorの定型文は利用者へ見せない。
+_PATH_LIKE = re.compile(r"\[Errno|[\\/][\w.\-]+[\\/]|(?:^|[\s'\"(])/[\w.\-]+|[A-Za-z]:[\\/]")
+
+
 def _safe_failure_reason(error: Exception) -> str:
 	message = str(error).strip()
-	if not message or len(message) > 256 or "://" in message or any(
+	if not message or len(message) > 256 or "://" in message or _PATH_LIKE.search(message) or any(
 		marker in message.lower() for marker in ("token", "secret", "authorization", "password")
 	):
 		return f"モデル準備に失敗しました ({type(error).__name__})。"
