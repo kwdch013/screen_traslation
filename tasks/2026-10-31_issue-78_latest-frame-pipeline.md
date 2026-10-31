@@ -35,22 +35,26 @@
 - generation切替・cancel/drain・submitをlifecycle lockで直列化。drain中に到着した新世代submitはdrain後にworkerへ進み、worker終了時にも待機frameを取りこぼさない。
 - cancel時に保持済み結果を消去し、epoch確認と結果公開を同一lock内で行う。
 - OCR開始・cancel通知・新世代更新をEventで制御する決定的テストを追加。期限は注入時計を維持。
+- `test_latest_frame.py` / `test_pipeline_limits.py` 全体をgrepし、イベント同期に使う固定秒数wait/timeoutを除去。threadイベントは待機threadから `loop.call_soon_threadsafe` でasyncioへ通知し、各テストの30秒watchdogだけをハング防止用に設定。block中OCRは失敗時もcleanupで解放する。
 - lifecycle lock取得後に現行世代を再検証し、最後に受理した世代より古いsubmit/cancelを破棄する。active generationの数値は巻き戻らない。
 - pipeline全体を再確認。cancel/stopはlifecycle lock、epoch更新・結果公開・`next_result()`はstate lockで直列化され、期限超過結果は公開前に除外される。同じcheck-then-act競合は他に見つからなかった。lock順序はlifecycle lock→state lockで統一し、worker drain中はstate lockを保持しない。
 
 | Mutation | 対応テスト | 結果 |
 | --- | --- | --- |
-| `worker.cancel()` 呼出しを削除 | cancel/drain状態テスト | 失敗を検出 (cancel通知待ちtimeout) |
+| 世代再検証と単調性検査を削除 | 旧submitをEventで保留する競合テスト | 失敗を検出 (現行workerがcancelされる) |
+| `worker.cancel()` 呼出しを削除 | cancel/drain状態テスト | 失敗を検出 (テスト全体watchdogが明確な失敗を報告) |
 | epoch照合を削除 | cancel中に完成した旧結果のテスト | 失敗を検出 (旧結果が公開) |
 | 待機frame置換を削除 | 最新待機frameテスト | 失敗を検出 (drop数と処理frameが不一致) |
 | 期限判定を削除 | 注入時計による期限テスト | 失敗を検出 (期限切れ結果が公開) |
-| lifecycle lock後の現行世代・単調性検査を削除 | 旧submitをEventで保留する競合テスト | 失敗を検出 (世代2 workerがcancelされる) |
 
-各mutationは検出後に復元した。最終server Compose回帰は111件成功、3件skip。
+各mutationは検出後に復元した。世代再検証単独の削除では単調性検査が同じ競合を防ぎ、テストは通過したため、両方を外すmutationで確認した。
+
+世代逆行テストを50回連続実行し、50/50成功。
 
 ## 最終検証
 
+- server Compose: 111件成功、3件skip。
 - `docker build -t app:ci .` 後の通常試験: 308件成功、74件skip。
-- リポジトリread-only mount付き `src/tests` 回帰: 308件成功、skipなし。REQ ID対応表検証を含む。
+- 作業ツリーとビルド済みfrontendをread-only mountした `src/tests` 回帰: 308件成功、skipなし。REQ ID対応表検証を含む。
 - mypy `src` / mypy `--platform win32 src`: 各79 source files成功。
-- ruff `src scripts tests/ai_gate server/src server/tests`: 成功。
+- ruff `src scripts tests/ai_gate server/src server/tests`: 成功 (read-only mount上でcacheを `/tmp` に設定)。

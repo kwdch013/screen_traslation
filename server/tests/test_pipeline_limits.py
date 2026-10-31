@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Coroutine
+from functools import wraps
 import threading
 import unittest
 from io import BytesIO
@@ -15,6 +16,30 @@ from app.contracts import TranslationResult
 from screen_translation_server.pipeline import (
 	FrameInput, PipelineLimitError, PipelineResult, TranslationPipeline,
 )
+
+
+def test_watchdog(test):
+	@wraps(test)
+	async def run_with_watchdog(self):
+		try:
+			await asyncio.wait_for(test(self), timeout=30)
+		except TimeoutError:
+			self.fail("テスト全体のwatchdog (30秒) が発火しました")
+	return run_with_watchdog
+
+
+async def wait_thread_event(event: threading.Event) -> None:
+	"""thread側イベントをloopを塞がずに待つ。成否に時間制限は設けない。"""
+	loop = asyncio.get_running_loop()
+	completed: asyncio.Future[None] = loop.create_future()
+	def wait_and_notify() -> None:
+		event.wait()
+		def notify() -> None:
+			if not completed.done():
+				completed.set_result(None)
+		loop.call_soon_threadsafe(notify)
+	threading.Thread(target=wait_and_notify, daemon=True).start()
+	await completed
 
 
 class BlockingOcr:
@@ -42,16 +67,18 @@ class ObservableTask(asyncio.Task[Any]):
 
 
 class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
+	@test_watchdog
 	async def test_stale_submit_after_generation_switch_cannot_cancel_current_worker(self) -> None:
-		ocr_started = threading.Event()
-		release_generation_one_check = threading.Event()
-		generation_one_check_entered = threading.Event()
+		loop = asyncio.get_running_loop()
+		ocr_started = asyncio.Event()
+		release_generation_one_check = asyncio.Event()
+		generation_one_check_entered = asyncio.Event()
 		release_generation_two_ocr = threading.Event()
 		generation = 1
 		seen: list[int] = []
 		def recognize(frame: object) -> list[object]:
 			seen.append(frame.frame_id)  # type: ignore[attr-defined]
-			ocr_started.set()
+			loop.call_soon_threadsafe(ocr_started.set)
 			if frame.frame_id == 2:  # type: ignore[attr-defined]
 				release_generation_two_ocr.wait()
 			return []
@@ -59,7 +86,7 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 			if value == 1 and not generation_one_check_entered.is_set():
 				was_current = value == generation
 				generation_one_check_entered.set()
-				await asyncio.to_thread(release_generation_one_check.wait)
+				await release_generation_one_check.wait()
 				return was_current
 			return value == generation
 		pipeline = TranslationPipeline(recognize, lambda text: text, clock=lambda: 0.0,
@@ -68,10 +95,10 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 				loop=asyncio.get_running_loop()))
 		stale_submit = asyncio.create_task(pipeline.submit(self.frame(1, generation=1)))
 		try:
-			self.assertTrue(await asyncio.to_thread(generation_one_check_entered.wait, 1))
+			await generation_one_check_entered.wait()
 			generation = 2
 			await pipeline.submit(self.frame(2, generation=2))
-			self.assertTrue(await asyncio.to_thread(ocr_started.wait, 1))
+			await ocr_started.wait()
 			current_worker = pipeline._worker
 			self.assertIsNotNone(current_worker)
 		finally:
@@ -85,6 +112,7 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual(seen, [2])
 		self.assertEqual([item.result.generation for item in pipeline.published_results], [2])
 
+	@test_watchdog
 	async def test_rejects_excessive_image_and_roi_without_allocating_worker(self) -> None:
 		pipeline = TranslationPipeline(lambda frame: [], lambda text: text, clock=lambda: 0.0, max_image_bytes=8)
 		with self.assertRaises(PipelineLimitError):
@@ -93,6 +121,7 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 			await pipeline.submit(self.frame(2, width=63))
 		self.assertEqual(pipeline.active_worker_count, 0)
 
+	@test_watchdog
 	async def test_cancel_drains_old_engine_and_old_generation_cannot_publish(self) -> None:
 		ocr = BlockingOcr()
 		generation = 1
@@ -101,12 +130,12 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 			create_task=lambda coroutine: ObservableTask(coroutine,
 				loop=asyncio.get_running_loop()))
 		await pipeline.submit(self.frame(1))
-		self.assertTrue(await asyncio.to_thread(ocr.started.wait, 1))
+		await wait_thread_event(ocr.started)
 		worker = pipeline._worker
 		self.assertIsInstance(worker, ObservableTask)
 		cancel = asyncio.create_task(pipeline.cancel("session", new_generation=2))
 		try:
-			await asyncio.wait_for(worker.cancel_requested.wait(), timeout=1)  # type: ignore[union-attr]
+			await worker.cancel_requested.wait()  # type: ignore[union-attr]
 		finally:
 			ocr.release.set()
 		await cancel
@@ -115,6 +144,7 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual(pipeline.pending_frame_count, 0)
 		self.assertEqual(pipeline.published_results, [])
 
+	@test_watchdog
 	async def test_epoch_change_rejects_result_completed_during_cancel(self) -> None:
 		pipeline = TranslationPipeline(lambda frame: [], lambda text: text, clock=lambda: 0.0,
 			create_task=lambda coroutine: ObservableTask(coroutine,
@@ -137,13 +167,14 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 		self.assertIsInstance(worker, ObservableTask)
 		cancel = asyncio.create_task(pipeline.cancel("session"))
 		try:
-			await asyncio.wait_for(worker.cancel_requested.wait(), timeout=1)  # type: ignore[union-attr]
+			await worker.cancel_requested.wait()  # type: ignore[union-attr]
 		finally:
 			release.set()
 			await cancel
 		self.assertEqual(pipeline.published_results, [])
 		self.assertIsNone(await pipeline.next_result())
 
+	@test_watchdog
 	async def test_new_generation_frame_during_cancel_drain_is_started_after_drain(self) -> None:
 		ocr = BlockingOcr()
 		generation = 1
@@ -157,13 +188,13 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 			create_task=lambda coroutine: ObservableTask(coroutine,
 				loop=asyncio.get_running_loop()))
 		await pipeline.submit(self.frame(1))
-		self.assertTrue(await asyncio.to_thread(ocr.started.wait, 1))
+		await wait_thread_event(ocr.started)
 		worker = pipeline._worker
 		self.assertIsInstance(worker, ObservableTask)
 		cancel = asyncio.create_task(pipeline.cancel("session", new_generation=2))
 		submit: asyncio.Task[None] | None = None
 		try:
-			await asyncio.wait_for(worker.cancel_requested.wait(), timeout=1)  # type: ignore[union-attr]
+			await worker.cancel_requested.wait()  # type: ignore[union-attr]
 			generation = 2
 			submit = asyncio.create_task(pipeline.submit(self.frame(2, generation=2)))
 			await new_generation_checked.wait()
@@ -181,6 +212,7 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual(pipeline.active_worker_count, 0)
 		self.assertEqual([item.result.frame_id for item in pipeline.published_results], [2])
 
+	@test_watchdog
 	async def test_cancel_discards_already_published_result(self) -> None:
 		pipeline = TranslationPipeline(lambda frame: [], lambda text: text, clock=lambda: 0.0)
 		await pipeline.submit(self.frame(1))
@@ -190,6 +222,7 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual(pipeline.published_results, [])
 		self.assertIsNone(await pipeline.next_result())
 
+	@test_watchdog
 	async def test_generation_change_discards_previous_generation_result(self) -> None:
 		pipeline = TranslationPipeline(lambda frame: [], lambda text: text, clock=lambda: 0.0)
 		await pipeline.submit(self.frame(1))
@@ -202,6 +235,7 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual(result.result.generation, 2)  # type: ignore[union-attr]
 		self.assertEqual([item.result.generation for item in pipeline.published_results], [2])
 
+	@test_watchdog
 	async def test_expired_frame_is_discarded_using_injected_monotonic_clock(self) -> None:
 		now = 0.0
 		pipeline = TranslationPipeline(lambda frame: [], lambda text: text, clock=lambda: now)
@@ -211,6 +245,7 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual(pipeline.published_results, [])
 		self.assertEqual(pipeline.expired_frames, 1)
 
+	@test_watchdog
 	async def test_engine_exception_releases_worker_for_next_frame(self) -> None:
 		calls = 0
 		def recognize(frame: object) -> list[object]:
