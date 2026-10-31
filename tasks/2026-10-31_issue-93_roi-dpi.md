@@ -50,3 +50,16 @@
 - `mypy src` / `mypy --platform win32 src`: 各79ファイル成功。`ruff check --no-cache src scripts tests/ai_gate`: 成功。
 - Linux SDK containerで`dotnet build ScreenTranslation.sln --configuration Release -p:EnableWindowsTargeting=true`: 0 error。既存`TransportPlatformTests.cs`のxUnit analyzer warning 1件。Windows.Testsの実行はWindows runtimeが必要なためWindows CIで確認する。
 - 混在DPI実機でのROI選択操作と物理誤差2 px以下の実測: **未実施（Windows実機が必要、#136/#148系）**。
+
+## PR #164 追加変更要求 (high) の対応
+
+- `RegionSelectionResultMapper`をWindows依存のないClient純粋ロジックへ追加し、状態から`TaskCompletionSource<Rect2D?>`の完了結果へ変換。Windows overlayはsession状態と選択ROIをmapperへ渡すだけで、TCSの結果/例外分岐を持たない。MainWindowの`OperationCanceledException`契約により環境無効化メッセージへ到達し、Escの`null`表示と分かれる。
+- Linux ClientテストでSelected=ROI、Cancelled(Esc)=`null`、Invalidated= `OperationCanceledException`を確認。CancelledとInvalidatedを区別し、例外型と無効化メッセージを固定。
+- Mutation確認 (各回 `docker compose -p issue-93 -f client/compose.test.yml run --build --rm test` で新規 Client テスト60件を実行):
+
+| Mutation | 結果 | 検出 |
+| --- | --- | --- |
+| mapperでInvalidatedを`TrySetResult(null)`に統合 | 失敗 (59 passed / 1 failed) | Invalidated例外契約テストが「例外なし」で失敗 |
+| mapperのTCS結果反映を`TrySetResult(null)`固定（Selected/Invalidated） | 失敗 (58 passed / 2 failed) | Selected ROI契約とInvalidated例外契約で失敗 |
+
+- いずれのmutationも直ちに復元。Windows固有の画面通知・WPF操作を含む実機確認は**未実施（Windows実機が必要、#136/#148系）**。
