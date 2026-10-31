@@ -101,6 +101,7 @@ class SessionLifecycleTest(unittest.IsolatedAsyncioTestCase):
 
 	async def test_reselection_cancels_and_drains_ocr_and_rejects_its_late_result(self) -> None:
 		session = await self.manager.start("device-a")
+		old_generation = session.generation
 		started = asyncio.Event()
 		finish_ocr = asyncio.Event()
 		cancel_received = asyncio.Event()
@@ -112,7 +113,7 @@ class SessionLifecycleTest(unittest.IsolatedAsyncioTestCase):
 			except asyncio.CancelledError:
 				cancel_received.set()
 				await finish_drain.wait()
-				return session.session_id, session.generation, "old-result"
+				return session.session_id, old_generation, "old-result"
 		task = await self.manager.track_operation(session.session_id, ocr_operation())
 		await started.wait()
 
@@ -170,6 +171,7 @@ class SessionLifecycleTest(unittest.IsolatedAsyncioTestCase):
 		await started.wait()
 		await self.manager.stop(session.session_id, "device-a")
 		self.assertTrue(task.cancelled())
+		self.assertEqual(session._operations, set())
 		self.assertEqual(await self.manager.active_operation_count, 0)
 
 	async def test_disconnect_is_detected_within_five_seconds_and_released(self) -> None:
