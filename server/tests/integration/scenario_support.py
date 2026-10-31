@@ -52,20 +52,16 @@ class LogCapture(logging.Handler):
 		self.records: list[logging.LogRecord] = []
 
 	# 試験クライアント側のライブラリはDEBUGで自分の送信ヘッダー(Authorization)を出す。サーバーのログではないため除く。
-	# argostranslateはINFOで訳文を出し、運用側がrootにhandlerを足すと漏れる第三者の既知課題。
-	# 製品側の対処はdocs/v1.0/testing.mdの「未解決事項」に記録し、本試験は自サーバーの出力を検査する。
+	# argostranslate・uvicornのaccessログは検査から除外しない(運用ログ固定の対象。#195)。
 	CLIENT_LOGGERS = ("websockets.client", "httpx", "httpcore")
-	THIRD_PARTY_LOGGERS = ("argostranslate",)
 
 	def emit(self, record: logging.LogRecord) -> None:
-		if not record.name.startswith(self.CLIENT_LOGGERS + self.THIRD_PARTY_LOGGERS):
+		if not record.name.startswith(self.CLIENT_LOGGERS):
 			self.records.append(record)
 
-	def text(self, *, exclude: tuple[str, ...] = ()) -> str:
+	def text(self) -> str:
 		parts: list[str] = []
 		for record in self.records:
-			if record.name in exclude:
-				continue
 			parts.append(record.getMessage())
 			parts.append(repr(record.__dict__))
 			if record.exc_info:
@@ -169,8 +165,8 @@ class ScenarioCase(PipelineCase):
 					await asyncio.sleep(0.01)
 		server.run(wait(), timeout=90)
 
-	def assert_not_logged(self, *secrets: str, exclude: tuple[str, ...] = ()) -> None:
-		text = self.logs.text(exclude=exclude)
+	def assert_not_logged(self, *secrets: str) -> None:
+		text = self.logs.text()
 		for index, secret in enumerate(secrets):
 			self.assertTrue(secret)
 			# 失敗時に秘密値やログ全体を出力へ複製しない。

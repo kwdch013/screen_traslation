@@ -57,6 +57,7 @@ from screen_translation_server.events import EventHub
 from screen_translation_server.lifecycle_readiness import LifecycleReadiness, ReadinessSource, ReadinessStatus
 from screen_translation_server.startup import StartupConfigurationError, lifecycle_from_environment
 from screen_translation_server.observability import ProcessingObserver
+from screen_translation_server.operational_logging import disable_access_logger, restrict_dependency_loggers
 from screen_translation_server.result_delivery import build_result_callbacks, drain_cancel_tasks, schedule_pipeline_cancel
 from screen_translation_server.pipeline import FrameInput, PipelineLimitError, TranslationPipeline, create_default_pipeline, create_pipeline_from_engines
 
@@ -367,6 +368,7 @@ def create_server(app: Starlette, *, tls_context: ssl.SSLContext | None) -> uvic
 	"""証明書なし起動を拒否し、TLS contextとWSS受信上限をASGI serverへ渡す。"""
 	if tls_context is None:
 		raise ValueError("TLS証明書と秘密鍵を設定してください。")
+	restrict_dependency_loggers()
 	config = uvicorn.Config(
 		app,
 		host=os.environ.get("SCREEN_TRANSLATION_BIND_HOST", "0.0.0.0"),
@@ -378,7 +380,11 @@ def create_server(app: Starlette, *, tls_context: ssl.SSLContext | None) -> uvic
 		limit_concurrency=128,
 		proxy_headers=False,
 		forwarded_allow_ips="",
+		# accessログはDELETE /api/v1/sessions/{session_id}のパスにsession_idを出すため出力しない。
+		access_log=False,
 	)
+	# Configがloggingを再設定した後に付けるため、再設定で消えない。
+	disable_access_logger()
 	return _ReloadableServer(
 		config,
 		tls_context,

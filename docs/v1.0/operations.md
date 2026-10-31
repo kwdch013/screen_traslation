@@ -72,6 +72,10 @@ CA自体の更新では、新CAの公開証明書を別経路で全端末へ配�
 
 停止・再選択・切断時はサーバーがsession generationを無効にし、登録済み処理taskをcancel/drainしてから所有権を解放します。遅れて完了した旧sessionの結果は採用しません。これらはIssue #73の単体/routeテストで確認しています。サーバーコンテナ結合は #74、Windows/Linux実機での接続・切断確認は #108 で行います。
 
+## 運用ログの扱い
+
+サーバーは運用ログ(標準出力/標準エラー)にsession_id・認証情報・原文・訳文・画像を出しません。uvicornのaccessログは無効化しており、有効に戻さないでください(`DELETE /api/v1/sessions/{session_id}`のパスにsession_idが出ます)。翻訳ライブラリ(`argostranslate`・`stanza`)のloggerはWARNING以上に固定しているため、運用側でroot loggerにhandlerを付けても原文・訳文は出ません。ログ集約を追加するときも、uvicornの`log_config`やライブラリのlogger levelを緩めないでください。詳細は[security.md](design/security.md)と[testing.md](testing.md#運用ログの秘匿-issue-195)を参照してください。
+
 ## Issue #75 の実装範囲と未実施項目
 
 このTaskで提供する資格情報管理はサーバー上で実行するローカルCLIです。設計書のAPI-008管理HTTP endpointは実装していません。HTTP APIから資格情報を発行・一覧・失効する運用はできません。
@@ -96,7 +100,7 @@ secret/certificate providerとの自動連携も対象外です。運用者が�
 | 要件 | 本手順・実装 |
 |---|---|
 | REQ-NF-006 | TLS 1.2以上、device/admin role分離、無効/失効資格情報の拒否 |
-| REQ-NF-007 | tokenはsalt付きverifierのみ保存し、秘密はsecret管理/OS保護へ分離 |
+| REQ-NF-007 | tokenはsalt付きverifierのみ保存し、秘密はsecret管理/OS保護へ分離。運用ログ(accessログ・依存ライブラリ)にsession_id・内容を出さない(#195) |
 | REQ-NF-009 | HTTPS/WSSの証明書名・期限・信頼を検証し、検証無効化を禁止 |
 | ACC-05 / ACC-12 / ACC-14 | 失効後1秒以内拒否、秘密をログ/API/イメージへ含めない、管理CLIをadmin roleに限定 |
 

@@ -246,9 +246,27 @@ docker compose -f server/compose.test.yml --profile integration run --build --rm
 
 - **未検証**: コンテナの停止・起動をまたぐ名前付きvolumeの永続、製品の起動経路(`main`)での再起動。8時間連続稼働、性能(p50/p95)、Windows実機を含むE2E、複数端末の同時利用は#108/#109。
 - **製品の起動経路**: `main()`は`create_app()`を`is_ready=False`で起動し、`EngineLifecycle`のreadyをappへ反映する配線が見当たりません。本試験はlifecycleのreadyを試験側で反映しており、製品起動でsessionが開始できるかは未検証です(要確認の課題)。
-- **uvicornのaccessログ**: `DELETE /api/v1/sessions/{session_id}`のパスにsession_idが出ます。診断ログへsession_idを出さない不変条件([security.md](design/security.md))の対象外ですが、運用ログには残ります。accessログの抑止またはパス伏せが必要です(本試験は`uvicorn.access`をsession_id検査から除外し、token・訳文は含めて検査)。
-- **第三者ライブラリのログ**: `argostranslate`はINFOで原文・訳文をログに出し、rootにhandlerを足すと漏れます(既定では出力先がありません)。本試験は`argostranslate`のloggerを検査から除外しています。製品側で当該loggerを抑止する対処が必要です。運用でroot loggerにhandlerを付ける場合は注意してください。
+- **(解消済み・#195)** uvicornのaccessログに`DELETE /api/v1/sessions/{session_id}`のsession_idが出る件、`argostranslate`がINFOで原文・訳文を出す件は、製品側で固定しました([運用ログの秘匿](#運用ログの秘匿-issue-195))。本試験は`uvicorn.access`・`argostranslate`を検査から除外しません。
 - **Stanza資源の外部取得**: #80と同じく`download_method=reuse_resources`を試験側で与えています(#189)。
+
+## 運用ログの秘匿 (Issue #195)
+
+診断ログ(自サーバーのlogger)に加え、**運用ログ(uvicornのaccessログ・依存ライブラリのログ)**にもsession_id・認証情報・原文・訳文・画像を出さないことを、実際の起動構成(`create_server`/`main()`)で固定します。
+
+| 経路 | 固定方法 |
+| --- | --- |
+| uvicornのaccessログ | `create_server`が`access_log=False`を渡し、`uvicorn.access`にdrop-all filterを付ける。運用側が後からhandlerを足して`hasHandlers()`が真になっても出力しない |
+| argostranslate・stanza | `operational_logging.restrict_dependency_loggers()`が当該logger(既存の子を含む)をWARNING以上だけにfilterで固定する。ライブラリがimport時に`setLevel(INFO)`しても、rootにhandlerやDEBUGを足しても出ない。`create_server`とエンジン読込後(`_load_engines`)で呼ぶ。警告以上の文言は固定文で内容を含まない |
+
+| 試験 | 内容 |
+| --- | --- |
+| `server/tests/test_operational_logging.py` | ライブラリがレベルを戻しても/後から作られた子loggerでも/rootをDEBUGにしても、原文・訳文が出ない。警告以上は残る。filterの重複なし。後からhandlerを足したaccess loggerも空。`create_server`と`main()`が`access_log=False`とfilter設定を呼ぶ |
+| `server/tests/integration/test_operational_log.py` | 実TLS listener(`create_server`)でPOST/DELETE/GETを行い、root・uvicorn系にhandlerを足して捕捉。session_id・端末/管理token・原文・訳文・`/sessions/`・accessログ自体が出ない |
+| `server/tests/integration/test_server_scenario.py` | 検査から`uvicorn.access`と`argostranslate`の除外を外し、全loggerでtoken・訳文・session_idの不在を確認 |
+
+mutation確認(#195): ①`restrict_dependency_loggers`のfilter付与を外す(単体3件失敗・結合失敗)、②`disable_access_logger`のlevelとfilterを外す(単体・結合とも失敗)、③`create_server`から両呼び出しを外す(単体・結合とも失敗)、④`access_log=True`へ戻す(単体2件失敗。結合はdrop-all filterが受けるため通る=多重防御)。復元後はすべて成功します。
+
+**未検証**: 将来追加する依存ライブラリのloggerは、接頭辞(`RESTRICTED_LOGGER_PREFIXES`)へ追加するまで対象外です。コンテナのstdout/stderrへ直接`print`するライブラリ出力、OSやリバースプロキシ側のaccessログは対象外です。
 
 ## 変更後の回帰・静的検査
 
