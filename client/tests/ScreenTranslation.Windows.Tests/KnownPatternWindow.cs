@@ -19,6 +19,10 @@ internal sealed class KnownPatternWindow : IDisposable
 	private const uint WmEraseBkgnd = 0x0014;
 	private const uint WmPrintClient = 0x0318;
 	private const uint PwClientOnly = 1;
+	private const uint SwpNoSize = 0x0001;
+	private const uint SwpNoMove = 0x0002;
+	private const uint SwpNoZOrder = 0x0004;
+	private const uint SwpNoActivate = 0x0010;
 
 	private static readonly WndProc Procedure = HandleMessage;
 	private static readonly string ClassName = "ScreenTranslationKnownPattern" + Environment.ProcessId;
@@ -93,6 +97,12 @@ internal sealed class KnownPatternWindow : IDisposable
 
 	public IntPtr Handle => handle;
 	public bool Exists => handle != IntPtr.Zero && IsWindow(handle);
+
+	/// <summary>ウィンドウを同じ大きさのまま移動する(取得対象の移動を再現)。</summary>
+	public void MoveTo(int x, int y) => SetWindowPos(handle, IntPtr.Zero, x, y, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
+
+	/// <summary>ウィンドウの左上を動かさず大きさを変える(取得対象のリサイズを再現)。</summary>
+	public void Resize(int newWidth, int newHeight) => SetWindowPos(handle, IntPtr.Zero, 0, 0, newWidth, newHeight, SwpNoMove | SwpNoZOrder | SwpNoActivate);
 
 	/// <summary>ウィンドウを破棄する(取得対象の終了を再現)。</summary>
 	public void Close()
@@ -235,6 +245,7 @@ internal sealed class KnownPatternWindow : IDisposable
 	[DllImport("user32.dll")] private static extern void PostQuitMessage(int exitCode);
 	[DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr window);
 	[DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
+	[DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 	[DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
 	[DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 	[DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr window, out Rect rect);

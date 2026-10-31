@@ -17,6 +17,8 @@ public sealed class CaptureLifecycleController : IAsyncDisposable
 	public ulong Generation { get; private set; }
 	public CaptureInvalidationReason? LastInvalidationReason { get; private set; }
 	public event Action<ulong>? GenerationInvalidated;
+	/// <summary>取得中のウィンドウが同じ大きさのまま移動した。取得セッションが報告できる場合だけ通知する。</summary>
+	public event Action<CaptureBounds>? TargetBoundsChanged;
 
 	public async ValueTask SelectTargetAsync(CaptureTarget target, CancellationToken cancellationToken = default)
 	{
@@ -70,6 +72,7 @@ public sealed class CaptureLifecycleController : IAsyncDisposable
 			{
 				session = await sessionFactory.CreateAsync(SelectedTarget, cancellationToken);
 				session.Invalidated += OnSessionInvalidated;
+				if (session is IBoundsReportingCaptureSession reporter) reporter.BoundsChanged += OnSessionBoundsChanged;
 				await session.StartAsync(cancellationToken);
 				activeSession = session;
 				State = CaptureClientState.Streaming;
@@ -79,7 +82,7 @@ public sealed class CaptureLifecycleController : IAsyncDisposable
 				State = CaptureClientState.ConnectedStopped;
 				if (session is not null)
 				{
-					session.Invalidated -= OnSessionInvalidated;
+					Unsubscribe(session);
 					await session.DisposeAsync();
 				}
 				throw;
@@ -166,7 +169,7 @@ public sealed class CaptureLifecycleController : IAsyncDisposable
 		var session = activeSession;
 		State = CaptureClientState.Stopping;
 		activeSession = null;
-		session!.Invalidated -= OnSessionInvalidated;
+		Unsubscribe(session!);
 		Exception? stopException = null;
 		Exception? disposeException = null;
 		try
@@ -205,6 +208,14 @@ public sealed class CaptureLifecycleController : IAsyncDisposable
 		{
 			System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(disposeException).Throw();
 		}
+	}
+
+	private void OnSessionBoundsChanged(CaptureBounds bounds) => TargetBoundsChanged?.Invoke(bounds);
+
+	private void Unsubscribe(ICaptureSession session)
+	{
+		session.Invalidated -= OnSessionInvalidated;
+		if (session is IBoundsReportingCaptureSession reporter) reporter.BoundsChanged -= OnSessionBoundsChanged;
 	}
 
 	private void OnSessionInvalidated(CaptureInvalidationReason reason) => _ = HandleSessionInvalidatedAsync(reason);
