@@ -23,7 +23,7 @@ public interface IStreamSocketFactory
 	IStreamSocket Create(ConnectionSettings settings);
 }
 
-internal delegate bool TestCertificateValidationCallback(string hostName, X509Certificate2? certificate, SslPolicyErrors errors);
+internal delegate bool TestCertificateValidationCallback(string hostName, X509Certificate? certificate, SslPolicyErrors errors);
 
 public sealed class TransportProtocolException(string message, Exception? innerException = null) : Exception(message, innerException);
 
@@ -301,6 +301,7 @@ internal sealed class ClientWebSocketStream(string? certificateSha256, TestCerti
 	public async Task ConnectAsync(Uri endpoint, string deviceToken, CancellationToken cancellationToken)
 	{
 		if (endpoint.Scheme != "wss") throw new TransportSecurityException("WSS以外の接続先は許可されません。");
+		var testCertificateRejected = false;
 		client.Options.AddSubProtocol("screen-translation.v1");
 		client.Options.SetRequestHeader("Authorization", $"Bearer {deviceToken}");
 		client.Options.KeepAliveInterval = TimeSpan.FromSeconds(1);
@@ -308,7 +309,25 @@ internal sealed class ClientWebSocketStream(string? certificateSha256, TestCerti
 		if (testCertificateValidationCallback is not null)
 		{
 			client.Options.RemoteCertificateValidationCallback = (_, certificate, _, errors) =>
-				testCertificateValidationCallback(endpoint.Host, certificate as X509Certificate2, errors);
+			{
+				if (certificate is null)
+				{
+					testCertificateRejected = true;
+					return false;
+				}
+
+				var loadedCertificate = certificate is X509Certificate2 ? null : X509CertificateLoader.LoadCertificate(certificate.GetRawCertData());
+				try
+				{
+					var accepted = testCertificateValidationCallback(endpoint.Host, certificate as X509Certificate2 ?? loadedCertificate, errors);
+					testCertificateRejected |= !accepted;
+					return accepted;
+				}
+				finally
+				{
+					loadedCertificate?.Dispose();
+				}
+			};
 		}
 		else if (certificateSha256 is not null)
 		{
@@ -328,6 +347,8 @@ internal sealed class ClientWebSocketStream(string? certificateSha256, TestCerti
 		}
 		catch (WebSocketException exception)
 		{
+			if (testCertificateRejected)
+				throw new TransportSecurityException("テスト用WSSサーバー証明書を検証できません。", exception);
 			var responseStatus = client.HttpStatusCode;
 			if ((int)responseStatus == 0) responseStatus = GetResponseStatus(exception);
 			if (responseStatus is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Conflict)

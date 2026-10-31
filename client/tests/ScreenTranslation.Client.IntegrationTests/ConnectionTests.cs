@@ -310,18 +310,24 @@ public sealed class ConnectionTests
 
 		public X509Certificate2 ServerCertificate => server;
 
-		public bool ValidateServerCertificate(string hostName, X509Certificate2? leaf, SslPolicyErrors errors)
+		public bool ValidateServerCertificate(string hostName, X509Certificate? certificate, SslPolicyErrors errors)
 		{
+			var loadedCertificate = certificate is X509Certificate2 ? null : certificate is null ? null : X509CertificateLoader.LoadCertificate(certificate.GetRawCertData());
+			var leaf = certificate as X509Certificate2 ?? loadedCertificate;
 			var hasSubjectAlternativeName = leaf?.Extensions.Cast<X509Extension>().Any(extension => extension.Oid?.Value == "2.5.29.17") == true;
-			if (leaf is null || !hasSubjectAlternativeName || (errors & SslPolicyErrors.RemoteCertificateNotAvailable) != 0 || !leaf.MatchesHostname(hostName, allowWildcards: true, allowCommonName: false))
-				return false;
-
+			var hostnameMatches = leaf?.MatchesHostname(hostName, allowWildcards: true, allowCommonName: false) == true;
+			var policyErrorsAllowChainBuild = (errors & SslPolicyErrors.RemoteCertificateNotAvailable) == 0;
 			using var chain = new X509Chain();
 			chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
 			chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
 			chain.ChainPolicy.ApplicationPolicy.Add(new Oid("1.3.6.1.5.5.7.3.1"));
 			if (trustAuthority) chain.ChainPolicy.CustomTrustStore.Add(authority);
-			return chain.Build(leaf);
+			var chainBuilds = leaf is not null && chain.Build(leaf);
+			var accepted = leaf is not null && hasSubjectAlternativeName && hostnameMatches && policyErrorsAllowChainBuild && chainBuilds;
+			var chainStatuses = string.Join(",", chain.ChainStatus.Select(status => status.Status.ToString()));
+			Console.WriteLine($"[CERT VALIDATION] host={hostName}, certificateType={certificate?.GetType().Name ?? "null"}, policyErrors={errors}, hasSAN={hasSubjectAlternativeName}, hostnameMatches={hostnameMatches}, chainBuilds={chainBuilds}, chainStatus={chainStatuses}, accepted={accepted}");
+			loadedCertificate?.Dispose();
+			return accepted;
 		}
 
 		public void Dispose()
