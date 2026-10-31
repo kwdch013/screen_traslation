@@ -29,6 +29,8 @@ WPF画面での設定変更中の接続取消、ウィンドウ終了後の遅�
 | OS非依存の連鎖 | `client/tests/ScreenTranslation.Client.IntegrationTests/CaptureTests.cs` (`Category=CaptureSendIntegration`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 負座標を含む96/144/192 DPIの仮想デスクトップで、論理座標から変換した物理ROIの画素が受信PNGと1対1で一致(契約の許容誤差2 physical px以内かつ実際は0)。再選択で待機中の旧領域画像が送られず、旧世代フレームは拒否され、通信中の送信が取り消される。対象終了/最小化/取得拒否/DPI変更で送信が止まり取得sessionが破棄される。送信失敗後に同一画素が再送対象になる。20回の再選択でsessionが全て1回だけ停止・破棄される |
 | 配線の単体 | `client/tests/ScreenTranslation.Client.Tests/CaptureSendPipelineTests.cs` | 同上 | 基準リセット、旧世代拒否、session無し拒否、送信失敗と呼び出し側取消の区別 |
 | Win32実取得 | `client/tests/ScreenTranslation.Windows.Tests/CaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 座標を画素値にした試験ウィンドウをWin32 `PrintWindow`で実際に取得し、ROIと受信画像が1対1で一致すること、取得対象の終了後は取得不可で旧画像が送られないこと、再選択後は新領域だけが送られることを確認 |
+| WGC実取得 (Issue #179) | `client/tests/ScreenTranslation.Windows.Tests/WgcCaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 専用スレッドでメッセージループを回す既知パターンのウィンドウをWindows Graphics Captureで取得し、`FrameArrived`から読み出した画素がROIどおり(0 px誤差)に`CapturedFrame`→PNG→送信まで届くこと、ROI未選択ならGPU面を読み出さないこと、開始/停止を25回反復してもプロセスのハンドル数が増え続けず停止後にフレームが届かないこと、対象ウィンドウを閉じるとTargetUnavailableで無効化されることを確認 |
+| WGC画素の変換 (Issue #179) | `client/tests/ScreenTranslation.Client.Tests/BgraFrameConverterTests.cs`・`CaptureFrameRouterTests.cs` | .NET SDKコンテナ | 行詰め(stride)付きBGRAの詰め直し、開始位置、内容サイズでの切り出し、元バッファの複製、不正寸法の拒否と例外メッセージへ画素値を含めないこと。ROI・世代を画素の読み出し前に採取して旧世代フレームを拒否すること |
 
 ```bash
 docker compose -f client/compose.test.yml run --build --rm test
@@ -38,7 +40,17 @@ docker compose -f client/compose.test.yml run --build --rm test
 dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=CaptureIntegration
 ```
 
-CaptureIntegrationはWindows専用で、Linuxでは対象プロジェクトがビルドされません。Linuxでのskipをこの試験の合格として扱いません。この試験はWin32 `PrintWindow`で取得した画素を使い、**Windows Graphics Capture(WGC)の画素読み出しは検証しません**。現状の本番コードはWGCの`FrameArrived`で画素を読み出して`CapturedFrame`へ変換する処理を持たない(対象の有効性確認のみ)ため、WGC取得から送信までの結合は未実装・未検証です。追跡は #135/#148系の実機Taskに委ねます。
+CaptureIntegrationはWindows専用で、Linuxでは対象プロジェクトがビルドされません。Linuxでのskipをこの試験の合格として扱いません。`CaptureIntegrationTests`はWin32 `PrintWindow`、`WgcCaptureIntegrationTests`はWGCで取得した画素を使います。
+
+### WGC画素読み出しの設計と制約 (Issue #179)
+
+- `WindowsCaptureSession.OnFrameArrived`(`client/src/ScreenTranslation.Windows/Capture/`)は、ROIと世代を**画素の読み出し前に**`ICapturedFrameSink.TryBeginFrame`から採取します。ROI未選択(null)ならGPU面を読み出しません。読み出し中に再選択されても旧世代のまま渡され、`CaptureSendPipeline`が`StaleGeneration`として拒否します。
+- 読み出しは`WgcFrameReader`が`SoftwareBitmap.CreateCopyFromSurfaceAsync`でBGRA8へ複製し、`BgraFrameConverter`が行詰めを除いた`CapturedFrame`(stride=幅×4、内容サイズで切り出し)へ変換します。フレーム・GPU面・SoftwareBitmap・読み出しバッファはフレームごとに解放します。停止(`StopAsync`)と破棄(`DisposeAsync`)の両方でフレームプール・取得session・D3Dデバイス・取得対象を解放します(反復しても二重解放しない)。
+- 読み出しや受け渡しが失敗した場合は、例外の内容を捨てて`CaptureDenied`で無効化し取得を止めます。画像データはログにも例外メッセージにも出しません。取得除外・保護コンテンツなどでWGCが使えない場合に、`PrintWindow`や画面複製などの別方式へ無断でフォールバックしません。D3Dデバイスだけは、GPUが無い環境でソフトウェア描画(WARP)へ切り替えます(取得方式はWGCのまま)。
+- WGCは`WS_EX_NOACTIVATE`のウィンドウを取得対象にできません(CIで`E_INVALIDARG`を確認)。取得対象のWinRTオブジェクトは`MarshalInspectable.FromAbi`で変換します(COMのRCWへ直接キャストすると`InvalidCastException`)。
+- 対象終了などの無効化は`WindowsCaptureTargetWatcher`のWinEventフックで検出します。アウトオブコンテキストのフックは設定したスレッドがメッセージを処理しないとコールバックが届かないため、`StartAsync`はUIスレッド(メッセージループあり)から呼びます。CIの対象終了試験ではメッセージ処理スレッド(`PumpingThread`)で開始し、WGCのClosedイベントの到着には依存しません(最初の30秒タイムアウトの原因は、メッセージを処理しないスレッドで開始していたこと)。
+- マウスカーソルは翻訳対象の画像へ含めません(`IsCursorCaptureEnabled=false`)。対象のサイズが変わったらフレームプールを作り直し、以降のフレームは新しい内容サイズで届きます(ROIが範囲外になれば`Rejected`で再選択を案内)。
+- アプリ全体の配線(`CaptureFrameRouter`と`CaptureLifecycleController`の接続、取得fps上限に合わせた読み出しの間引き)は別Taskです。現状は`WindowsCaptureSessionFactory`の`ICapturedFrameSink`を指定した場合だけ画素を読み出します。
 
 ### Owner実機手順 (混在DPI・複数モニター・画面表示)
 
@@ -49,6 +61,16 @@ hosted runnerで再現できない項目です。担当: Owner。**結果: 未�
 3. 取得中に対象ウィンドウを閉じる/最小化する/別モニターへ移動してDPIを変える/取得権限を拒否する。送信が止まり、旧領域の画像がそれ以降送られず、取得sessionが解放される(再開始まで送信されない)ことを確認する。
 4. 負荷(別プロセスでCPUを飽和)をかけた状態でROIを再選択し、再選択前の領域の画像が受信されないことを確認する。
 5. 取得除外(自己キャプチャ除外/WDA)が失敗した場合に送信が停止することを確認する(#135/#136系)。
+
+### Owner実機手順 (WGCの実GPU取得・Issue #179)
+
+hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際の画面で確認する項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、GPU、モニター構成(解像度・DPI・配置)、合否をIssueへ記録し、この欄を更新してください。CI成功をこの項目の実施として数えません。
+
+1. 実GPUのWindows 10 2004以降/Windows 11で、座標目盛りを持つウィンドウをWGCで取得し、ROI寸法・目盛り位置が選択した物理pxと一致する(ずれ2 physical px以下)ことを確認する。
+2. 4Kや100%/150%など倍率の異なるモニターで、ウィンドウをモニター間で移動したときに送信が止まり(DPI変更)、再選択後は新しい物理pxのROIで送られることを確認する。
+3. 取得開始/停止/対象変更を100回以上反復し、タスクマネージャー(またはPerfMon)でプロセスのハンドル数とGPU専用メモリが増え続けないことを確認する。
+4. 画面取得から除外されたウィンドウ(WDA_EXCLUDEFROMCAPTURE)や保護コンテンツ(DRM動画等)を対象にして、別方式へ切り替わらず、取得できない/黒画像を送らない動作になるか確認し、結果を#135の記録へ追記する(黒画像の検出は現状未実装のため、結果によりTaskを追加する)。
+5. ウィンドウをリサイズしたとき、フレームが新しいサイズで届きROIの範囲外判定が再選択案内になることを確認する。
 
 ## 翻訳オーバーレイと自己キャプチャ防止 (Issue #97)
 
