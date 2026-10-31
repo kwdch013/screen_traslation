@@ -49,7 +49,6 @@ from screen_translation_server.sessions import (
 )
 
 
-_AUTH_FAILURE = {"detail": "Authentication failed"}
 _UNIMPLEMENTED = {"detail": "not implemented"}
 _LOGGER = logging.getLogger(__name__)
 
@@ -99,7 +98,7 @@ def create_app(
 			)
 		except AuthenticationError:
 			app.state.limiter.finish(remote, success=False)
-			return JSONResponse(_AUTH_FAILURE, status_code=401)
+			return _session_error("UNAUTHENTICATED", "認証が必要です。", 401)
 		app.state.limiter.finish(remote, success=True)
 		return credential
 
@@ -134,14 +133,14 @@ def create_app(
 			if content_length is not None:
 				declared = int(content_length)
 				if declared < 0 or declared > HTTP_JSON_MAX_BYTES:
-					return JSONResponse({"detail": "Request rejected"}, status_code=413)
+					return _session_error("PAYLOAD_TOO_LARGE", "画像または要求サイズが上限を超えています。", 413)
 			await read_limited_body(
 				request.stream(),
 				maximum=HTTP_JSON_MAX_BYTES,
 				timeout_seconds=app.state.http_body_timeout,
 			)
 		except (InputLimitError, ValueError):
-			return JSONResponse({"detail": "Request rejected"}, status_code=413)
+			return _session_error("PAYLOAD_TOO_LARGE", "画像または要求サイズが上限を超えています。", 413)
 		return JSONResponse(_UNIMPLEMENTED, status_code=501)
 
 	async def start_session(request: Request) -> Response:
@@ -153,14 +152,14 @@ def create_app(
 			if content_length is not None:
 				declared = int(content_length)
 				if declared < 0 or declared > HTTP_JSON_MAX_BYTES:
-					return JSONResponse({"detail": "Request rejected"}, status_code=413)
+					return _session_error("PAYLOAD_TOO_LARGE", "画像または要求サイズが上限を超えています。", 413)
 			body = await read_limited_body(
 				request.stream(),
 				maximum=HTTP_JSON_MAX_BYTES,
 				timeout_seconds=app.state.http_body_timeout,
 			)
 		except (InputLimitError, ValueError):
-			return JSONResponse({"detail": "Request rejected"}, status_code=413)
+			return _session_error("PAYLOAD_TOO_LARGE", "画像または要求サイズが上限を超えています。", 413)
 		if body.strip() not in (b"", b"{}"):
 			if request.headers.get("content-type") != "application/json":
 				return JSONResponse(_UNIMPLEMENTED, status_code=501)
@@ -170,7 +169,7 @@ def create_app(
 		try:
 			session = await app.state.sessions.start(result.credential_id)
 		except SessionConflict:
-			return _session_error("SESSION_IN_USE", "別の端末がセッションを使用中です。", 409, retryable=True)
+			return _session_error("SESSION_IN_USE", "別の端末がセッションを使用中です。", 409)
 		return JSONResponse({
 			"session_id": session.session_id,
 			"generation": session.generation,
@@ -188,7 +187,7 @@ def create_app(
 				timeout_seconds=app.state.http_body_timeout,
 			)
 		except InputLimitError:
-			return JSONResponse({"detail": "Request rejected"}, status_code=413)
+			return _session_error("PAYLOAD_TOO_LARGE", "画像または要求サイズが上限を超えています。", 413)
 		try:
 			await app.state.sessions.stop(request.path_params["session_id"], result.credential_id)
 		except SessionForbidden:
@@ -311,7 +310,9 @@ def main() -> int:
 
 async def _deny_websocket(websocket: WebSocket, status: int, *, retry_after: int | None = None) -> None:
 	headers = {"Retry-After": str(retry_after)} if retry_after is not None else None
-	await websocket.send_denial_response(JSONResponse(_AUTH_FAILURE, status_code=status, headers=headers))
+	await websocket.send_denial_response(JSONResponse(
+		_error_body("UNAUTHENTICATED", "認証が必要です。"), status_code=status, headers=headers,
+	))
 
 
 async def _watch_websocket_revocation(
@@ -339,16 +340,20 @@ async def _watch_websocket_revocation(
 
 
 def _limited_response(retry_after: int) -> JSONResponse:
-	return JSONResponse(_AUTH_FAILURE, status_code=429, headers={"Retry-After": str(retry_after)})
+	return JSONResponse(_error_body("UNAUTHENTICATED", "認証が必要です。"), status_code=429, headers={"Retry-After": str(retry_after)})
 
 
 def _session_error(code: str, message: str, status_code: int, *, retryable: bool = False) -> JSONResponse:
-	return JSONResponse({
+	return JSONResponse(_error_body(code, message, retryable=retryable), status_code=status_code)
+
+
+def _error_body(code: str, message: str, *, retryable: bool = False) -> dict[str, object]:
+	return {
 		"code": code,
 		"message": message,
 		"correlation_id": str(uuid4()),
 		"retryable": retryable,
-	}, status_code=status_code)
+	}
 
 
 def _source_address(client: object) -> str:
