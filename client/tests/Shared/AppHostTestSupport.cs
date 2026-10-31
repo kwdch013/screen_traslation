@@ -23,10 +23,11 @@ public sealed class FakeOverlaySurface : IOverlaySurface
 }
 
 /// <summary>WindowsCaptureSessionと同じ手順(読み出し前にTryBeginFrame→読み出し→Deliver)で画素を渡す取得セッション。</summary>
-public sealed class FakeCaptureSession(ICapturedFrameSink sink) : ICaptureSession
+public sealed class FakeCaptureSession(ICapturedFrameSink sink) : ICaptureSession, IBoundsReportingCaptureSession
 {
 	private readonly TaskCompletionSource disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	public event Action<CaptureInvalidationReason>? Invalidated;
+	public event Action<CaptureBounds>? BoundsChanged;
 	public int StartCount;
 	public int StopCount;
 	public int PixelReads;
@@ -57,6 +58,7 @@ public sealed class FakeCaptureSession(ICapturedFrameSink sink) : ICaptureSessio
 	}
 
 	public void RaiseInvalidated(CaptureInvalidationReason reason) => Invalidated?.Invoke(reason);
+	public void RaiseBoundsChanged(CaptureBounds bounds) => BoundsChanged?.Invoke(bounds);
 }
 
 public sealed class FakeCaptureSessionFactory(ICapturedFrameSink sink) : ICaptureSessionFactory

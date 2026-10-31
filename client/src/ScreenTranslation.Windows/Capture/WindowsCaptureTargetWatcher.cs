@@ -10,9 +10,10 @@ internal static class WindowsCaptureTargetWatcher
 	private const uint EventObjectLocationChange = 0x800B;
 	private const uint WineventOutOfContext = 0;
 
-	public static IDisposable Start(CaptureTarget target, Action<CaptureInvalidationReason> invalidate) =>
+	/// <param name="boundsChanged">ウィンドウが同じ大きさのまま移動したときの新しい位置。大きさが変わったら <paramref name="invalidate"/> へResizedを渡す。</param>
+	public static IDisposable Start(CaptureTarget target, Action<CaptureInvalidationReason> invalidate, Action<CaptureBounds> boundsChanged) =>
 		target.Kind == CaptureTargetKind.Window
-			? new WindowWatcher(target, invalidate)
+			? new WindowWatcher(target, invalidate, boundsChanged)
 			: new DisplayWatcher(target, invalidate);
 
 	private sealed class WindowWatcher : IDisposable
@@ -20,12 +21,17 @@ internal static class WindowsCaptureTargetWatcher
 		private readonly IntPtr window;
 		private readonly uint initialDpi;
 		private readonly Action<CaptureInvalidationReason> invalidate;
+		private readonly Action<CaptureBounds> boundsChanged;
+		private readonly object gate = new();
+		private CaptureBounds lastBounds;
 		private readonly WinEventCallback callback;
 		private readonly IntPtr[] hooks;
 		private int disposed;
 
-		public WindowWatcher(CaptureTarget target, Action<CaptureInvalidationReason> invalidate)
+		public WindowWatcher(CaptureTarget target, Action<CaptureInvalidationReason> invalidate, Action<CaptureBounds> boundsChanged)
 		{
+			lastBounds = target.Bounds;
+			this.boundsChanged = boundsChanged;
 			window = new IntPtr(Convert.ToInt64(target.Id["hwnd:".Length..], 16));
 			initialDpi = target.Dpi;
 			this.invalidate = invalidate;
@@ -38,6 +44,39 @@ internal static class WindowsCaptureTargetWatcher
 			{
 				Dispose();
 				throw new InvalidOperationException("対象ウィンドウの状態監視を開始できませんでした。");
+			}
+			// 選択後から監視開始までの間の移動・リサイズも取りこぼさない
+			CheckBounds();
+		}
+
+		/// <summary>現在の位置を選択時(または前回通知時)と比べる。同じ大きさの移動は位置を通知し、大きさの変化は失効させる。</summary>
+		private void CheckBounds()
+		{
+			if (!GetWindowRect(window, out var rect))
+			{
+				return;
+			}
+			var current = new CaptureBounds(rect.Left, rect.Top, rect.Right, rect.Bottom);
+			bool resized;
+			lock (gate)
+			{
+				if (current == lastBounds)
+				{
+					return;
+				}
+				resized = current.Width != lastBounds.Width || current.Height != lastBounds.Height;
+				if (!resized)
+				{
+					lastBounds = current;
+				}
+			}
+			if (resized)
+			{
+				invalidate(CaptureInvalidationReason.Resized);
+			}
+			else
+			{
+				boundsChanged(current);
 			}
 		}
 
@@ -55,9 +94,16 @@ internal static class WindowsCaptureTargetWatcher
 			{
 				invalidate(CaptureInvalidationReason.Minimized);
 			}
-			else if (eventType == EventObjectLocationChange && GetDpiForWindow(window) != initialDpi)
+			else if (eventType == EventObjectLocationChange)
 			{
-				invalidate(CaptureInvalidationReason.DpiChanged);
+				if (GetDpiForWindow(window) != initialDpi)
+				{
+					invalidate(CaptureInvalidationReason.DpiChanged);
+				}
+				else
+				{
+					CheckBounds();
+				}
 			}
 		}
 
@@ -127,4 +173,6 @@ internal static class WindowsCaptureTargetWatcher
 	[DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
 	[DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
 	[DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
+	[StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
+	[DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
 }
