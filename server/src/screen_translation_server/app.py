@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import contextmanager
+import logging
 import os
+import signal
 import ssl
+import threading
+from types import FrameType
+from typing import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Callable
 
@@ -36,6 +43,7 @@ from screen_translation_server.security.rate_limit import AuthAttemptLimiter, At
 
 _AUTH_FAILURE = {"detail": "Authentication failed"}
 _UNIMPLEMENTED = {"detail": "not implemented"}
+_LOGGER = logging.getLogger(__name__)
 
 
 def create_app(
@@ -123,6 +131,7 @@ def create_app(
 		except AttemptLimitError as error:
 			await _deny_websocket(websocket, 429, retry_after=error.retry_after)
 			return
+		authorization = websocket.headers.get("authorization")
 		try:
 			authenticate_request(
 				app.state.credentials,
@@ -130,7 +139,7 @@ def create_app(
 				is_secure=websocket.url.scheme == "wss",
 				host=websocket.headers.get("host"),
 				origin=websocket.headers.get("origin"),
-				authorization=websocket.headers.get("authorization"),
+				authorization=authorization,
 				allowed_roles=frozenset({Role.DEVICE}),
 			)
 		except AuthenticationError:
@@ -139,6 +148,14 @@ def create_app(
 			return
 		app.state.limiter.finish(remote, success=True)
 		await websocket.accept()
+		revocation_watch = asyncio.create_task(
+			_watch_websocket_revocation(
+				websocket,
+				app.state.credentials,
+				app.state.policy,
+				authorization,
+			)
+		)
 		try:
 			message = await websocket.receive()
 			if message["type"] == "websocket.disconnect":
@@ -167,6 +184,8 @@ def create_app(
 			await websocket.close(code=1011)
 		except WebSocketDisconnect:
 			return
+		finally:
+			revocation_watch.cancel()
 
 	app.routes.extend([
 		Route("/api/v1/health", health, methods=["GET"]),
@@ -197,7 +216,12 @@ def create_server(app: Starlette, *, tls_context: ssl.SSLContext | None) -> uvic
 		proxy_headers=False,
 		forwarded_allow_ips="",
 	)
-	return uvicorn.Server(config)
+	return _ReloadableServer(
+		config,
+		tls_context,
+		os.environ.get("SCREEN_TRANSLATION_TLS_CERTIFICATE"),
+		os.environ.get("SCREEN_TRANSLATION_TLS_PRIVATE_KEY"),
+	)
 
 
 def main() -> int:
@@ -212,6 +236,30 @@ async def _deny_websocket(websocket: WebSocket, status: int, *, retry_after: int
 	await websocket.send_denial_response(JSONResponse(_AUTH_FAILURE, status_code=status, headers=headers))
 
 
+async def _watch_websocket_revocation(
+	websocket: WebSocket,
+	credentials: CredentialStore,
+	policy: SecurityPolicy,
+	authorization: str | None,
+) -> None:
+	"""idle接続を含め、失効を1秒以内に既存streamへ反映する。"""
+	while True:
+		await asyncio.sleep(0.25)
+		try:
+			authenticate_request(
+				credentials,
+				policy,
+				is_secure=websocket.url.scheme == "wss",
+				host=websocket.headers.get("host"),
+				origin=websocket.headers.get("origin"),
+				authorization=authorization,
+				allowed_roles=frozenset({Role.DEVICE}),
+			)
+		except AuthenticationError:
+			await websocket.close(code=1008)
+			return
+
+
 def _limited_response(retry_after: int) -> JSONResponse:
 	return JSONResponse(_AUTH_FAILURE, status_code=429, headers={"Retry-After": str(retry_after)})
 
@@ -223,6 +271,9 @@ def _source_address(client: object) -> str:
 
 
 def _credentials_from_environment() -> CredentialStore:
+	credential_file = os.environ.get("SCREEN_TRANSLATION_CREDENTIALS_FILE")
+	if credential_file:
+		return CredentialStore.from_file(credential_file)
 	valid_until = datetime.now(UTC) + timedelta(days=3650)
 	credentials: list[Credential] = []
 	for variable, role in (("SCREEN_TRANSLATION_DEVICE_TOKEN", Role.DEVICE), ("SCREEN_TRANSLATION_ADMIN_TOKEN", Role.ADMIN)):
@@ -230,3 +281,48 @@ def _credentials_from_environment() -> CredentialStore:
 		if token:
 			credentials.append(create_credential(token, role, valid_until, role.value))
 	return CredentialStore(credentials)
+
+
+class _ReloadableServer(uvicorn.Server):
+	"""SIGHUPで同じlistenerのTLS証明書を再読込する。"""
+
+	def __init__(
+		self,
+		config: uvicorn.Config,
+		tls_context: ssl.SSLContext,
+		certificate_path: str | None,
+		private_key_path: str | None,
+	) -> None:
+		super().__init__(config)
+		self._tls_context = tls_context
+		self._certificate_path = certificate_path
+		self._private_key_path = private_key_path
+
+	@contextmanager
+	def capture_signals(self) -> Iterator[None]:
+		reload_signal = getattr(signal, "SIGHUP", None)
+		with super().capture_signals():
+			if reload_signal is None or threading.current_thread() is not threading.main_thread():
+				yield
+				return
+			original_handler = signal.signal(reload_signal, self.handle_exit)
+			try:
+				yield
+			finally:
+				signal.signal(reload_signal, original_handler)
+
+	def handle_exit(self, sig: int, frame: FrameType | None) -> None:
+		if sig == getattr(signal, "SIGHUP", None):
+			if not self._certificate_path or not self._private_key_path:
+				_LOGGER.error("TLS証明書再読込を拒否しました。設定が不足しています。")
+				self.should_exit = True
+				return
+			try:
+				self._tls_context.load_cert_chain(self._certificate_path, self._private_key_path)
+			except (OSError, ssl.SSLError):
+				_LOGGER.error("TLS証明書再読込に失敗したため、安全に停止します。")
+				self.should_exit = True
+				return
+			_LOGGER.info("TLS証明書を再読込しました。")
+			return
+		super().handle_exit(sig, frame)

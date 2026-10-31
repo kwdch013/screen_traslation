@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
+import re
 import secrets
 import ssl
 from dataclasses import dataclass
@@ -63,8 +65,15 @@ class SecurityPolicy:
 class CredentialStore:
 	"""salt付きverifierだけを使い、権限と期限を検証する。"""
 
-	def __init__(self, credentials: list[Credential]) -> None:
+	def __init__(self, credentials: list[Credential], *, source_path: Path | None = None) -> None:
 		self._credentials = tuple(credentials)
+		self._source_path = source_path
+
+	@classmethod
+	def from_file(cls, path: str | Path) -> CredentialStore:
+		"""管理CLIの保存形式を使い、認証ごとに最新の失効状態を読む。"""
+		credential_path = Path(path)
+		return cls(read_credentials_file(credential_path), source_path=credential_path)
 
 	def authenticate(
 		self,
@@ -73,10 +82,11 @@ class CredentialStore:
 		*,
 		now: datetime | None = None,
 	) -> Credential:
+		credentials = read_credentials_file(self._source_path) if self._source_path is not None else self._credentials
 		token = _bearer_token(authorization)
 		current_time = now or datetime.now(UTC)
 		matched: Credential | None = None
-		for credential in self._credentials:
+		for credential in credentials:
 			candidate = _verifier(credential.salt, token)
 			if hmac.compare_digest(candidate, credential.verifier):
 				matched = credential
@@ -183,3 +193,56 @@ def _valid_host(value: str) -> bool:
 def _valid_origin(value: str) -> bool:
 	parsed = urlsplit(value)
 	return parsed.scheme == "https" and bool(parsed.netloc) and parsed.username is None and not parsed.path and not parsed.query and not parsed.fragment
+
+
+_CREDENTIAL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+MAX_CREDENTIAL_FILE_BYTES = 1_048_576
+
+
+def read_credentials_file(path: Path) -> list[Credential]:
+	"""管理CLIと認証入口で共有するfail-closed形式を読み込む。"""
+	try:
+		with path.open("rb") as file:
+			content = file.read(MAX_CREDENTIAL_FILE_BYTES + 1)
+		if len(content) > MAX_CREDENTIAL_FILE_BYTES:
+			raise ValueError
+		stored = json.loads(content.decode("utf-8"))
+		if not isinstance(stored, dict) or set(stored) != {"schema_version", "credentials"}:
+			raise ValueError
+		if type(stored["schema_version"]) is not int or stored["schema_version"] != 1:
+			raise ValueError
+		if not isinstance(stored["credentials"], list):
+			raise ValueError
+		credentials = [_credential_from_record(record) for record in stored["credentials"]]
+		if len({credential.credential_id for credential in credentials}) != len(credentials):
+			raise ValueError
+		return credentials
+	except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+		raise AuthenticationError("認証に失敗しました。") from error
+
+
+def _credential_from_record(record: object) -> Credential:
+	if not isinstance(record, dict) or set(record) != {
+		"credential_id", "salt", "verifier", "role", "expires_at", "revoked",
+	}:
+		raise ValueError("資格情報レコードの形式が不正です。")
+	credential_id = record["credential_id"]
+	salt = record["salt"]
+	verifier = record["verifier"]
+	role = record["role"]
+	expires_at = record["expires_at"]
+	revoked = record["revoked"]
+	if not isinstance(credential_id, str) or _CREDENTIAL_ID.fullmatch(credential_id) is None:
+		raise ValueError("資格情報IDの形式が不正です。")
+	if not isinstance(salt, str) or not isinstance(verifier, str):
+		raise ValueError("資格情報verifierの形式が不正です。")
+	if not isinstance(role, str) or not isinstance(expires_at, str) or type(revoked) is not bool:
+		raise ValueError("資格情報の属性が不正です。")
+	return Credential(
+		credential_id,
+		bytes.fromhex(salt),
+		bytes.fromhex(verifier),
+		Role(role),
+		datetime.fromisoformat(expires_at),
+		revoked,
+	)
