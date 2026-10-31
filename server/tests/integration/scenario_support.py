@@ -13,7 +13,10 @@ import httpx
 
 from live_server import LiveServer, Site
 from pipeline_case import PipelineCase
-from pipeline_support import load_cases
+from pipeline_support import load_cases, model_directory
+from readiness_support import RetryGate, WAIT_SECONDS
+from screen_translation_server.engines.lifecycle import EngineLifecycle
+from screen_translation_server.lifecycle_readiness import LifecycleReadiness
 from screen_translation_server.observability import ProcessingObserver
 from screen_translation_server.pipeline import TranslationPipeline
 from screen_translation_server.sessions import SessionManager
@@ -91,8 +94,32 @@ class ScenarioCase(PipelineCase):
 				logger.setLevel(level)
 		self.addCleanup(restore)
 
-	def start(self, site: Site | None = None, *, ocr: Any = None, is_ready: bool = True) -> LiveServer:
-		"""本番と同じ経路(環境変数の保存先・遅延pipeline生成・辞書wrapper)でサーバーを起動する。
+	def shared_lifecycle(self, directory: Any = None, hold: threading.Event | None = None) -> EngineLifecycle:
+		"""実モデルの検証・資源上限確認を通し、重いロードだけ共有済みの実エンジンで置き換えるEngineLifecycle。
+
+		holdを渡すと、そのEventが立つまでロードを保留して「準備中」を観測できる。
+		"""
+		def load() -> object:
+			if hold is not None:
+				hold.wait(WAIT_SECONDS)
+			return (self.engines.ocr, self.engines.translator)
+
+		return EngineLifecycle(
+			self.engines.manifest, directory or model_directory(), engine_loader=load, warmup=lambda _engine: None,
+		)
+
+	def start(
+		self,
+		site: Site | None = None,
+		*,
+		ocr: Any = None,
+		lifecycle: EngineLifecycle | None = None,
+		gate: RetryGate | None = None,
+	) -> LiveServer:
+		"""本番と同じ経路(環境変数の保存先・EngineLifecycleのready反映・遅延pipeline生成・辞書wrapper)で起動する。
+
+		lifecycleを渡した場合は準備完了を待たずに返す(準備中・失敗を観測するため)。渡さなければ
+		準備済みのlifecycleを使い、ready反映まで待ってから返す。
 
 		実エンジンは重いため共有し、pipeline生成だけを差し替える。再起動ごとにSession・辞書・
 		キャッシュ・pipelineは新しくなる。
@@ -101,12 +128,22 @@ class ScenarioCase(PipelineCase):
 			wrap = options.pop("translator_wrapper")
 			return TranslationPipeline(ocr or self.engines.ocr, wrap(self.engines.translator), **options)
 
-		patcher = unittest.mock.patch("screen_translation_server.app.create_default_pipeline", side_effect=build_pipeline)
-		patcher.start()
-		self.addCleanup(patcher.stop)
+		def build_from_engines(prepared_ocr: Any, translator: Any, **options: Any) -> TranslationPipeline:
+			wrap = options.pop("translator_wrapper")
+			return TranslationPipeline(ocr or prepared_ocr, wrap(translator), **options)
+
+		for name, replacement in (("create_default_pipeline", build_pipeline), ("create_pipeline_from_engines", build_from_engines)):
+			patcher = unittest.mock.patch(f"screen_translation_server.app.{name}", side_effect=replacement)
+			patcher.start()
+			self.addCleanup(patcher.stop)
+		readiness = LifecycleReadiness(
+			lifecycle or self.shared_lifecycle(), sleep=gate.sleep if gate else asyncio.sleep, retry_interval=0.05,
+		)
 		sessions = SessionManager(clock=time.monotonic, sleep=asyncio.sleep, disconnect_timeout=60)
-		server = LiveServer(None, sessions, is_ready=is_ready, site=site)
+		server = LiveServer(None, sessions, site=site, readiness=readiness)
 		self.addCleanup(server.close)
+		if lifecycle is None:
+			self.assertTrue(readiness.ready_event.wait(WAIT_SECONDS))
 		# uvicornのConfigがloggingを再設定してhandlerを外すため、起動のたびに付け直す。
 		for logger in self._loggers:
 			if self.logs not in logger.handlers:
@@ -114,9 +151,6 @@ class ScenarioCase(PipelineCase):
 		server.observer = RecordingObserver()  # type: ignore[attr-defined]
 		server.app.state.observer = server.observer  # type: ignore[attr-defined]
 		return server
-
-	def mark_ready_from_lifecycle(self, server: LiveServer) -> None:
-		server.app.state.ready = self.engines.lifecycle.ready_response()["ready"]
 
 	def get(self, server: LiveServer, path: str, *, admin: bool = False) -> httpx.Response:
 		return server.client.get(path, headers=server.admin_headers() if admin else server.headers())

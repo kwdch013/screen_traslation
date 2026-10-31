@@ -12,3 +12,7 @@
 - `server/tests/test_lifecycle_readiness.py`(Event/注入sleep/Queueで決定的)。mutation: lifespanのstart除去、main()のreadiness除去、状態参照をapp.state.readyへ戻す、準備済みエンジン不使用 を確認。
 - 結合: `server/tests/integration/test_startup_ready.py`。
 - 結合試験(#85)側のready補完の除去は#192マージ後に別コミットで実施。
+
+## #192 マージ後の追加作業
+- origin/develop を merge。`LiveServer(readiness=...)`、`readiness_support.py`(RetryGate・install_model等)を追加し、`scenario_support`(start が既定で LifecycleReadiness、`mark_ready_from_lifecycle` 廃止)、`test_server_scenario`、`test_pipeline_resilience`、`pipeline_case` から app.state.ready の直接代入を除去。
+- 結合 33 tests OK(`--profile integration`)。
