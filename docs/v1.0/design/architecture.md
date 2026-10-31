@@ -205,7 +205,7 @@ draw.io CLIでXMLを開き、同じ原本からSVGを出力した。出力SVGを
 | #68 | .NET10 LTSの2026-10-30基準SDK 10.0.402とruntime 10.0.14、stable-only、global.json固定。client/server/contractsを同一repo内で分離し、Web版は受入前に保持。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #69 | Python3.14 CPU Torchを明示したlock、Linux client-independent server、既存Web試験と新契約試験の別jobを維持する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #72 | 全HTTPS/WSSをTLS1.2以上+端末認証。偽/期限切れ/未信頼証明書、失効token、Host/Origin不許可を拒否。画像認証/受信長検証前のdecode禁止。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
-| #73 | 単一所有session、2台目409拒否、明示停止で解放、切断検知5秒以内/解放10秒以内。復帰だけではstartしない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #73 | REQ-F-006 / REQ-F-010 / REQ-NF-004。単一所有session、2台目409拒否、停止/再選択/切断でgenerationを無効化して処理taskをcancel/drain、切断検知5秒以内・所有解放10秒以内。復帰だけではstartしない。単体/route検証済み。サーバーコンテナ結合は#74、実機E2Eは#108。設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映`、[`contracts/session-state.md`](../../../contracts/session-state.md) |
 | #74 | Windows/サーバーのTLS、credential revoke反映1秒、WS切断5秒、owner解放10秒、旧generation/結果廃棄をコンテナ統合fixtureで検証する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #75 | 端末tokenと管理tokenを分離。256-bit CSPRNG、salt付きverifier hash、Windows DPAPI CurrentUser。既存WSにも失効1秒以内反映。初回管理secret/証明書rotationは失敗時secure stop。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #77 | OCR/翻訳コアは副作用をadapterへ隔離して段階抽出。Tesseract英語 + Argos en→ja、CPU-only lock。Web経路/`#26`/任意LLM評価`#49`を変更しない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |

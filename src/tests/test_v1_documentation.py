@@ -153,6 +153,48 @@ class V1DocumentationTest(unittest.TestCase):
 			with self.subTest(expected=expected):
 				self.assertIn(expected, guide)
 
+	def test_development_issue_traceability_ids_exist_and_issue_89_is_complete(self) -> None:
+		requirements = self.requirement_ids()
+		guide = self.read("docs/v1.0/development.md")
+		issue_rows = [line for line in guide.splitlines() if re.match(r"\| #\d+", line)]
+		listed_ids = {
+			f"{prefix}{number}"
+			for row in issue_rows
+			for prefix, numbers in re.findall(r"(REQ-(?:F|NF)-)(\d{3}(?:/\d{3})*)", row)
+			for number in numbers.split("/")
+		}
+		self.assertLessEqual(listed_ids, requirements, "対応表の要件IDは要件書に定義されている")
+
+		issue_89_rows = [row for row in issue_rows if row.startswith("| #89 ")]
+		self.assertEqual(len(issue_89_rows), 1, "#89の対応表行を1行記載する")
+		for requirement_id in ("REQ-F-008", "REQ-NF-009"):
+			with self.subTest(requirement=requirement_id):
+				self.assertIn(requirement_id, issue_89_rows[0])
+
+	def test_issue_73_traceability_records_requirements_deliverables_and_open_scope(self) -> None:
+		guide = self.read("docs/v1.0/development.md")
+		row = next(line for line in guide.splitlines() if line.startswith("| #73 "))
+		for expected in (
+			"sessions/",
+			"server/tests/test_session_lifecycle.py",
+			"REQ-F-006",
+			"REQ-F-010",
+			"REQ-NF-004",
+			"#74",
+			"#108",
+		):
+			with self.subTest(expected=expected):
+				self.assertIn(expected, row)
+		architecture = self.read("docs/v1.0/design/architecture.md")
+		design_row = next(line for line in architecture.splitlines() if line.startswith("| #73 |"))
+		self.assertIn("REQ-F-006 / REQ-F-010 / REQ-NF-004", design_row)
+		operations = self.read("docs/v1.0/operations.md")
+		for expected in ("## セッションと切断時の運用", "409 SESSION_IN_USE", "#74", "#108"):
+			with self.subTest(operation_doc=expected):
+				self.assertIn(expected, operations)
+		contract = self.read("contracts/session-state.md")
+		self.assertIn("Issue #73 の `SessionManager` はこの遷移表に従い", contract)
+
 	def test_roadmap_maps_bootstrap_to_v1_requirements(self) -> None:
 		roadmap = self.read("plan/version_1/roadmap.md")
 		row = next(line for line in roadmap.splitlines() if line.startswith("| #68/#69/#103/#104/#105/#106 |"))
