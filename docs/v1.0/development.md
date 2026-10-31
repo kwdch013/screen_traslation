@@ -140,6 +140,7 @@ requiredにするcontextは、[公式のrequired status checkの条件](https://
 | #66 全TaskのBase / Merge target | GitHubのv1.0 Task本文、旧参照移行手順 | developへ確定。依存とClaimは別に管理 |
 | #66 Ruleset / required導入順 | Rulesetとrequired checkの導入順 | 手順確定。実設定の変更とGitHub実証は #118 |
 | #67 Work Unit・Claim・独立レビューゲート | `scripts/ai-work-unit.py`・`scripts/ai-claim.py`・`scripts/ai-review-gate.py`・hooks・workflow、`tests/ai_gate/` | 正常/拒否の61件とworkflow信頼境界をコンテナで検証。GitHub実証条件は #118 へ移管 |
+| #79 翻訳結果・状態イベント配信 | `server/src/screen_translation_server/events/`・`observability.py`・`server/tests/test_result_delivery.py`・WSS契約 | REQ-F-003 / 004 / 006 / 009 / 010、REQ-NF-001 / 004 / 007。実エンジンの遅延/品質測定は #80 / #109、Windows/Linux実機E2Eは #108 で実施 |
 | #68 client/server/contractsの雛形 | `client/ScreenTranslation.sln`・`client/global.json`・Linux Core試験、`server/`のPython 3.14コンテナ、`contracts/README.md`、旧Web文書・共存テスト | .NET SDK 10.0.402 / Runtime 10.0.14とディレクトリ境界を固定。Windowsキャプチャのsession基盤・対象状態監視は#92、実画面取得・自己キャプチャ除外/WDA・混在DPIの実機確認は#135/#136/#148系で行う |
 | #69 Linuxコンテナ・WindowsクライアントCI | `.github/workflows/ci.yml`・`codeql.yml`・`dependabot.yml`・`src/tests/test_ci_workflow_structure.py` | REQ-NF-008/009/010。Python/C#契約fixtureを別jobで検査し、required `test` を常時集約 |
 | #73 セッション開始・停止・再選択・切断解放 | `server/src/screen_translation_server/sessions/`・`server/tests/test_session_lifecycle.py`・`contracts/session-state.md` | REQ-F-006 / REQ-F-010 / REQ-NF-004。単一所有、generation無効化、切断watchdog、処理taskのcancel/drainを単体・routeテストで確認。サーバーコンテナ結合は #74、Windows/Linux実機E2Eは #108 |

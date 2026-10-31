@@ -90,6 +90,7 @@ public static class TransportProtocol
 			return type switch
 			{
 				"state" => byteLength <= 4_096 && IsState(root),
+				"heartbeat" => byteLength <= 4_096 && IsHeartbeat(root),
 				"result" => IsResult(root),
 				"error" => byteLength <= 4_096 && IsStreamError(root),
 				_ => false,
@@ -102,20 +103,34 @@ public static class TransportProtocol
 	}
 
 	private static bool IsState(JsonElement value) =>
-		HasExactProperties(value, "type", "session_id", "generation", "dictionary_revision", "state")
+		HasExactProperties(value, "type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id", "state")
 		&& IsUuid(value, "session_id")
 		&& IsPositiveUInt64(value, "generation")
 		&& IsPositiveUInt64(value, "dictionary_revision")
+		&& IsUuid(value, "correlation_id")
+		&& IsNullableFrameId(value)
 		&& value.GetProperty("state").ValueKind == JsonValueKind.String
 		&& value.GetProperty("state").GetString() is "accepted" or "processing" or "ready" or "stopped";
 
+	private static bool IsHeartbeat(JsonElement value) =>
+		HasExactProperties(value, "type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id")
+		&& IsUuid(value, "session_id")
+		&& IsPositiveUInt64(value, "generation")
+		&& IsPositiveUInt64(value, "dictionary_revision")
+		&& IsUuid(value, "correlation_id")
+		&& IsNullableFrameId(value);
+
+	private static bool IsNullableFrameId(JsonElement value) =>
+		value.GetProperty("frame_id").ValueKind == JsonValueKind.Null || IsPositiveUInt64(value, "frame_id");
+
 	private static bool IsResult(JsonElement value)
 	{
-		if (!HasExactProperties(value, "type", "session_id", "generation", "frame_id", "dictionary_revision", "status", "image_width", "image_height", "regions", "server_processing_ms")
+		if (!HasExactProperties(value, "type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id", "status", "image_width", "image_height", "regions", "server_processing_ms")
 			|| !IsUuid(value, "session_id")
 			|| !IsPositiveUInt64(value, "generation")
 			|| !IsPositiveUInt64(value, "frame_id")
 			|| !IsPositiveUInt64(value, "dictionary_revision")
+			|| !IsUuid(value, "correlation_id")
 			|| !TryInt(value, "image_width", 64, 1920, out var width)
 			|| !TryInt(value, "image_height", 32, 1080, out var height)
 			|| (long)width * height > 2_073_600
@@ -133,11 +148,11 @@ public static class TransportProtocol
 		{
 			if (!HasExactProperties(region, "rect", "source", "translation", "confidence")) return false;
 			var rectangle = region.GetProperty("rect");
-			if (!HasExactProperties(rectangle, "left", "top", "right", "bottom")
+			if (rectangle.ValueKind != JsonValueKind.Null && (!HasExactProperties(rectangle, "left", "top", "right", "bottom")
 				|| !TryInt(rectangle, "left", 0, width - 1, out var left)
 				|| !TryInt(rectangle, "top", 0, height - 1, out var top)
 				|| !TryInt(rectangle, "right", left + 1, width, out _)
-				|| !TryInt(rectangle, "bottom", top + 1, height, out _)
+				|| !TryInt(rectangle, "bottom", top + 1, height, out _))
 				|| !IsText(region, "source", 1, 2048)
 				|| !IsText(region, "translation", 1, 2048)
 				|| !TryNumber(region, "confidence", 0, 1)) return false;
@@ -148,12 +163,13 @@ public static class TransportProtocol
 
 	private static bool IsStreamError(JsonElement value)
 	{
-		var propertyNames = value.EnumerateObject().Select(property => property.Name).ToHashSet(StringComparer.Ordinal);
-		if (!(propertyNames.SetEquals(["type", "code", "correlation_id"]) || propertyNames.SetEquals(["type", "code", "correlation_id", "frame_id"]))) return false;
+		if (!HasExactProperties(value, "type", "code", "correlation_id", "session_id", "generation", "frame_id", "dictionary_revision")) return false;
 		if (value.GetProperty("code").ValueKind != JsonValueKind.String
 			|| value.GetProperty("code").GetString() is not ("AUTHENTICATION_FAILED" or "SESSION_MISMATCH" or "PROTOCOL_VIOLATION" or "INVALID_IMAGE" or "MESSAGE_TOO_LARGE" or "PROCESSING_FAILED" or "MODEL_NOT_READY")
-			|| !IsUuid(value, "correlation_id")) return false;
-		return !value.TryGetProperty("frame_id", out _) || IsPositiveUInt64(value, "frame_id");
+			|| !IsUuid(value, "correlation_id") || !IsUuid(value, "session_id")
+			|| !IsPositiveUInt64(value, "generation") || !IsPositiveUInt64(value, "frame_id")
+			|| !IsPositiveUInt64(value, "dictionary_revision")) return false;
+		return true;
 	}
 
 	private static bool HasExactProperties(JsonElement value, params string[] names) =>

@@ -1,5 +1,4 @@
 -r requirements.txt
 httpx==0.28.1
-jsonschema==4.26.0
 httpx2==2.16.0
 # テスト用HTTPクライアント (BSD-3-Clause)。WebSocketは本番固定依存のwebsockets==15.0.1 (BSD-3-Clause)を使用。

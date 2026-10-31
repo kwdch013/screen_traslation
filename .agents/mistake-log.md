@@ -1,11 +1,25 @@
 # ミス記録
 
-## 2026-10-31 unittest対象テストのモジュール指定を誤った
-- 何が起きたか: packageではない`tests`をモジュール名として指定し、コンテナ内の対象テスト実行がimport errorになった。unittest discoveryで再実行し、16件成功を確認した。
-- 根本原因: テストディレクトリのpackage構成を確認せず、通常の`python -m unittest` module指定を使った。
-- 正しいやり方: packageでないテストファイルは`python -m unittest discover -s <dir> -p <pattern>`で実行し、実行件数と終了コードを確認する。
+## 2026-10-31 Event同期テストの解除Eventを再利用可能にした
+- 何が起きたか: heartbeatテストで解除Eventを一度setした後にresetしなかったため、周期タスクが無待機ループし、キュー破棄とログを大量発生させた。
+- 根本原因: 周期処理の同期にEventを使ったが、1回分の信号として消費されることをテストダブルで表現しなかった。
+- 正しいやり方: injected sleepはEventを待った直後にclearして次周期を再停止し、テスト側は受信したmessageを確認後にtaskをcancelする。
 - 発生回数: 1
 - guard: なし
+
+## 2026-10-31 パッチ適用後のPythonインデントを確認せず実行した
+- 何が起きたか: `pipeline/__init__.py` に例外callbackとrate-limit処理を追加した際、Tabインデントが1段深くなり、対象テストがimport時に2回失敗した。また`app.py`の認証監視taskをsession分岐内に置き、session未開始WebSocketでfinallyが失敗した。該当ブロックを修正した。
+- 根本原因: patch適用時の周辺コンテキストを読み戻さず、タブ数が期待どおり変わったと思い込んだ。
+- 正しいやり方: Pythonの構造変更後は親/子/隣接分岐を含む関数全体を行番号付きで読み戻し、py_compile・Ruff・Composeでimportと対象テストを確認する。
+- 発生回数: 3
+- guard: guard-python-indent-after-patch
+
+## 2026-10-31 unittest対象テストのモジュール指定を誤った
+- 何が起きたか: packageではない`tests`をモジュール名として指定し、コンテナ内の対象テスト実行がimport errorになった。Issue #79継続中にも再発し、unittest discoveryで再実行した。
+- 根本原因: テストディレクトリのpackage構成を確認せず、通常の`python -m unittest` module指定を使った。
+- 正しいやり方: packageでないテストファイルは`python -m unittest discover -s <dir> -p <pattern>`で実行し、実行件数と終了コードを確認する。
+- 発生回数: 2
+- guard: guard-container-unittest-discovery
 
 ## 2026-10-30 .NETビルド生成物をindexへ追加しかけた
 - 何が起きたか: `client/src`・`client/tests`をディレクトリ単位でstageし、Container buildでworktreeへ生成された`bin/obj`を一時的にindexへ追加した。コミット前の差分確認で検出し、indexを戻して生成物を外した。
@@ -87,7 +101,7 @@
 - 何が起きたか: 専用Composeコンテナのテスト対象をホスト側の`server.tests.*`として指定し、コンテナ内に存在しないモジュール名で実行してしまった。
 - 根本原因: compose.test.ymlがテストを`/workspace/tests`へ配置する点を確認せず、ホスト上のパスをそのまま指定した。
 - 正しいやり方: 専用テストサービスの既定コマンドで全件を実行する。限定実行が必要な場合はCompose定義の作業ディレクトリとマウント後のテストパスを確認してから指定する。
-- 発生回数: 3
+- 発生回数: 4 (Issue #79 継続中に同じ直接module指定を再発。テスト配置確認を怠った)
 - 2026-10-31の差分: テストの限定実行にCompose内に存在しない`tests.test_pipeline_limits`を指定した。import errorでテストが実行されず、続くmutation確認も中断した。
 - 再発原因: Composeの作業ディレクトリと`/workspace/tests`への配置を再確認せず、通常のPython packageとして直接importできると思い込んだ。
 - 正しいやり方の補足: ファイルやテスト名を限定するときも`python -B -m unittest discover -s tests -p '<file>.py' -k '<test name>'`を使う。終了コードが非0でも、出力で対象テストが実行されたことと失敗理由を確認し、ImportErrorはmutation検出に数えない。

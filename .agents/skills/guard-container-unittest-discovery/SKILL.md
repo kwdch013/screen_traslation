@@ -10,6 +10,7 @@ description: Composeコンテナでunittestの一部または全部を実行す�
 - 根本原因: Composeの作業ディレクトリとテストの配置先を確認せず、ホスト上のPython import pathがコンテナにもあると思い込んだ。
 
 ## 守ること
+- `docker compose`内でunittestを起動する直前にこの手順を読み、確認するまではテストコマンドを実行しない。過去の記録を知っていても例外にしない。
 - 対象サービスの`working_dir`とテスト配置先をcomposeファイルで確認する。
 - ファイル単位の限定実行は`python -B -m unittest discover -s <配置先> -p '<file>.py'`を使う。
 - テスト名も限定するときは`-k '<test name>'`を追加する。コンテナ内にpackageがあると確認できない限り、`python -m unittest <module>`を使わない。

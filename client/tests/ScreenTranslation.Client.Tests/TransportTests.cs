@@ -393,6 +393,7 @@ public sealed class TransportTests
 			generation,
 			frame_id = frameId,
 			dictionary_revision = revision,
+			correlation_id = Guid.NewGuid(),
 			status = "empty",
 			image_width = 64,
 			image_height = 32,

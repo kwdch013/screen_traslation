@@ -52,6 +52,7 @@ internal static class ContractValidator
 		return regions.EnumerateArray().All(region =>
 		{
 			var rect = region.GetProperty("rect");
+			if (rect.ValueKind == JsonValueKind.Null) return true;
 			var left = rect.GetProperty("left").GetInt32();
 			var top = rect.GetProperty("top").GetInt32();
 			var right = rect.GetProperty("right").GetInt32();
@@ -103,9 +104,13 @@ internal static class ContractValidator
 		if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String) return false;
 		return type.GetString() switch
 		{
-			"state" => Object(value, ["type", "session_id", "generation", "dictionary_revision", "state"], ["type", "session_id", "generation", "dictionary_revision", "state"])
+			"state" => Object(value, ["type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id", "state"], ["type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id", "state"])
 				&& Uuid(value, "session_id") && UInt(value, "generation", 1, MaxUInt64) && UInt(value, "dictionary_revision", 1, MaxUInt64)
+				&& Uuid(value, "correlation_id") && NullableFrameId(value)
 				&& EnumString(value, "state", ["accepted", "processing", "ready", "stopped"]),
+			"heartbeat" => Object(value, ["type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id"], ["type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id"])
+				&& Uuid(value, "session_id") && UInt(value, "generation", 1, MaxUInt64)
+				&& UInt(value, "dictionary_revision", 1, MaxUInt64) && Uuid(value, "correlation_id") && NullableFrameId(value),
 			"result" => Result(value),
 			"error" => StreamError(value),
 			_ => false
@@ -114,10 +119,10 @@ internal static class ContractValidator
 
 	private static bool Result(JsonElement value)
 	{
-		if (!Object(value, ["type", "session_id", "generation", "frame_id", "dictionary_revision", "status", "image_width", "image_height", "regions", "server_processing_ms"],
-			["type", "session_id", "generation", "frame_id", "dictionary_revision", "status", "image_width", "image_height", "regions", "server_processing_ms"])) return false;
+		if (!Object(value, ["type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id", "status", "image_width", "image_height", "regions", "server_processing_ms"],
+			["type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id", "status", "image_width", "image_height", "regions", "server_processing_ms"])) return false;
 		if (!Uuid(value, "session_id") || !UInt(value, "generation", 1, MaxUInt64) || !UInt(value, "frame_id", 1, MaxUInt64)
-			|| !UInt(value, "dictionary_revision", 1, MaxUInt64) || !EnumString(value, "status", ["ok", "empty"])
+			|| !UInt(value, "dictionary_revision", 1, MaxUInt64) || !Uuid(value, "correlation_id") || !EnumString(value, "status", ["ok", "empty"])
 			|| !Int(value, "image_width", 64, 1920) || !Int(value, "image_height", 32, 1080)
 			|| !Int(value, "server_processing_ms", 0, 30000)) return false;
 		var regions = value.GetProperty("regions");
@@ -129,18 +134,24 @@ internal static class ContractValidator
 	{
 		if (!Object(value, ["rect", "source", "translation", "confidence"], ["rect", "source", "translation", "confidence"])) return false;
 		var rect = value.GetProperty("rect");
-		if (!Object(rect, ["left", "top", "right", "bottom"], ["left", "top", "right", "bottom"])) return false;
-		if (!Int(rect, "left", 0, 1920) || !Int(rect, "top", 0, 1080)
+		if (rect.ValueKind != JsonValueKind.Null && (!Object(rect, ["left", "top", "right", "bottom"], ["left", "top", "right", "bottom"])
+			|| !Int(rect, "left", 0, 1920) || !Int(rect, "top", 0, 1080)
 			|| !Int(rect, "right", 1, 1920) || !Int(rect, "bottom", 1, 1080)
-			|| !String(value, "source", 1, 2048) || !String(value, "translation", 1, 2048)) return false;
+			)) return false;
+		if (!String(value, "source", 1, 2048) || !String(value, "translation", 1, 2048)) return false;
 		var confidence = value.GetProperty("confidence");
 		return confidence.ValueKind == JsonValueKind.Number
 			&& confidence.TryGetDouble(out var score) && score is >= 0 and <= 1;
 	}
 
-	private static bool StreamError(JsonElement value) => Object(value, ["type", "code", "correlation_id"], ["type", "code", "correlation_id", "frame_id"])
+	private static bool StreamError(JsonElement value) => Object(value, ["type", "code", "correlation_id", "session_id", "generation", "frame_id", "dictionary_revision"], ["type", "code", "correlation_id", "session_id", "generation", "frame_id", "dictionary_revision"])
 		&& EnumString(value, "code", ["AUTHENTICATION_FAILED", "SESSION_MISMATCH", "PROTOCOL_VIOLATION", "INVALID_IMAGE", "MESSAGE_TOO_LARGE", "PROCESSING_FAILED", "MODEL_NOT_READY"])
-		&& Uuid(value, "correlation_id") && (!value.TryGetProperty("frame_id", out _) || UInt(value, "frame_id", 1, MaxUInt64));
+		&& Uuid(value, "correlation_id") && Uuid(value, "session_id")
+		&& UInt(value, "generation", 1, MaxUInt64) && UInt(value, "frame_id", 1, MaxUInt64)
+		&& UInt(value, "dictionary_revision", 1, MaxUInt64);
+
+	private static bool NullableFrameId(JsonElement value) => value.GetProperty("frame_id").ValueKind == JsonValueKind.Null
+		|| UInt(value, "frame_id", 1, MaxUInt64);
 
 	private static bool Object(JsonElement value, string[] required, string[] allowed) => value.ValueKind == JsonValueKind.Object
 		&& required.All(name => value.TryGetProperty(name, out _))

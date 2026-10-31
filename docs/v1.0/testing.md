@@ -37,6 +37,22 @@ docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -v "
 
 コンテナ外の実機情報・秘密値・生成した鍵は記録やリポジトリへ保存しません。失敗した場合は失敗したコマンドと要約を先に記録し、修正後に同じコマンドを再実行します。
 
+## 2026-10-31 PR #168 レビュー指摘の再検証
+
+| 試験 | 結果 |
+| --- | --- |
+| server Compose unit | Python 3.14.7、125件成功、3件skip |
+| server integration profile | 9件成功 |
+| client Compose tests | Client 68件、Contracts 4件成功 |
+| app:ci 全体試験 | 309件成功、75件skip |
+| read-only mount server回帰 | 118件成功、3件skip |
+| mypy `server/src` | 22 source files、問題なし |
+| mypy `src` / Windows platform | 各79 source files、問題なし |
+| ruff `server/src server/tests` | 成功 |
+| 結果配信ログ秘匿test | 13件成功。2診断ログへ`session_id`を戻すmutationは失敗し、復元後は成功 |
+
+read-only mount回帰でschemaの探索先が配置依存になっていたため、`test_result_delivery.py`は親ディレクトリからschemaを探索します。通常のCompose配置とread-only mount配置の両方で回帰を確認しています。
+
 ## 2026-10-31 実行記録
 
 | 試験 | 実行環境・版 | 結果 |

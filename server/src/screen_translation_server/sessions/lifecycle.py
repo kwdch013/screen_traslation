@@ -104,6 +104,16 @@ class SessionManager:
 				return session
 			return None
 
+	async def active_snapshot(self, session_id: str) -> Session | None:
+		"""session識別子と現在値を同じlock区間で取得する。"""
+		async with self._lock:
+			session = self._active
+			if session is not None and session.active and session.session_id == session_id:
+				return Session(session.session_id, session.owner_id, session.generation,
+					session.dictionary_revision, session.last_heartbeat)
+			return None
+			return None
+
 	async def is_current(self, session_id: str, generation: int) -> bool:
 		async with self._lock:
 			session = self._active
@@ -113,6 +123,17 @@ class SessionManager:
 				and session.session_id == session_id
 				and session.generation == generation
 			)
+
+	def is_frame_current(self, session_id: str, generation: int, dictionary_revision: int) -> bool:
+		"""event loopをyieldせず処理完了前にsession・世代・revisionを照合する。"""
+		session = self._active
+		return bool(
+			session is not None
+			and session.active
+			and session.session_id == session_id
+			and session.generation == generation
+			and session.dictionary_revision == dictionary_revision
+		)
 
 	async def track_operation(
 		self,
