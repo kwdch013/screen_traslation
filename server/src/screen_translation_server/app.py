@@ -378,9 +378,12 @@ def _ensure_pipeline(app: Starlette) -> TranslationPipeline:
 	if pipeline is None:
 		pipeline = create_default_pipeline(
 			is_current=app.state.sessions.is_current,
+			is_frame_current=app.state.sessions.is_frame_current,
 			observer=app.state.observer,
 		)
 		app.state.pipeline = pipeline
+	if hasattr(pipeline, "set_frame_current_check"):
+		pipeline.set_frame_current_check(app.state.sessions.is_frame_current)
 	def publish_result(completed: PipelineResult) -> None:
 		session_id = completed.session_id
 		result = completed.result

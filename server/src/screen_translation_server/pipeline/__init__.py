@@ -56,6 +56,7 @@ class PipelineResult:
 
 
 CurrentCheck = Callable[[str, int], bool | Awaitable[bool]]
+FrameCurrentCheck = Callable[[str, int, int], bool]
 TaskFactory = Callable[[Coroutine[Any, Any, Any]], asyncio.Task[Any]]
 
 
@@ -70,6 +71,7 @@ class TranslationPipeline:
 		clock: Callable[[], float] = time.monotonic,
 		create_task: TaskFactory = asyncio.create_task,
 		is_current: CurrentCheck | None = None,
+		is_frame_current: FrameCurrentCheck | None = None,
 		capture_fps: int = DEFAULT_CAPTURE_FPS,
 		max_image_bytes: int = IMAGE_MAX_BYTES,
 		freshness_seconds: float = FRAME_FRESHNESS_SECONDS,
@@ -85,6 +87,7 @@ class TranslationPipeline:
 		self._clock = clock
 		self._create_task = create_task
 		self._is_current = is_current
+		self._is_frame_current = is_frame_current
 		self._capture_fps = capture_fps
 		self._max_image_bytes = min(max_image_bytes, IMAGE_MAX_BYTES)
 		self._freshness_seconds = freshness_seconds
@@ -238,10 +241,12 @@ class TranslationPipeline:
 				if result is None:
 					continue
 				async with self._lock:
-					if epoch == self._epoch.get(frame.session_id, 0):
-						self._results.append(result)
-						if self._on_result is not None:
-							self._on_result(result)
+					if epoch != self._epoch.get(frame.session_id, 0) or not self._frame_current(frame):
+						self._record_drop("stale_frame_context", correlation_id)
+						continue
+					self._results.append(result)
+					if self._on_result is not None:
+						self._on_result(result)
 		finally:
 			async with self._lock:
 				if self._worker is asyncio.current_task():
@@ -277,6 +282,9 @@ class TranslationPipeline:
 			if self._observer is not None:
 				self._observer.dropped("stale_generation", correlation_id=frame.correlation_id or str(uuid4()))
 			return None
+		if not self._frame_current(frame):
+			self._record_drop("stale_frame_context", frame.correlation_id or str(uuid4()))
+			return None
 		return PipelineResult(
 			TranslationResult(frame.generation, frame.frame_id, received_at, processed_at,
 				frame.image_width, frame.image_height, tuple(regions)),
@@ -297,6 +305,15 @@ class TranslationPipeline:
 			return True
 		value = self._is_current(session_id, generation)
 		return await value if isinstance(value, Awaitable) else value
+
+	def _frame_current(self, frame: FrameInput) -> bool:
+		if self._is_frame_current is None:
+			return True
+		return self._is_frame_current(frame.session_id, frame.generation, frame.dictionary_revision)
+
+	def set_frame_current_check(self, check: FrameCurrentCheck) -> None:
+		"""配信時にsession・generation・revisionを再検証する関数を設定する。"""
+		self._is_frame_current = check
 
 	def _validate_frame(self, frame: FrameInput) -> None:
 		if len(frame.image) > self._max_image_bytes:

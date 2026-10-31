@@ -22,7 +22,8 @@ from starlette.testclient import TestClient
 from screen_translation_server.app import create_app
 from screen_translation_server.events import EventHub, make_result_message
 from screen_translation_server.observability import ProcessingObserver
-from screen_translation_server.pipeline import FrameInput, TranslationPipeline
+from screen_translation_server.pipeline import FrameInput, PipelineResult, TranslationPipeline
+from app.contracts import TranslationResult
 from screen_translation_server.app import _send_heartbeats
 from screen_translation_server.security.auth import Credential, CredentialStore, Role, SecurityPolicy
 from screen_translation_server.sessions import SessionManager
@@ -95,6 +96,31 @@ class ResultDeliveryTests(unittest.IsolatedAsyncioTestCase):
 		pipeline = TranslationPipeline(lambda _frame: [], lambda text: text,
 			clock=lambda: 0.0, is_current=lambda _session, generation: generation == current_generation)
 		await pipeline.submit(self.frame(8, generation=3, revision=2))
+		self.assertEqual(pipeline.published_results, [])
+		self.assertEqual(pipeline.dropped_frames, 1)
+
+	async def test_result_completed_after_dictionary_revision_change_is_discarded(self) -> None:
+		current_revision = 3
+		started = asyncio.Event()
+		release = asyncio.Event()
+		pipeline = TranslationPipeline(lambda _frame: [], lambda text: text,
+			clock=lambda: 0.0,
+			is_frame_current=lambda _session, _generation, revision: revision == current_revision)
+		async def delayed_result(frame: FrameInput, received_at: float) -> PipelineResult:
+			started.set()
+			await release.wait()
+			return PipelineResult(
+				TranslationResult(frame.generation, frame.frame_id, received_at, received_at,
+					frame.image_width, frame.image_height, ()),
+				frame.dictionary_revision, frame.session_id, frame.correlation_id,
+			)
+		pipeline._process = delayed_result  # type: ignore[method-assign]
+		frame = self.frame(9, generation=1, revision=2)
+		await pipeline.submit(frame)
+		await started.wait()
+		current_revision = 3
+		release.set()
+		await pipeline.wait_idle()
 		self.assertEqual(pipeline.published_results, [])
 		self.assertEqual(pipeline.dropped_frames, 1)
 
