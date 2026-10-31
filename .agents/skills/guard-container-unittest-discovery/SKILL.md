@@ -13,11 +13,13 @@ description: Composeコンテナでunittestの一部または全部を実行す�
 - 対象サービスの`working_dir`とテスト配置先をcomposeファイルで確認する。
 - ファイル単位の限定実行は`python -B -m unittest discover -s <配置先> -p '<file>.py'`を使う。
 - テスト名も限定するときは`-k '<test name>'`を追加する。コンテナ内にpackageがあると確認できない限り、`python -m unittest <module>`を使わない。
+- Compose内の限定実行でもdiscover形式を崩さず、コマンドを打つ前に`docker compose ... run --rm <service> python -B -m unittest discover -s <container test dir> -p '<file>.py' -k '<test name>'`の形を確認する。
 - 失敗をmutation検出として数える前に出力を確認し、対象テスト実行後のassertion失敗であることを確かめる。ImportErrorやテスト0件は検出と見なさない。
 
 ## 作業前チェック
 - [ ] compose定義からコンテナ内テスト配置先を確認した。
 - [ ] 使用するコマンドが`unittest discover`で始まり、正しい探索先を指定している。
+- [ ] Composeで対象を絞る場合もモジュール名の直接指定を使っていない。
 
 ## 完了前チェック
 - [ ] 終了コードだけでなく、出力で対象テスト名と実行件数を確認した。

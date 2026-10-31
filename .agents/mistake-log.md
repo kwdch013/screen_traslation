@@ -44,7 +44,7 @@
 - 何が起きたか: 追加したPython契約テストに残っていた不正インデントを、再ビルドしないCompose実行の成功結果で見落とした。`--build`付き再実行で構文エラーが判明した。
 - 根本原因: 変更後のコンテナイメージを使ったことと、出力を末尾だけに制限したことで、Composeが古いイメージを実行している可能性を確認しなかった。
 - 正しいやり方: Dockerfile・コンテナ内テストソースを変更した場合は`--build`を付けて実行し、shell pipelineには`pipefail`を設定して終了コードを維持する。
-- 発生回数: 3
+- 発生回数: 4
 - 2026-10-30の差分: Issue #83でComposeをbuild無しで起動し、追加テストが0件となった。`--build`を付け、対象件数を確認してから結果を扱った。
 - 2026-10-30の差分: 別worktreeとComposeの既定project/image tagが共有され、他の実行のイメージで0件となった。issue固有project名と`--build`を指定して再実行する。
 - guard: guard-fresh-container-tests
@@ -82,6 +82,7 @@
 - 正しいやり方の補足: ファイルやテスト名を限定するときも`python -B -m unittest discover -s tests -p '<file>.py' -k '<test name>'`を使う。終了コードが非0でも、出力で対象テストが実行されたことと失敗理由を確認し、ImportErrorはmutation検出に数えない。
 - guard: guard-container-unittest-discovery
 - 2026-10-31の差分: mutation検証で再度テストモジュールを直接指定し、ImportErrorをmutation検出と誤認しかけた。パターン不一致で停止したため誤った判定は記録せず、同guardを追加する。
+- 2026-10-31の差分: Issue #78の対象テストをCompose内でホスト側import名により指定し、テスト実行前にImportErrorとなった。すでに追加されていたguardを事前確認せず、同じ誤りを再発させたため、Compose用discoverコマンドの形をguardに明記した。
 - 2026-10-30の差分: app:ciイメージに`server/`等が含まれる前提でruffを実行し、対象ディレクトリ不存在になった。リポジトリをread-only mountしたruff実行では成功した。
 - 再発原因: コンテナイメージ内へリポジトリ全体が含まれるか確認せず、チェック対象パスを指定した。
 - 正しいやり方の補足: app:ciに含まれないリポジトリ全体を対象にするチェックは、`-v "$PWD:/workspace:ro" -w /workspace`を付けて実行する。
