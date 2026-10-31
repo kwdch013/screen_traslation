@@ -27,40 +27,21 @@ public sealed class WindowsRegionSelectionOverlay
 			return null;
 		}
 
-		var selection = new RegionSelection(monitors);
-		var session = new RegionSelectionSession();
-		var completion = new TaskCompletionSource<Rect2D?>(TaskCreationOptions.RunContinuationsAsynchronously);
-		var windows = monitors.Select(monitor => new RegionSelectionWindow(monitor, session)).ToArray();
+		var coordinator = new RegionSelectionCoordinator(monitors);
+		var windows = monitors.Select(monitor => new RegionSelectionWindow(monitor, coordinator)).ToArray();
 		foreach (var window in windows)
 		{
-			window.SelectionCompleted += region =>
-			{
-				if (selection.TrySelect(region) && session.Complete())
-				{
-					RegionSelectionResultMapper.Complete(completion, session.State, region);
-				}
-			};
-			window.Cancelled += () =>
-			{
-				if (session.Cancel())
-				{
-					RegionSelectionResultMapper.Complete(completion, session.State);
-				}
-			};
-			window.Invalidated += () =>
-			{
-				if (session.NotifyEnvironmentChanged())
-				{
-					RegionSelectionResultMapper.Complete(completion, session.State);
-				}
-			};
+			window.SelectionCompleted += region => coordinator.OnCommit(region);
+			window.Cancelled += () => coordinator.OnEscape();
+			window.DpiChangeObserved += () => coordinator.OnDpiChanged();
+			window.LayoutChanged += () => coordinator.OnLayoutChanged();
 			window.Show();
 		}
 
-		using var cancellationRegistration = cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken));
+		using var cancellationRegistration = cancellationToken.Register(() => coordinator.OnCancellationRequested(cancellationToken));
 		try
 		{
-			return await completion.Task;
+			return await coordinator.Completion;
 		}
 		finally
 		{
@@ -76,17 +57,17 @@ public sealed class WindowsRegionSelectionOverlay
 		private const uint SwpNoActivate = 0x0010;
 		private const uint SwpShowWindow = 0x0040;
 		private readonly MonitorContext monitor;
-		private readonly RegionSelectionSession session;
+		private readonly RegionSelectionCoordinator coordinator;
 		private readonly Canvas canvas = new();
 		private readonly TextBlock hint;
 		private Point? dragStart;
 		private Rectangle? selectionShape;
 		private bool initialPlacementComplete;
 
-		public RegionSelectionWindow(MonitorContext monitor, RegionSelectionSession session)
+		public RegionSelectionWindow(MonitorContext monitor, RegionSelectionCoordinator coordinator)
 		{
 			this.monitor = monitor;
-			this.session = session;
+			this.coordinator = coordinator;
 			WindowStyle = WindowStyle.None;
 			ResizeMode = ResizeMode.NoResize;
 			AllowsTransparency = true;
@@ -116,7 +97,8 @@ public sealed class WindowsRegionSelectionOverlay
 
 		public event Action<Rect2D>? SelectionCompleted;
 		public event Action? Cancelled;
-		public event Action? Invalidated;
+		public event Action? DpiChangeObserved;
+		public event Action? LayoutChanged;
 
 		protected override void OnContentRendered(EventArgs e)
 		{
@@ -144,16 +126,20 @@ public sealed class WindowsRegionSelectionOverlay
 
 		private IntPtr HandleWindowMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
 		{
-			if (initialPlacementComplete && (message is 0x02E0 or 0x007E))
+			if (initialPlacementComplete && message == 0x02E0)
 			{
-				Invalidated?.Invoke();
+				DpiChangeObserved?.Invoke();
+			}
+			else if (initialPlacementComplete && message == 0x007E)
+			{
+				LayoutChanged?.Invoke();
 			}
 			return IntPtr.Zero;
 		}
 
 		private void BeginSelection(object sender, MouseButtonEventArgs args)
 		{
-			session.BeginSelection();
+			coordinator.OnSelectionStarted();
 			dragStart = args.GetPosition(canvas);
 			Mouse.Capture(this);
 			selectionShape = new Rectangle
