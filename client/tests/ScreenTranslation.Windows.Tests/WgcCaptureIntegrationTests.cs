@@ -75,6 +75,9 @@ public sealed class WgcCaptureIntegrationTests
 		}
 	}
 
+	/// <summary>WGCは WS_EX_NOACTIVATE のウィンドウを取得対象にできない(E_INVALIDARG)ため、通常の表示属性で作る。</summary>
+	private static KnownPatternWindow CreateWindow() => new(400, 200, pumpOnOwnThread: true, exStyle: 0);
+
 	private static CaptureTarget TargetOf(KnownPatternWindow window, int width, int height) =>
 		new($"hwnd:{window.Handle.ToInt64():X}", CaptureTargetKind.Window, "pattern", new CaptureBounds(0, 0, width, height), 96);
 
@@ -89,7 +92,7 @@ public sealed class WgcCaptureIntegrationTests
 	[Fact]
 	public async Task WgcCapturedPixelsMatchTheSelectedRoiAndAreSentWithoutScaling()
 	{
-		using var window = new KnownPatternWindow(400, 200, pumpOnOwnThread: true);
+		using var window = CreateWindow();
 		var (receiver, pipeline) = CreatePipeline();
 		var roi = new Rect2D(37, 21, 338, 154);
 		pipeline.BeginSession(SessionId, 1, 1);
@@ -119,7 +122,7 @@ public sealed class WgcCaptureIntegrationTests
 	[Fact]
 	public async Task PixelsAreNotReadWhenNoRouteIsSelected()
 	{
-		using var window = new KnownPatternWindow(400, 200, pumpOnOwnThread: true);
+		using var window = CreateWindow();
 		var (_, pipeline) = CreatePipeline();
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => null), () => null);
 		var factory = new WindowsCaptureSessionFactory(sink);
@@ -139,7 +142,7 @@ public sealed class WgcCaptureIntegrationTests
 	[Fact]
 	public async Task RepeatedStartAndStopReleaseHandlesAndStopDeliveringFrames()
 	{
-		using var window = new KnownPatternWindow(400, 200, pumpOnOwnThread: true);
+		using var window = CreateWindow();
 		var (_, pipeline) = CreatePipeline();
 		var roi = new Rect2D(0, 0, 200, 100);
 		pipeline.BeginSession(SessionId, 1, 1);
@@ -191,7 +194,7 @@ public sealed class WgcCaptureIntegrationTests
 	[Fact]
 	public async Task ClosingTheTargetInvalidatesTheSessionAndNothingIsDeliveredAfterwards()
 	{
-		var window = new KnownPatternWindow(400, 200, pumpOnOwnThread: true);
+		var window = CreateWindow();
 		var (_, pipeline) = CreatePipeline();
 		var roi = new Rect2D(0, 0, 200, 100);
 		pipeline.BeginSession(SessionId, 1, 1);

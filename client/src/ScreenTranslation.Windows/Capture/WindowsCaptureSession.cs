@@ -4,6 +4,7 @@ using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Graphics;
+using WinRT;
 
 namespace ScreenTranslation.Windows.Capture;
 
@@ -172,7 +173,6 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 		if (captureItem is not null)
 		{
 			captureItem.Closed -= OnItemClosed;
-			Marshal.ReleaseComObject(captureItem);
 		}
 		(d3dDevice as IDisposable)?.Dispose();
 	}
@@ -200,7 +200,8 @@ internal static class WindowsGraphicsCaptureInterop
 		}
 		try
 		{
-			return (GraphicsCaptureItem)Marshal.GetObjectForIUnknown(item);
+			// WinRTオブジェクトはCOMのRCWへ直接キャストできない(InvalidCastException)ため、WinRT.Runtimeの変換を使う
+			return MarshalInspectable<GraphicsCaptureItem>.FromAbi(item);
 		}
 		finally
 		{
@@ -263,7 +264,7 @@ internal static class Direct3DDeviceFactory
 				Marshal.ThrowExceptionForHR(CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice, out var winrtDevice));
 				try
 				{
-					return (IDirect3DDevice)Marshal.GetObjectForIUnknown(winrtDevice);
+					return MarshalInspectable<IDirect3DDevice>.FromAbi(winrtDevice);
 				}
 				finally
 				{
