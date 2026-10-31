@@ -29,7 +29,7 @@ WPF画面での設定変更中の接続取消、ウィンドウ終了後の遅�
 | OS非依存の連鎖 | `client/tests/ScreenTranslation.Client.IntegrationTests/CaptureTests.cs` (`Category=CaptureSendIntegration`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 負座標を含む96/144/192 DPIの仮想デスクトップで、論理座標から変換した物理ROIの画素が受信PNGと1対1で一致(契約の許容誤差2 physical px以内かつ実際は0)。再選択で待機中の旧領域画像が送られず、旧世代フレームは拒否され、通信中の送信が取り消される。対象終了/最小化/取得拒否/DPI変更で送信が止まり取得sessionが破棄される。送信失敗後に同一画素が再送対象になる。20回の再選択でsessionが全て1回だけ停止・破棄される |
 | 配線の単体 | `client/tests/ScreenTranslation.Client.Tests/CaptureSendPipelineTests.cs` | 同上 | 基準リセット、旧世代拒否、session無し拒否、送信失敗と呼び出し側取消の区別 |
 | Win32実取得 | `client/tests/ScreenTranslation.Windows.Tests/CaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 座標を画素値にした試験ウィンドウをWin32 `PrintWindow`で実際に取得し、ROIと受信画像が1対1で一致すること、取得対象の終了後は取得不可で旧画像が送られないこと、再選択後は新領域だけが送られることを確認 |
-| WGC実取得 (Issue #179) | `client/tests/ScreenTranslation.Windows.Tests/WgcCaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 専用スレッドでメッセージループを回す既知パターンのウィンドウをWindows Graphics Captureで取得し、`FrameArrived`から読み出した画素がROIどおり(0 px誤差)に`CapturedFrame`→PNG→送信まで届くこと、ROI未選択ならGPU面を読み出さないこと、開始/停止を25回反復し、毎周「フレームプール・キャプチャセッション・D3Dデバイス・取得項目・対象監視・SoftwareBitmap」の生成数と破棄数が一致すること(Issue #204。`CaptureResourceLedger`の計測フックで直接検証し、1周1個の漏れも検出する。実ハンドル数はGC後の差分で見る補助指標で、揺れを吸収する余裕を持たせた閾値)と停止後にフレームが届かないこと、対象ウィンドウを閉じるとTargetUnavailableで無効化されることを確認 |
+| WGC実取得 (Issue #179) | `client/tests/ScreenTranslation.Windows.Tests/WgcCaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 専用スレッドでメッセージループを回す既知パターンのウィンドウをWindows Graphics Captureで取得し、`FrameArrived`から読み出した画素がROIどおり(0 px誤差)に`CapturedFrame`→PNG→送信まで届くこと、ROI未選択ならGPU面を読み出さないこと、開始/停止を25回反復し、毎周「フレームプール・キャプチャセッション・D3Dデバイス・取得項目・対象監視・SoftwareBitmap」の生成数と破棄数が一致すること(Issue #204。`CaptureResourceLedger`の計測フックで直接検証し、1周1個の漏れも検出する。実ハンドル数はGC後の差分で見る補助指標で、揺れを吸収する余裕を持たせた閾値)。限界: 台帳が数えるのはDisposeの呼び出しだけで、破棄後もネイティブ側の参照が残る漏れは数えられず、補助指標のハンドル数(60未満)では25周で1周1ハンドルの漏れは検出できない。またCaptureItemにはDisposeが無いため「イベント購読の解除=破棄」とみなしていると停止後にフレームが届かないこと、対象ウィンドウを閉じるとTargetUnavailableで無効化されることを確認 |
 | WGC画素の変換 (Issue #179) | `client/tests/ScreenTranslation.Client.Tests/BgraFrameConverterTests.cs`・`CaptureFrameRouterTests.cs` | .NET SDKコンテナ | 行詰め(stride)付きBGRAの詰め直し、開始位置、内容サイズでの切り出し、元バッファの複製、不正寸法の拒否と例外メッセージへ画素値を含めないこと。ROI・世代を画素の読み出し前に採取して旧世代フレームを拒否すること |
 
 ```bash
@@ -59,7 +59,7 @@ hosted runnerで再現できない項目です。担当: Owner。**結果: 未�
 
 1. 倍率が異なる2台以上のモニター(例: 100%と150%)、および主モニターより左/上に置いた(負座標の)モニターを用意する。
 2. 各モニターの既知の目盛り/文字を持つウィンドウでROIを選択し、取得開始する。受信側(またはサーバーログの画像寸法)でROI寸法が選択した物理pxと一致し、目盛り位置のずれが2 physical px以下であることを確認する。
-3. 取得中に対象ウィンドウを閉じる/最小化する/別モニターへ移動してDPIを変える/取得権限を拒否する。送信が止まり、旧領域の画像がそれ以降送られず、取得sessionが解放される(再開始まで送信されない)ことを確認する。
+3. 取得中に対象ウィンドウを閉じる/最小化する/DPIが異なる別モニターへ移動する/取得権限を拒否する。送信が止まり、旧領域の画像がそれ以降送られず、取得sessionが解放される(再開始まで送信されない)ことを確認する。
 4. 負荷(別プロセスでCPUを飽和)をかけた状態でROIを再選択し、再選択前の領域の画像が受信されないことを確認する。
 5. 取得除外(自己キャプチャ除外/WDA)が失敗した場合に送信が停止することを確認する(#135/#136系)。
 
@@ -71,7 +71,7 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 2. 4Kや100%/150%など倍率の異なるモニターで、ウィンドウをモニター間で移動したときに送信が止まり(DPI変更)、再選択後は新しい物理pxのROIで送られることを確認する。
 3. 取得開始/停止/対象変更を100回以上反復し、タスクマネージャー(またはPerfMon)でプロセスのハンドル数とGPU専用メモリが増え続けないことを確認する(Issue #204: CIは生成数・破棄数の一致までを見る。100回以上の反復での実GPUメモリ・ハンドルは**未実施**)。
 4. 画面取得から除外されたウィンドウ(WDA_EXCLUDEFROMCAPTURE)や保護コンテンツ(DRM動画等)を対象にして、別方式へ切り替わらず、取得できない/黒画像を送らない動作になるか確認し、結果を#135の記録へ追記する(黒画像の検出は現状未実装のため、結果によりTaskを追加する)。
-5. ウィンドウをリサイズしたとき、フレームが新しいサイズで届きROIの範囲外判定が再選択案内になることを確認する。
+5. ウィンドウをリサイズしたとき、新しい大きさのフレームが送られず、取得が停止して対象とROIの選び直しを求められることを確認する(Issue #198。追従しない設計)。同じ大きさの移動は「ウィンドウ移動・リサイズへの追従 (Issue #198)」の手順で確認する。
 
 ## アプリ構成の配線 (Issue #180)
 
@@ -100,6 +100,36 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 1. 実サーバーへ接続し、ウィンドウまたはモニターとROIを選び、開始する(開始前にオーバーレイのキャプチャ除外が確認できないと開始されないこと)。
 2. 訳文が重畳され、取得から5秒たつと消えることを確認する。
 3. 再選択・停止・対象ウィンドウを閉じる・ネットワークを切断のそれぞれで、訳文が1秒以内に消え、旧領域の画像が送られないこと、切断後は自動で送信が再開されないことを確認する。
+
+## ウィンドウ移動・リサイズへの追従 (Issue #198)
+
+取得中の対象ウィンドウが動いたときの扱いです。設計の根拠は[ADR-0002](design/adr/0002-windows-client.md)にあります。要件はREQ-F-002 / REQ-F-005 / REQ-NF-008(ACC-06 / ACC-07)です。
+
+| 事象 | 振る舞い |
+| --- | --- |
+| 同じ大きさのまま移動(同じDPI) | ROIをウィンドウ相対のまま追従させる。物理ROIは新しい左上に合わせ直し、世代を1進めて旧位置の待機画像・通信中の送信・表示を破棄する。移動前に読み出し済みのフレームは旧世代として拒否し、旧位置の画像に対する結果も表示しない。取得は止めない |
+| 大きさが変わる(リサイズ) | 追従しない。ROIの意味(ウィンドウのどの部分か)が変わるため、同期的に送信と表示を止めて`SessionEnded(TargetResized)`と`Faulted`で通知し、対象とROIを破棄する。対象の選び直し(最新の位置・大きさ)とROI再選択が終わるまで開始できない。WGCが新しい大きさのフレームを返した場合も、そのフレームは読み出さず送らずに同じ停止にする |
+| DPIの異なるモニターへの移動 | 既存どおり`DpiChanged`で停止する(ROIの物理画素数が変わるため) |
+| 画面(モニター)対象 | 位置・DPIの変化は従来どおり停止。追従しない |
+| 停止中の移動 | 監視は取得中だけ。開始時に最新位置を再確認し、選択後に動いていれば移動は追従、大きさが違えば停止する |
+
+**検知**: `WindowsCaptureTargetWatcher`が`EVENT_OBJECT_LOCATIONCHANGE`で`GetWindowRect`を前回の位置と比べ、大きさが同じなら`IBoundsReportingCaptureSession.BoundsChanged`、違えば`Resized`の失効を出す。OS非依存の判定(追従か停止か、ROIの再計算、世代と表示の扱い)は`TranslationSessionHost`が持つ。移動中は位置が変わるたびに世代が進む。
+
+**限界**: ウィンドウ矩形は`GetWindowRect`(影などの不可視枠を含みうる)で、WGCの取得画像の原点との差は未検証です。ROI各隅の誤差2 physical px以下は実機で確認するまで主張しません。
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 追従・停止の判定 | `client/tests/ScreenTranslation.Client.Tests/TargetMoveFollowTests.cs` | .NET SDKコンテナ | 移動でROIがウィンドウ相対のまま新位置の物理座標になる(先頭画素の座標を確認)、世代が移動ごとに進み同じ位置の通知は無視、移動前に読み出したフレームと待機画像の破棄、旧位置の結果は表示せず新世代の結果は移動後のROIへ表示、リサイズ(通知・取得側失効の両方)で停止し対象とROIが破棄され選び直すまで開始不可、選び直し後の再開と世代の単調性、停止後・画面対象の通知は無視、追従に失敗したら停止 |
+| 実ウィンドウとWinEvent | `client/tests/ScreenTranslation.Windows.Tests/WgcTargetMoveTests.cs`(`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 実ウィンドウを`SetWindowPos`で移動すると新しい位置が通知され失効しない、リサイズすると`Resized`で失効し新しい大きさのフレームが配信されない。Linuxでのskipは合格として扱わない |
+
+### Owner実機手順 (移動・リサイズ追従)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要。実測は #136)**。実施した場合は日付、Windows版、モニター構成(解像度・DPI・配置)、合否をIssueへ記録し、この欄を更新してください。
+
+1. 四隅が分かるウィンドウでROIを選んで開始し、同じ大きさのままウィンドウを(a)同じDPIの範囲で動かす、(b)負座標のモニターへ動かす。移動後のROI四隅の物理座標が対象ウィンドウ上の同じ位置に対応し、誤差が2 physical px以下であること、訳文が移動後の位置に重なること、移動前の位置に訳文が残らないことを確認する。
+2. 移動の途中(ドラッグ中)に旧位置の画像が受信されないこと、移動を止めたあとに新しい世代の画像だけが届くことを、サーバー側の受信画像またはデバッグ保存画像で確認する。
+3. ウィンドウの端をドラッグしてリサイズする。送信と表示が止まり、対象とROIの選び直しを求められること、選び直すまで開始できないことを確認する。
+4. DPIが異なるモニターへ跨いで移動する。停止して再選択を求められることを確認する。
 
 ## 翻訳オーバーレイと自己キャプチャ防止 (Issue #97)
 
@@ -149,6 +179,8 @@ docker compose --profile integration -f server/compose.test.yml run --build --rm
 接続するたびにOpenSSLで一時CA・証明書・秘密鍵を生成し、テスト内で資格情報も生成します。期限切れ・SANなし・未信頼証明書、鍵不一致、不正/期限切れ/失効token、2台目開始、停止後の再開始、無通信WSS切断、HTTP 413、WSS 1009を検証します。通信期限を0.5秒に短縮して切断検知と所有権解放を測り、watchdogと登録処理taskの残留も確認します。HTTP応答は`contracts/schemas/`と`contracts/fixtures/errors.json`、WSS上限は`contracts/fixtures/binary-message-boundaries.json`に照合します。別資格情報のTLS実接続については、所有者以外のDELETEが403 `FORBIDDEN`、2台目POSTが409 `SESSION_IN_USE`となることをHTTP error fixture/schemaに照合し、別資格情報WSSから既存sessionのsession_id/generationを持つ有効frameを送った場合にclose 1008で拒否されることを確認します。各拒否の後もsession状態・owner_id・generationが不変で、所有者本人が停止できることを検証します。
 
 WSSクライアントは、`server/tests/integration/ws_client.py`の`SyncWebSocket`（`websockets.asyncio`を専用イベントループで動かす同期API）を使います。websocketsの同期クライアントは、1つのTLS接続を受信threadとメインthreadが同時に読み書きし、稀にHTTP Upgrade要求がTCPへ送出されず60秒のhandshakeタイムアウトになったためです（Issue #174、[作業記録](../../tasks/2026-10-31_issue-174_integration-flake.md)）。`open_timeout`の延長やリトライでは対処していません。
+
+単体試験の実Uvicorn試験（`server/tests/test_app.py`の`test_real_uvicorn_transport_enforces_http_and_websocket_boundaries`）にも同じ同期クライアントが残っており、CIで同じ`handshake response`タイムアウトが出たため、同じ`SyncWebSocket`へ置き換えました（Issue #203、[作業記録](../../tasks/2026-10-31_issue-203_unit-ws-client.md)）。`integration/`は`__init__.py`を持たない名前空間パッケージなので、単体試験は`from integration.ws_client import SyncWebSocket`で共有します。`server/tests/test_no_sync_ws_client.py`が、`server/tests/`配下にwebsocketsの同期クライアント（`websockets.sync`）の利用が戻らないことを検査します。1009/1008のclose codeと`ConnectionClosed`の検証、`open_timeout=5`は変えていません。
 
 再実行は上記コマンドをそのまま使います。実行記録には実行日、コマンド、`docker compose`/Python/OpenSSL版、`server/requirements-dev.txt`のhttpx・websockets・jsonschema版、テスト件数、成功/失敗を残します。実行時のOpenSSL版は`docker compose --profile integration -f server/compose.test.yml run --rm integration openssl version`で確認できます。
 
@@ -276,9 +308,27 @@ docker compose -f server/compose.test.yml --profile integration run --build --rm
 
 - **未検証**: コンテナの停止・起動をまたぐ名前付きvolumeの永続、製品の起動経路(`main`)での再起動。8時間連続稼働、性能(p50/p95)、Windows実機を含むE2E、複数端末の同時利用は#108/#109。
 - **製品の起動経路**: `main()`は`create_app()`を`is_ready=False`で起動し、`EngineLifecycle`のreadyをappへ反映する配線が見当たりません。本試験はlifecycleのreadyを試験側で反映しており、製品起動でsessionが開始できるかは未検証です(要確認の課題)。
-- **uvicornのaccessログ**: `DELETE /api/v1/sessions/{session_id}`のパスにsession_idが出ます。診断ログへsession_idを出さない不変条件([security.md](design/security.md))の対象外ですが、運用ログには残ります。accessログの抑止またはパス伏せが必要です(本試験は`uvicorn.access`をsession_id検査から除外し、token・訳文は含めて検査)。
-- **第三者ライブラリのログ**: `argostranslate`はINFOで原文・訳文をログに出し、rootにhandlerを足すと漏れます(既定では出力先がありません)。本試験は`argostranslate`のloggerを検査から除外しています。製品側で当該loggerを抑止する対処が必要です。運用でroot loggerにhandlerを付ける場合は注意してください。
+- **(解消済み・#195)** uvicornのaccessログに`DELETE /api/v1/sessions/{session_id}`のsession_idが出る件、`argostranslate`がINFOで原文・訳文を出す件は、製品側で固定しました([運用ログの秘匿](#運用ログの秘匿-issue-195))。本試験は`uvicorn.access`・`argostranslate`を検査から除外しません。
 - **Stanza資源の外部取得**: #80と同じく`download_method=reuse_resources`を試験側で与えています(#189)。
+
+## 運用ログの秘匿 (Issue #195)
+
+診断ログ(自サーバーのlogger)に加え、**運用ログ(uvicornのaccessログ・依存ライブラリのログ)**にもsession_id・認証情報・原文・訳文・画像を出さないことを、実際の起動構成(`create_server`/`main()`)で固定します。
+
+| 経路 | 固定方法 |
+| --- | --- |
+| uvicornのaccessログ | `create_server`が`access_log=False`を渡し、`uvicorn.access`にdrop-all filterを付ける。運用側が後からhandlerを足して`hasHandlers()`が真になっても出力しない |
+| argostranslate・stanza | `operational_logging.restrict_dependency_loggers()`が当該logger(既存の子を含む)をWARNING以上だけにfilterで固定する。ライブラリがimport時に`setLevel(INFO)`しても、rootにhandlerやDEBUGを足しても出ない。`create_server`とエンジン読込後(`_load_engines`)で呼ぶ。警告以上の文言は固定文で内容を含まない |
+
+| 試験 | 内容 |
+| --- | --- |
+| `server/tests/test_operational_logging.py` | ライブラリがレベルを戻しても/後から作られた子loggerでも/rootをDEBUGにしても、原文・訳文が出ない。警告以上は残る。filterの重複なし。後からhandlerを足したaccess loggerも空。`create_server`と`main()`が`access_log=False`とfilter設定を呼ぶ |
+| `server/tests/integration/test_operational_log.py` | 実TLS listener(`create_server`)でPOST/DELETE/GETを行い、root・uvicorn系にhandlerを足して捕捉。session_id・端末/管理token・原文・訳文・`/sessions/`・accessログ自体が出ない |
+| `server/tests/integration/test_server_scenario.py` | 検査から`uvicorn.access`と`argostranslate`の除外を外し、全loggerでtoken・訳文・session_idの不在を確認 |
+
+mutation確認(#195): ①`restrict_dependency_loggers`のfilter付与を外す(単体3件失敗・結合失敗)、②`disable_access_logger`のlevelとfilterを外す(単体・結合とも失敗)、③`create_server`から両呼び出しを外す(単体・結合とも失敗)、④`access_log=True`へ戻す(単体2件失敗。結合はdrop-all filterが受けるため通る=多重防御)。復元後はすべて成功します。
+
+**未検証**: 将来追加する依存ライブラリのloggerは、接頭辞(`RESTRICTED_LOGGER_PREFIXES`)へ追加するまで対象外です。コンテナのstdout/stderrへ直接`print`するライブラリ出力、OSやリバースプロキシ側のaccessログは対象外です。
 
 ## 変更後の回帰・静的検査
 

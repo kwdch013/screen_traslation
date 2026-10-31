@@ -15,12 +15,15 @@ from unittest.mock import Mock, patch
 
 import httpx
 from websockets.exceptions import ConnectionClosed
-from websockets.sync.client import connect as websocket_connect
 from starlette.testclient import TestClient
 
 from screen_translation_server.api.input_limits import BINARY_MESSAGE_MAX_BYTES, HTTP_JSON_MAX_BYTES
 from screen_translation_server.app import create_app, create_server
 from screen_translation_server.security.auth import Credential, CredentialStore, Role, SecurityPolicy
+
+# websockets同期クライアントはTLS 1.3でHTTP Upgrade要求が稀に送出されない (Issue #174, #203) ため、
+# 結合試験と同じ非同期ベースの包みを使う。integrationは名前空間パッケージとして単体試験からも参照できる。
+from integration.ws_client import SyncWebSocket
 
 
 class ServerBootstrapTest(unittest.TestCase):
@@ -219,13 +222,13 @@ class ServerBootstrapTest(unittest.TestCase):
 			return original_getaddrinfo(address, port, *args, **kwargs)
 
 		with patch("socket.getaddrinfo", side_effect=resolve_local_test_host):
-			with websocket_connect(uri, ssl=ssl_context, additional_headers=headers, open_timeout=5, close_timeout=2) as websocket:
+			with SyncWebSocket(uri, ssl=ssl_context, additional_headers=headers, open_timeout=5) as websocket:
 				websocket.send(b"x" * (BINARY_MESSAGE_MAX_BYTES + 1))
 				with self.assertRaises(ConnectionClosed) as oversized:
 					websocket.recv(timeout=5)
 		self.assertEqual(oversized.exception.rcvd.code, 1009)
 		with patch("socket.getaddrinfo", side_effect=resolve_local_test_host):
-			with websocket_connect(uri, ssl=ssl_context, additional_headers=headers, open_timeout=5, close_timeout=2) as websocket:
+			with SyncWebSocket(uri, ssl=ssl_context, additional_headers=headers, open_timeout=5) as websocket:
 				websocket.send(b"x" * BINARY_MESSAGE_MAX_BYTES)
 				with self.assertRaises(ConnectionClosed) as at_limit:
 					websocket.recv(timeout=5)

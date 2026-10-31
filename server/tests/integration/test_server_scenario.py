@@ -137,9 +137,8 @@ class RestartScenarioTests(ScenarioCase):
 		fresh2_socket.__exit__(None, None, None)
 		self.settle(restarted)
 		self.assert_not_logged(server.token, server.admin_token, GLOSSARY_TARGET, original, source.strip())
-		# 診断ログにsession_idを出さない不変条件(security.md)。uvicornのaccessログはDELETEのパスに
-		# session_idを載せるため対象外で、製品側の未解決事項としてdocs/v1.0/testing.mdに記録している。
-		self.assert_not_logged(session["session_id"], fresh["session_id"], fresh2["session_id"], exclude=("uvicorn.access",))
+		# 運用ログ(uvicornのaccessログ・依存ライブラリ)を含む全loggerでsession_idを出さない(security.md)。
+		self.assert_not_logged(session["session_id"], fresh["session_id"], fresh2["session_id"])
 
 
 class UpdateFailureScenarioTests(ScenarioCase):

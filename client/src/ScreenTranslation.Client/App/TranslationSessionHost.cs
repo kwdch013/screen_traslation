@@ -25,6 +25,8 @@ public sealed partial class TranslationSessionHost : IAsyncDisposable
 	private readonly CancellationTokenSource lifetime = new();
 	private readonly object sync = new();
 	private CaptureTarget? target;
+	// ROIのローカル座標への変換に使う、対象の現在位置。ウィンドウが移動したら追従して更新する(targetは選択時のまま)
+	private CaptureBounds windowBounds = new(0, 0, 0, 0);
 	private Rect2D? physicalRoi;
 	private CaptureRoute? route;
 	private Guid sessionId;
@@ -69,6 +71,7 @@ public sealed partial class TranslationSessionHost : IAsyncDisposable
 		overlay = new TranslationOverlayController(overlaySurface, overlayState, overlayTracker, clock);
 
 		lifecycle.GenerationInvalidated += OnGenerationInvalidated;
+		lifecycle.TargetBoundsChanged += OnTargetBoundsChanged;
 		overlay.FailedClosed += OnOverlayFailed;
 		transport.ConnectionLost += OnConnectionLost;
 		tickTask = Task.Run(() => RunTickLoopAsync(lifetime.Token));
@@ -112,6 +115,7 @@ public sealed partial class TranslationSessionHost : IAsyncDisposable
 			{
 				// 対象が変わるとROIの座標系も変わるため、選び直すまで開始させない
 				target = newTarget;
+				windowBounds = newTarget.Bounds;
 				physicalRoi = null;
 				route = null;
 			}
@@ -124,33 +128,12 @@ public sealed partial class TranslationSessionHost : IAsyncDisposable
 	/// </summary>
 	public bool SelectRegion(Rect2D physical)
 	{
-		var switchFailed = false;
 		lock (sync)
 		{
-			if (target is null || !TryToLocal(physical, target, out var local)) return false;
+			if (target is null || !TryToLocal(physical, windowBounds, out var local)) return false;
 			physicalRoi = physical;
 			if (!active) return true;
-
-			route = null;
-			overlay.Invalidate(OverlayClearReason.Reselected);
-			var next = generation + 1;
-			try
-			{
-				pipeline.AdvanceGeneration(next);
-				transport.ActivateSession(sessionId, next, dictionaryRevision);
-				overlayTracker.BeginSession(sessionId, next, dictionaryRevision);
-				generation = next;
-				if (!overlay.Begin(physical, next)) throw new InvalidOperationException("オーバーレイが使えません。");
-			}
-			catch (Exception)
-			{
-				switchFailed = true;
-			}
-			if (!switchFailed)
-			{
-				route = new CaptureRoute(local, next);
-				return true;
-			}
+			if (SwitchRegionLocked(physical, local, OverlayClearReason.Reselected)) return true;
 		}
 		Fail(OverlayClearReason.Disconnected, "ROIの切り替えに失敗したため停止しました。");
 		return false;
@@ -189,7 +172,7 @@ public sealed partial class TranslationSessionHost : IAsyncDisposable
 		lock (sync)
 		{
 			if (active) return StartResult.AlreadyRunning;
-			if (target is null || physicalRoi is not { } roi || !TryToLocal(roi, target, out var local)) return StartResult.RegionNotSelected;
+			if (target is null || physicalRoi is not { } roi || !TryToLocal(roi, windowBounds, out var local)) return StartResult.RegionNotSelected;
 			var next = generation + 1;
 			try
 			{

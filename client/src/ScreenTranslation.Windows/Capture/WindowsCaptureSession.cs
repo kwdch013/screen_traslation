@@ -8,7 +8,7 @@ using WinRT;
 
 namespace ScreenTranslation.Windows.Capture;
 
-internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrameSink? sink = null, CaptureResourceLedger? ledger = null) : ICaptureSession
+internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrameSink? sink = null, CaptureResourceLedger? ledger = null) : ICaptureSession, IBoundsReportingCaptureSession
 {
 	private readonly object sync = new();
 	private GraphicsCaptureItem? item;
@@ -21,6 +21,8 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 	private int invalidated;
 
 	public event Action<CaptureInvalidationReason>? Invalidated;
+	/// <summary>対象ウィンドウが同じ大きさのまま移動した。大きさの変化は <see cref="CaptureInvalidationReason.Resized"/> で失効させる。</summary>
+	public event Action<CaptureBounds>? BoundsChanged;
 
 	public ValueTask StartAsync(CancellationToken cancellationToken = default)
 	{
@@ -50,7 +52,7 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			// 利用者のマウスカーソルを翻訳対象の画像へ含めない
 			captureSession.IsCursorCaptureEnabled = false;
 			captureSession.StartCapture();
-			targetWatcher = WindowsCaptureTargetWatcher.Start(target, Invalidate);
+			targetWatcher = WindowsCaptureTargetWatcher.Start(target, Invalidate, OnBoundsChanged);
 			ledger?.RecordCreated(CaptureResourceKind.TargetWatcher);
 		}
 		catch
@@ -97,7 +99,12 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 				Invalidate(CaptureInvalidationReason.TargetUnavailable);
 				return;
 			}
-			RecreatePoolIfResized(sender, frame.ContentSize);
+			// 大きさが変わったフレームは、ROIの意味が変わるため読み出さず送らない(再選択まで停止)
+			if (IsResized(frame.ContentSize))
+			{
+				Invalidate(CaptureInvalidationReason.Resized);
+				return;
+			}
 
 			// ROIと世代は画素の読み出し前に採取する。ROI未選択ならGPU面を読み出さない
 			var route = sink?.TryBeginFrame();
@@ -129,17 +136,20 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 		}
 	}
 
-	/// <summary>対象のサイズが変わったら、以降のフレームが新しいサイズで届くようプールを作り直す。</summary>
-	private void RecreatePoolIfResized(Direct3D11CaptureFramePool sender, SizeInt32 contentSize)
+	/// <summary>取得開始時のサイズと異なるか。異なるフレームは旧ROIで切り出さない。</summary>
+	private bool IsResized(SizeInt32 contentSize)
 	{
 		lock (sync)
 		{
-			if (stopped || device is null || (contentSize.Width == poolSize.Width && contentSize.Height == poolSize.Height))
-			{
-				return;
-			}
-			poolSize = contentSize;
-			sender.Recreate(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, contentSize);
+			return contentSize.Width != poolSize.Width || contentSize.Height != poolSize.Height;
+		}
+	}
+
+	private void OnBoundsChanged(CaptureBounds bounds)
+	{
+		if (!IsStopped())
+		{
+			BoundsChanged?.Invoke(bounds);
 		}
 	}
 

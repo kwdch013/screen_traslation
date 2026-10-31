@@ -72,6 +72,8 @@ session IDを推測可能な形式へ変える場合、複数のアクティブs
 
 運用上の不変条件として、診断ログに`session_id`を出力しません。この条件は`../../../server/tests/test_result_delivery.py::test_drop_and_timeout_logs_exclude_session_and_content`で、破棄・送信timeout時の実UUID文字列と内容情報が記録されず、メッセージ由来の値を渡さず破棄数・timeout数だけが記録されることを検証します。破棄・送信timeoutされたイベントの相関IDは、app側が採番して`publish(..., correlation_id=...)`で渡した値だけを`ProcessingObserver`経由で記録し(`server/tests/test_delivery_diagnostics.py`)、message辞書から取り出した値はログへ渡しません(CodeQL `py/clear-text-logging-sensitive-data`の再発防止)。このログにも`session_id`・原文・訳文・画像は含めません。
 
+この不変条件は**運用ログ(access ログ・依存ライブラリのログ)**にも適用します。uvicornのaccessログは`DELETE /api/v1/sessions/{session_id}`のパスにsession_idを出すため無効化し(`access_log=False`と`uvicorn.access`のdrop-all filter。運用側が後からhandlerを足しても出さない)、`argostranslate`・`stanza`のloggerはfilterでWARNING以上に固定します(原文・訳文はINFOで出るため。rootにhandlerを足してもライブラリがレベルを戻しても出ない)。実装は`server/src/screen_translation_server/operational_logging.py`、試験は`server/tests/test_operational_logging.py`と`server/tests/integration/test_operational_log.py`です。ログにURLパスを出す新しい経路や、内容を出し得る依存ライブラリを追加する場合は、同じ固定と試験を追加します。
+
 Issue #72の入口では送信元ごとに60秒間の失敗を5回までとし、超過時は認証情報照合より前に同一の拒否本文と`Retry-After`を返す。認証処理は送信元あたり4件、全体32件、追跡送信元は最大1,024件に制限し、Uvicornの接続/要求同時数も128件に制限する。送信元はASGIの直接peer addressから取得し、`Forwarded`と`X-Forwarded-*`は参照しない。信頼proxyの導入はこのIssueの対象外とし、proxyを許可する場合はADRで信頼元と内部通信保護を別途定義する。
 
 証明書は名前・期限・信頼を検証し、未信頼なら送信を止める。検証用私設CAを使えば購入は不要で、CA公開情報の別経路確認、SAN付きleaf発行、信頼登録、正常/不正条件、leaf/CA更新、旧信頼撤去の順に試験できる。更新失敗時は停止し、検証無効化やHTTPへ切り替えない。TLS鍵の侵害時は旧接続終了と鍵/証明書の再発行、信頼再配布を行う候補とする。失効トークンや侵害鍵のバックアップを復元して有効状態へ戻さない。

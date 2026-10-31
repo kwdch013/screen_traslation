@@ -164,9 +164,6 @@ public sealed class WgcCaptureIntegrationTests
 			await AssertAllReleasedAsync(ledger, round);
 		}
 
-		// 読み出し経路(SoftwareBitmap)も計測の対象に入っていること
-		Assert.True(ledger.Created(CaptureResourceKind.SoftwareBitmap) > 0, "SoftwareBitmapの生成が1度も計測されていません。");
-
 		// 補助指標: 実ハンドル数。CIの背景スレッドで揺れるため、GC後の差分に余裕を持たせた閾値で見る(25周で1周1個の漏れ分は主指標が見る)
 		var growth = HandleCount() - handlesBefore;
 		Assert.True(growth < HandleGrowthLimit, $"ハンドル数が{growth}増加しました(許容 {HandleGrowthLimit} 未満)。");
@@ -196,19 +193,22 @@ public sealed class WgcCaptureIntegrationTests
 		{
 			Assert.Equal(round + 1, ledger.Created(kind));
 		}
+		// 毎周、読み出し経路(SoftwareBitmap)も少なくとも1個は計測されていること
+		Assert.True(ledger.Created(CaptureResourceKind.SoftwareBitmap) >= round + 1, $"{round}周目までのSoftwareBitmap生成数が不足しています: {ledger.Created(CaptureResourceKind.SoftwareBitmap)}");
 	}
 
 	private static async Task RunOnceAsync(WindowsCaptureSessionFactory factory, CaptureTarget target, PatternSink sink)
 	{
 		var session = await factory.CreateAsync(target);
 		await session.StartAsync();
-		var start = sink.Begun;
+		// 読み出しまで終えたフレーム(=SoftwareBitmapを生成・破棄した周)を1枚待つ
+		var start = sink.Delivered;
 		var deadline = Stopwatch.StartNew();
-		while (sink.Begun == start && deadline.Elapsed < Watchdog)
+		while (sink.Delivered == start && deadline.Elapsed < Watchdog)
 		{
 			await Task.Delay(20);
 		}
-		Assert.True(sink.Begun > start, "WGCのフレームが届きませんでした。");
+		Assert.True(sink.Delivered > start, "WGCのフレームが届きませんでした。");
 		await session.StopAsync();
 		await session.DisposeAsync();
 	}

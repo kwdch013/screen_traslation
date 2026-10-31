@@ -15,6 +15,8 @@ public enum CaptureResourceKind
 /// 取得資源の生成数と破棄数を種類ごとに数える計測フック。
 /// プロセス全体のハンドル数は他スレッドの影響で揺れるため、試験は生成数と破棄数の一致を直接検証する。
 /// 製品の通常経路では渡さない(null)。スレッドセーフ。
+/// 限界: 数えるのはDisposeの呼び出しだけで、破棄後もネイティブ側の参照が残る漏れは数えられない。
+/// また<c>GraphicsCaptureItem</c>にはDisposeが無いため、イベント購読の解除を「破棄」とみなして数えている。
 /// </summary>
 public sealed class CaptureResourceLedger
 {
