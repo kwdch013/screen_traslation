@@ -8,7 +8,7 @@ OS非依存のCore・Clientロジックと契約fixtureは.NET 10 SDKコンテ�
 docker compose -f client/compose.test.yml run --build --rm test
 ```
 
-Windowsの`windows-client` CIは`client/ScreenTranslation.sln`全体をビルド・実行します。`ScreenTranslation.Client.IntegrationTests`ではKestrelの契約準拠モックをloopbackに起動し、試験ごとに一時CA/サーバー証明書を生成して実TLS/WSS接続します。CAはCurrentUserの信頼ストアへ一時登録し、試験終了時に必ず削除します。固定ホスト/IP・秘密鍵・実資格情報はソースやfixtureへ保存しません。
+Windowsの`windows-client` CIは`client/ScreenTranslation.sln`全体をビルド・実行します。`ScreenTranslation.Client.IntegrationTests`ではKestrelの契約準拠モックをloopbackに起動し、試験ごとに一時CA/サーバー証明書を生成して実TLS/WSS接続します。OSの信頼ストアは変更しません(非対話のCIでダイアログ待ちになりブロックするため)。試験側の証明書検証で、試験ごとに生成した一時CAを`X509Chain`のCustomRootTrustとしてのみ信頼します。サーバー証明書はPFX経由(`UserKeySet | Exportable`、`PersistKeySet`は使わない)で読み込み、試験終了時に破棄します。固定ホスト/IP・秘密鍵・実資格情報はソースやfixtureへ保存しません。
 
 ```powershell
 dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTranslation.Client.IntegrationTests.csproj --configuration Release --filter Category=ConnectionIntegration
