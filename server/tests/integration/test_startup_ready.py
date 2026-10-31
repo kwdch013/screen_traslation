@@ -48,6 +48,7 @@ class ProductionStartupTest(unittest.TestCase):
 		app = captured["app"]
 		readiness: LifecycleReadiness = app.state.readiness  # type: ignore[attr-defined]
 		with TestClient(app, base_url="https://server.example") as client:
+			self.assertTrue(readiness.started, "準備ループが開始されていない(lifespanのstart除去の疑い)")
 			self.assertTrue(readiness.ready_event.wait(READY_TIMEOUT_SECONDS))
 			self.assertEqual(client.get("/api/v1/ready", headers=HEADERS).json(), {"ready": True})
 			response = client.post("/api/v1/sessions", headers=HEADERS)
