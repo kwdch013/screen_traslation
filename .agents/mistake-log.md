@@ -1,5 +1,12 @@
 # ミス記録
 
+## 2026-10-31 unittest対象テストのモジュール指定を誤った
+- 何が起きたか: packageではない`tests`をモジュール名として指定し、コンテナ内の対象テスト実行がimport errorになった。unittest discoveryで再実行し、16件成功を確認した。
+- 根本原因: テストディレクトリのpackage構成を確認せず、通常の`python -m unittest` module指定を使った。
+- 正しいやり方: packageでないテストファイルは`python -m unittest discover -s <dir> -p <pattern>`で実行し、実行件数と終了コードを確認する。
+- 発生回数: 1
+- guard: なし
+
 ## 2026-10-30 .NETビルド生成物をindexへ追加しかけた
 - 何が起きたか: `client/src`・`client/tests`をディレクトリ単位でstageし、Container buildでworktreeへ生成された`bin/obj`を一時的にindexへ追加した。コミット前の差分確認で検出し、indexを戻して生成物を外した。
 - 根本原因: client配下に.NET生成物を除外する規則がなく、stage対象をディレクトリ指定した。

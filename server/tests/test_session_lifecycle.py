@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import unittest
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from starlette.testclient import TestClient
 
@@ -51,6 +52,16 @@ class SessionLifecycleTest(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual(session.generation, 1)
 		self.assertEqual(session.dictionary_revision, 1)
 		self.assertEqual(await self.manager.owner_of(session.session_id), "device-a")
+
+	async def test_session_ids_are_unique_uuid4_values_across_completed_sessions(self) -> None:
+		issued_ids: set[str] = set()
+		for _ in range(16):
+			session = await self.manager.start("device-a")
+			session_uuid = UUID(session.session_id)
+			self.assertEqual(session_uuid.version, 4)
+			self.assertNotIn(session.session_id, issued_ids)
+			issued_ids.add(session.session_id)
+			await self.manager.stop(session.session_id, "device-a")
 
 	async def test_competing_and_duplicate_start_are_rejected_without_takeover(self) -> None:
 		first = await self.manager.start("device-a")

@@ -41,10 +41,10 @@ docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -v "
 
 | 試験 | 実行環境・版 | 結果 |
 | --- | --- | --- |
-| server単体・契約 | Python 3.14.7 | 100件成功、3件skip |
+| server単体・契約 | Python 3.14.7 | 101件成功、3件skip |
 | TLS/接続境界integration | Python 3.14.7、OpenSSL 3.5.7、httpx 0.28.1、websockets 15.0.1、jsonschema 4.26.0 | 9件成功（Issue #165の所有権ケースを含む） |
 | app:ci全体試験 | Python 3.14 | 308件成功、74件skip |
-| read-only mount server回帰 | Python 3.14.7 | 93件成功、3件skip |
+| read-only mount server回帰 | Python 3.14.7 | 94件成功、3件skip |
 | mypy `server/src` | app:ci / mypy 1.18.2 | 19 source files、問題なし |
 | mypy `src` / Windows platform | app:ci / mypy 1.18.2 | 各79 source files、問題なし |
 | ruff `server/src server/tests` (`--no-cache`) | app:ci / ruff 0.16.1 | 成功 |
