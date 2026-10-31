@@ -20,7 +20,7 @@ docker compose --profile integration -f server/compose.test.yml run --build --rm
 
 再実行は上記コマンドをそのまま使います。実行記録には実行日、コマンド、`docker compose`/Python/OpenSSL版、`server/requirements-dev.txt`のhttpx・websockets・jsonschema版、テスト件数、成功/失敗を残します。実行時のOpenSSL版は`docker compose --profile integration -f server/compose.test.yml run --rm integration openssl version`で確認できます。
 
-セッションAPIの状態取得には認証付き`GET /api/v1/ready`を使います。現在の契約に独立したsession状態取得・再選択APIはないため、再選択はDELETEによる解放後にPOSTで新sessionを明示開始する経路を検証します。Windows実機との通信、画面取得・表示、およびWindows/Linux間E2Eはこのコンテナ試験の対象外で、#108等で実施します。
+`GET /api/v1/ready`はモデル準備状態の確認であり、session状態取得には使いません。session状態はWSS text state通知（`accepted` / `processing` / `ready` / `stopped`）で受け取り、各通知のsession_id・generation・dictionary_revisionを`contracts/schemas/stream-message.schema.json`で検証します。独立したsession状態取得・再選択APIはありません。再選択時はClientが送信停止・旧generation無効化・表示消去を先に行い、DELETEで旧sessionを解放後、新ROIで利用者が明示的にPOSTして新sessionを作ります。結合試験では旧session/generationのframe拒否、停止後のWSS close、所有権・taskの解放を確認します。Windows実機との通信、画面取得・表示、およびWindows/Linux間E2Eはこのコンテナ試験の対象外で、#108等で実施します。
 
 ## 変更後の回帰・静的検査
 
@@ -28,10 +28,11 @@ docker compose --profile integration -f server/compose.test.yml run --build --rm
 
 ```bash
 docker build -t app:ci . && docker run --rm -e PYTHONPATH=/app/src app:ci python -B -m unittest discover -s src/tests
-docker run --rm --cpus=2 -v "$PWD:/workspace:ro" -w /workspace app:ci python -B -m unittest discover -s server/tests
-docker run --rm --cpus=2 -v "$PWD:/workspace:ro" -w /workspace app:ci mypy server/src
-docker run --rm --cpus=2 -v "$PWD:/workspace:ro" -w /workspace app:ci mypy --platform win32 src
-docker run --rm --cpus=2 -v "$PWD:/workspace:ro" -w /workspace app:ci ruff check server/src server/tests
+docker compose -f server/compose.test.yml run --build --rm -v "$PWD:/workspace:ro" -e PYTHONPATH=/workspace/src:/workspace/server/src test python -B -m unittest discover -s server/tests
+docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -e MYPYPATH=/workspace/src:/workspace/server/src -v "$PWD:/workspace:ro" -w /workspace app:ci mypy --cache-dir=/tmp/mypy_cache server/src
+docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -e MYPYPATH=/workspace/src:/workspace/server/src -v "$PWD:/workspace:ro" -w /workspace app:ci mypy --cache-dir=/tmp/mypy_cache src
+docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -e MYPYPATH=/workspace/src:/workspace/server/src -v "$PWD:/workspace:ro" -w /workspace app:ci mypy --cache-dir=/tmp/mypy_cache --platform win32 src
+docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -v "$PWD:/workspace:ro" -w /workspace app:ci ruff check --no-cache server/src server/tests
 ```
 
 コンテナ外の実機情報・秘密値・生成した鍵は記録やリポジトリへ保存しません。失敗した場合は失敗したコマンドと要約を先に記録し、修正後に同じコマンドを再実行します。
@@ -41,9 +42,11 @@ docker run --rm --cpus=2 -v "$PWD:/workspace:ro" -w /workspace app:ci ruff check
 | 試験 | 実行環境・版 | 結果 |
 | --- | --- | --- |
 | server単体・契約 | Python 3.14.7 | 99件成功、3件skip |
-| TLS/接続境界integration | Python 3.14.7、OpenSSL 3.5.7、httpx 0.28.1、websockets 15.0.1、jsonschema 4.26.0 | 5件成功 |
-| 既存アプリread-only mount回帰 | app:ci / Python 3.14 | 307件成功、73件skip |
-| mypy `src` / Windows platform | app:ci | 両方79 source files成功 |
-| ruff `server/src server/tests` | app:ci | 成功 |
+| TLS/接続境界integration | Python 3.14.7、OpenSSL 3.5.7、httpx 0.28.1、websockets 15.0.1、jsonschema 4.26.0 | 6件成功 |
+| app:ci全体試験 | Python 3.14 | 307件成功、73件skip |
+| read-only mount server回帰 | Python 3.14.7 | 92件成功、3件skip |
+| mypy `server/src` | app:ci / mypy 1.18.2 | 19 source files、問題なし |
+| mypy `src` / Windows platform | app:ci / mypy 1.18.2 | 各79 source files、問題なし |
+| ruff `server/src server/tests` (`--no-cache`) | app:ci / ruff 0.16.1 | 成功 |
 
 実行コマンド・Issueへの記録は [作業記録](../../tasks/2026-10-31_issue-74_session-integration.md) とIssue #74の試験結果Commentを参照してください。
