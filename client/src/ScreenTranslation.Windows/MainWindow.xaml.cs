@@ -3,6 +3,7 @@ using System.Windows;
 using ScreenTranslation.Client.Security;
 using ScreenTranslation.Client.Settings;
 using ScreenTranslation.Windows.Security;
+using ScreenTranslation.Windows.Capture;
 
 namespace ScreenTranslation.Windows;
 
@@ -43,6 +44,25 @@ public partial class MainWindow : Window
 		await LoadSettingsAsync();
 		CredentialInput.Clear();
 		StatusText.Text = "未保存の変更を破棄しました。";
+	}
+
+	private async void SelectRegion_Click(object sender, RoutedEventArgs e)
+	{
+		try
+		{
+			var region = await new WindowsRegionSelectionOverlay().SelectAsync();
+			StatusText.Text = region is null
+				? "領域選択を取り消しました。"
+				: $"ROI: [{region.Value.Left}, {region.Value.Top}, {region.Value.Right}, {region.Value.Bottom}) px";
+		}
+		catch (OperationCanceledException)
+		{
+			StatusText.Text = "DPIまたは画面構成が変わったため領域選択を無効化しました。もう一度選択してください。";
+		}
+		catch (Exception)
+		{
+			StatusText.Text = "領域を選択できませんでした。画面構成を確認してください。";
+		}
 	}
 
 	private async void SaveCredential_Click(object sender, RoutedEventArgs e)

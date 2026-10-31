@@ -25,6 +25,7 @@
         <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,18,0,0">
             <Button Content="設定を保存" MinWidth="100" Padding="8,5" Click="SaveSettings_Click" />
             <Button Content="取消" MinWidth="80" Padding="8,5" Margin="8,0,0,0" Click="CancelSettings_Click" />
+            <Button Content="領域を選択" MinWidth="100" Padding="8,5" Margin="8,0,0,0" Click="SelectRegion_Click" />
         </StackPanel>
         <StackPanel Grid.Row="7" VerticalAlignment="Top" Margin="0,18,0,0">
             <TextBlock Text="端末資格情報 (通常設定とは別にWindowsで保護して保存)" Margin="0,0,0,4" />
