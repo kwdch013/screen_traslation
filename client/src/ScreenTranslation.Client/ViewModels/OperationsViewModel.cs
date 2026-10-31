@@ -85,9 +85,16 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 			});
 			return OperationOutcome.Failed;
 		}
+		// 接続の完了前に切れていたら接続済みにしない(切断の通知は接続中には状態を変えない)
+		var stillConnected = host.IsConnected;
 		return Update(() =>
 		{
-			connected = true;
+			connected = stillConnected;
+			if (!stillConnected)
+			{
+				SetPhase(OperationPhase.Disconnected, OperationMessages.ConnectFailed, NoticeSeverity.Error);
+				return OperationOutcome.Failed;
+			}
 			SetPhase(OperationPhase.Stopped, OperationMessages.Connected, NoticeSeverity.Info);
 			return OperationOutcome.Completed;
 		});
@@ -165,13 +172,26 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 
 	private async Task<OperationOutcome> CompleteStartedAsync()
 	{
+		// 新しいセッションの開始: 前のセッションの履歴を消す(以後は今の世代以降の結果だけを記録する)。
+		// 世代の読み取りと履歴の操作は、状態のロックの外で先に済ませる(ロック内で外部の処理を呼ばない)
+		history.Clear(host.Generation);
+
+		// 取消・終了の判定と「翻訳中」への遷移は同じロック区間で行う。ここを分けると、間に来た停止・終了通知・切断を
+		// 見落とし、ホストが止まっているのに(または停止の要求を受けたのに)翻訳中になる
 		OverlayClearReason? ended;
 		bool cancelled;
 		lock (sync)
 		{
 			cancelled = stopRequested || IsDisposed;
 			ended = endedDuringStart;
+			if (!cancelled && ended is null) SetPhase(OperationPhase.Streaming, "翻訳中です。", NoticeSeverity.Info);
 		}
+		if (!cancelled && ended is null)
+		{
+			Publish();
+			return OperationOutcome.Completed;
+		}
+
 		if (cancelled)
 		{
 			// 停止の要求と開始の完了が交差した。動いたままにしない
@@ -183,23 +203,13 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 				return OperationOutcome.Cancelled;
 			});
 		}
-		if (ended is { } reason)
-		{
-			// 開始の途中で対象消失・切断などが起きた。Streamingにしない
-			await ReleaseSessionAsync().ConfigureAwait(false);
-			return Update(() =>
-			{
-				SetPhase(RestingPhase, OperationMessages.Ended(reason), NoticeSeverity.Error);
-				return OperationOutcome.Failed;
-			});
-		}
 
-		// 新しいセッションの開始: 前のセッションの履歴を消す(以後は今の世代以降の結果だけを記録する)
-		history.Clear(host.Generation);
+		// 開始の途中で対象消失・切断などが起きた。Streamingにしない
+		await ReleaseSessionAsync().ConfigureAwait(false);
 		return Update(() =>
 		{
-			SetPhase(OperationPhase.Streaming, "翻訳中です。", NoticeSeverity.Info);
-			return OperationOutcome.Completed;
+			SetPhase(RestingPhase, OperationMessages.Ended(ended!.Value), NoticeSeverity.Error);
+			return OperationOutcome.Failed;
 		});
 	}
 

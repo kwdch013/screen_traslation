@@ -13,7 +13,21 @@ internal sealed class FakeSessionOperations : ISessionOperations
 {
 	public bool IsConnected { get; set; }
 	public bool IsStreaming { get; private set; }
-	public ulong Generation { get; set; }
+	private ulong generation;
+	/// <summary>設定すると、Generationを最初に読んだ瞬間に1度だけ呼ばれる(開始の完了処理の途中への割り込み再現用)。</summary>
+	public Action? OnGenerationRead;
+	public ulong Generation
+	{
+		get
+		{
+			var hook = Interlocked.Exchange(ref OnGenerationRead, null);
+			hook?.Invoke();
+			return generation;
+		}
+		set => generation = value;
+	}
+	/// <summary>trueなら、接続を試みても接続済みにならない(接続の途中で切れた状態の再現用)。</summary>
+	public bool ConnectLeavesDisconnected;
 	public StartResult StartResult = StartResult.Started;
 	public bool SelectRegionResult = true;
 	public Exception? ConnectError;
@@ -44,7 +58,7 @@ internal sealed class FakeSessionOperations : ISessionOperations
 		ConnectCount++;
 		if (ConnectGate is not null) await ConnectGate.Task.WaitAsync(cancellationToken);
 		if (ConnectError is not null) throw ConnectError;
-		IsConnected = true;
+		IsConnected = !ConnectLeavesDisconnected;
 	}
 
 	public ValueTask SelectTargetAsync(CaptureTarget target, CancellationToken cancellationToken = default)
@@ -83,7 +97,7 @@ internal sealed class FakeSessionOperations : ISessionOperations
 		if (StartResult == StartResult.Started)
 		{
 			IsStreaming = true;
-			Generation++;
+			generation++;
 		}
 		return StartResult;
 	}
