@@ -94,8 +94,9 @@ class LoadedLifecycleTests(PipelineCase):
 		received = drain_until_closed(websocket)
 		self.assertFalse([message for message in received if message["type"] == "result"])
 		self.settle(server)
-		# 観測値: 停止後に待機frameへ実OCRが走るか(1なら取消され、2なら無駄な処理が1回走る)。
+		# 停止後に待機frameへ実OCRが走らない(進行中の1回だけ)。#173で停止時の取消を配線した。
 		print(f"ocr_calls_after_stop={ocr.calls}", file=sys.stderr)
+		self.assertEqual(ocr.calls, 1)
 
 	def test_client_disconnect_during_processing_leaves_nothing(self) -> None:
 		recorder, ocr = DropRecorder(), gated(self.engines)

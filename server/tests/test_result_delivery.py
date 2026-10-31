@@ -100,7 +100,8 @@ class ResultDeliveryTests(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual(pipeline.dropped_frames, 1)
 
 	async def test_result_completed_after_dictionary_revision_change_is_discarded(self) -> None:
-		current_revision = 3
+		# 処理開始時点では最新(2)で、OCR中に辞書が更新(3)された状況を再現する。
+		current_revision = 2
 		started = asyncio.Event()
 		release = asyncio.Event()
 		pipeline = TranslationPipeline(lambda _frame: [], lambda text: text,
@@ -273,6 +274,13 @@ class ResultDeliveryTests(unittest.IsolatedAsyncioTestCase):
 			self.assertEqual((result["session_id"], result["generation"], result["frame_id"],
 				result["dictionary_revision"]), (session["session_id"], 1, 1, 1))
 			self.validate(result)
+			# WebSocketを閉じた直後(lifespan終了前)に、streamのfinallyが購読を解除したことを確認する。
+			# 解除イベントを待つだけで、固定秒数のsleepは同期条件に使わない(timeoutはハング防止の上限)。
+			async def wait_for_unsubscribe() -> None:
+				async with asyncio.timeout(10):
+					await app.state.events.wait_until_empty()
+			client.portal.call(wait_for_unsubscribe)
+			self.assertEqual(app.state.events.subscriber_count(session["session_id"]), 0)
 		self.assertEqual(app.state.events.subscriber_count(session["session_id"]), 0)
 
 	def test_pipeline_failure_is_delivered_as_correlated_text_error(self) -> None:

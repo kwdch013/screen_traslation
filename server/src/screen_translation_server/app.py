@@ -53,9 +53,10 @@ from screen_translation_server.sessions import (
 	SessionManager,
 	SessionNotFound,
 )
-from screen_translation_server.events import EventHub, make_result_message
+from screen_translation_server.events import EventHub
 from screen_translation_server.observability import ProcessingObserver
-from screen_translation_server.pipeline import FrameInput, PipelineLimitError, PipelineResult, TranslationPipeline, create_default_pipeline
+from screen_translation_server.result_delivery import build_result_callbacks, drain_cancel_tasks, schedule_pipeline_cancel
+from screen_translation_server.pipeline import FrameInput, PipelineLimitError, TranslationPipeline, create_default_pipeline
 
 
 _UNIMPLEMENTED = {"detail": "not implemented"}
@@ -84,6 +85,7 @@ def create_app(
 			yield
 		finally:
 			app.state.events.close()
+			await drain_cancel_tasks(app)
 			await session_manager.close()
 
 	app = Starlette(routes=[], lifespan=lifespan)
@@ -93,8 +95,9 @@ def create_app(
 	app.state.engine = engine
 	app.state.ready = is_ready
 	app.state.sessions = session_manager
-	app.state.events = EventHub()
 	app.state.observer = ProcessingObserver()
+	app.state.events = EventHub(observer=app.state.observer)
+	app.state.cancel_tasks = set()
 	app.state.pipeline = pipeline
 	app.state.heartbeat_sleep = heartbeat_sleep
 	app.state.streams = {}
@@ -201,6 +204,8 @@ def create_app(
 		except SessionNotFound:
 			return _session_error("NOT_FOUND", "セッションが見つかりません。", 404)
 		stream_websocket = app.state.streams.pop(request.path_params["session_id"], None)
+		# 停止後は待機中フレームを破棄する。streamのfinallyはstreamsから外れた後に取消を行わない。
+		schedule_pipeline_cancel(app, request.path_params["session_id"])
 		if stream_websocket is not None:
 			await stream_websocket.close(code=1000)
 		return Response(status_code=204)
@@ -238,9 +243,9 @@ def create_app(
 			subscription = app.state.events.subscribe(session.session_id)
 			sender_task = asyncio.create_task(_send_stream_events(app, websocket, subscription))
 			for state in ("accepted", "ready"):
-				app.state.events.publish(session.session_id, app.state.events.state_message(
+				app.state.events.publish_state(
 					session.session_id, session.generation, session.dictionary_revision, state,
-				))
+				)
 			heartbeat_task = asyncio.create_task(_send_heartbeats(app, session.session_id))
 		revocation_watch = asyncio.create_task(
 			_watch_websocket_revocation(
@@ -290,10 +295,10 @@ def create_app(
 				pipeline = _ensure_pipeline(app)
 				correlation_id = str(uuid4())
 				started = app.state.observer.start("receive", correlation_id)
-				app.state.events.publish(session.session_id, app.state.events.state_message(
+				app.state.events.publish_state(
 					session.session_id, session.generation, session.dictionary_revision,
 					"processing", frame_id=frame.metadata["frame_id"], correlation_id=correlation_id,
-				))
+				)
 				try:
 					await pipeline.submit(FrameInput(
 						session.session_id, frame.metadata["generation"], frame.metadata["frame_id"],
@@ -301,10 +306,10 @@ def create_app(
 						frame.metadata["image_width"], frame.metadata["image_height"], correlation_id,
 					))
 				except PipelineLimitError:
-					app.state.events.publish(session.session_id, app.state.events.error_message(
+					app.state.events.publish_error(
 						"INVALID_IMAGE", correlation_id, session.session_id, session.generation,
 						session.dictionary_revision, frame_id=frame.metadata["frame_id"],
-					))
+					)
 				app.state.observer.finish("receive", started, correlation_id=correlation_id)
 		except WebSocketDisconnect:
 			return
@@ -385,49 +390,7 @@ def _ensure_pipeline(app: Starlette) -> TranslationPipeline:
 		app.state.pipeline = pipeline
 	if hasattr(pipeline, "set_frame_current_check"):
 		pipeline.set_frame_current_check(app.state.sessions.is_frame_current)
-	def publish_result(completed: PipelineResult) -> None:
-		session_id = completed.session_id
-		result = completed.result
-		regions = [
-			{
-				"rect": {
-					"left": item.bounds.x,
-					"top": item.bounds.y,
-					"right": item.bounds.x + item.bounds.width,
-					"bottom": item.bounds.y + item.bounds.height,
-				} if item.positioning == "available"
-					and 0 <= item.bounds.x < item.bounds.x + item.bounds.width <= result.frame_width
-					and 0 <= item.bounds.y < item.bounds.y + item.bounds.height <= result.frame_height else None,
-				"source": item.source,
-				"translation": item.translated,
-				"confidence": item.confidence,
-			}
-			for item in result.regions
-		]
-		message = make_result_message(
-			session_id, result.generation, result.frame_id, completed.dictionary_revision,
-			result.frame_width, result.frame_height, regions,
-			max(0, round((result.processed_at - result.captured_at) * 1000)),
-			correlation_id=completed.correlation_id,
-		)
-		try:
-			app.state.events.validate_message(message)
-		except Exception:
-			app.state.observer.dropped("invalid_result_contract", correlation_id=completed.correlation_id)
-			publish_error(FrameInput(session_id, result.generation, result.frame_id,
-				completed.dictionary_revision, b"", result.frame_width, result.frame_height,
-				completed.correlation_id))
-			return
-		app.state.events.publish(session_id, app.state.events.state_message(
-			session_id, result.generation, completed.dictionary_revision, "ready",
-			frame_id=result.frame_id, correlation_id=completed.correlation_id,
-		))
-		app.state.events.publish(session_id, message)
-	def publish_error(frame: FrameInput) -> None:
-		app.state.events.publish(frame.session_id, app.state.events.error_message(
-			"PROCESSING_FAILED", frame.correlation_id or str(uuid4()), frame.session_id,
-			frame.generation, frame.dictionary_revision, frame_id=frame.frame_id,
-		))
+	publish_result, publish_error = build_result_callbacks(app)
 	if hasattr(pipeline, "set_result_callbacks"):
 		pipeline.set_result_callbacks(on_result=publish_result, on_error=publish_error)
 	return pipeline
@@ -450,9 +413,7 @@ async def _send_heartbeats(app: Starlette, session_id: str) -> None:
 		session = await app.state.sessions.active_snapshot(session_id)
 		if session is None:
 			return
-		app.state.events.publish(session_id, app.state.events.heartbeat_message(
-			session.session_id, session.generation, session.dictionary_revision,
-		))
+		app.state.events.publish_heartbeat(session_id, session.generation, session.dictionary_revision)
 
 
 async def _deny_websocket(websocket: WebSocket, status: int, *, retry_after: int | None = None) -> None:
