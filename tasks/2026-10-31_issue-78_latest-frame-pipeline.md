@@ -25,9 +25,22 @@
 
 ## 検証結果
 
-- `docker compose -f server/compose.test.yml run --build --rm test python -B -m unittest discover -s tests -v`: 106件成功、3件skip。
-- リポジトリread-only mountのserver回帰: 99件成功、3件skip。
-- `app:ci` 通常試験: 308件成功、74件skip。新規試験は `src/tests` に含めず、通常イメージへ影響しない。
-- `src.tests.test_v1_documentation`: 28件成功。Issue対応表の要件ID存在確認を含む。
-- mypy (`src`、`--platform win32 src`、`server/src`): 全て成功。ruff (`server/src server/tests`): 成功。
-- Mutation確認: 待機フレームの期待値を最新以外に変更したところ対象テストが失敗し、期待値を戻して回帰試験が成功。
+- server compose test: 110件成功、3件skip。
+- `app:ci` 通常試験と `src/` read-only mount回帰: 各308件成功、74件skip。
+- 文書マウント回帰 (`test_v1_documentation` / `test_web_documentation` / `test_desktop_removal`): 43件成功。Issue対応表の要件ID確認を含む。
+- mypy `src` / mypy `--platform win32 src`: 各79ファイル成功。ruff: `src scripts tests/ai_gate server/src server/tests` 成功。
+
+## PR #163 変更要求への対応
+
+- generation切替・cancel/drain・submitをlifecycle lockで直列化。drain中に到着した新世代submitはdrain後にworkerへ進み、worker終了時にも待機frameを取りこぼさない。
+- cancel時に保持済み結果を消去し、epoch確認と結果公開を同一lock内で行う。
+- OCR開始・cancel通知・新世代更新をEventで制御する決定的テストを追加。期限は注入時計を維持。
+
+| Mutation | 対応テスト | 結果 |
+| --- | --- | --- |
+| `worker.cancel()` 呼出しを削除 | cancel/drain状態テスト | 失敗を検出 (cancel通知待ちtimeout) |
+| epoch照合を削除 | cancel中に完成した旧結果のテスト | 失敗を検出 (旧結果が公開) |
+| 待機frame置換を削除 | 最新待機frameテスト | 失敗を検出 (drop数と処理frameが不一致) |
+| 期限判定を削除 | 注入時計による期限テスト | 失敗を検出 (期限切れ結果が公開) |
+
+各mutationは検出後に復元し、最終ソースでserver回帰を再実行した。

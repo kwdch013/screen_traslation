@@ -27,7 +27,7 @@
 - 何が起きたか: Issue #57用worktreeを作成するコマンドの末尾で`python3 scripts/ai-work-unit.py`を実行し、親worktreeのcwdから別のWork Unit IDを一度生成した。Claim前に対象worktreeで再取得し、正しいIDだけを使ったためClaim/commitには影響していない。
 - 根本原因: worktree作成とWork Unit取得を1つのコマンド列にまとめ、実行cwdが親のまま変わらない点を見落とした。
 - 正しいやり方: worktree作成後、別の実行で対象worktreeをcwdに指定し、`git rev-parse --show-toplevel`が期待パスと一致することを確認してからhelperを呼ぶ。
-- 発生回数: 3
+- 発生回数: 4
 - 2026-10-30の差分: Issue #63のClaim前に、親worktreeでhelperを誤実行した。専用worktreeで再取得したIDをClaimに使い、Claim後のID不一致はない。
 - 2026-10-30の差分: Issue #92でClaim前にTask branchを作った。ClaimとWork Unit IDは正しい専用worktreeで取得したが、初期worktreeはdetachedにし、Claim勝利後にbranchを作る手順へ guard を拡張する。
 - 再発原因: worktree作成とhelper実行を同じコマンド列にまとめた。
@@ -76,7 +76,12 @@
 - 何が起きたか: 専用Composeコンテナのテスト対象をホスト側の`server.tests.*`として指定し、コンテナ内に存在しないモジュール名で実行してしまった。
 - 根本原因: compose.test.ymlがテストを`/workspace/tests`へ配置する点を確認せず、ホスト上のパスをそのまま指定した。
 - 正しいやり方: 専用テストサービスの既定コマンドで全件を実行する。限定実行が必要な場合はCompose定義の作業ディレクトリとマウント後のテストパスを確認してから指定する。
-- 発生回数: 1
+- 発生回数: 3
+- 2026-10-31の差分: テストの限定実行にCompose内に存在しない`tests.test_pipeline_limits`を指定した。import errorでテストが実行されず、続くmutation確認も中断した。
+- 再発原因: Composeの作業ディレクトリと`/workspace/tests`への配置を再確認せず、通常のPython packageとして直接importできると思い込んだ。
+- 正しいやり方の補足: ファイルやテスト名を限定するときも`python -B -m unittest discover -s tests -p '<file>.py' -k '<test name>'`を使う。終了コードが非0でも、出力で対象テストが実行されたことと失敗理由を確認し、ImportErrorはmutation検出に数えない。
+- guard: guard-container-unittest-discovery
+- 2026-10-31の差分: mutation検証で再度テストモジュールを直接指定し、ImportErrorをmutation検出と誤認しかけた。パターン不一致で停止したため誤った判定は記録せず、同guardを追加する。
 - 2026-10-30の差分: app:ciイメージに`server/`等が含まれる前提でruffを実行し、対象ディレクトリ不存在になった。リポジトリをread-only mountしたruff実行では成功した。
 - 再発原因: コンテナイメージ内へリポジトリ全体が含まれるか確認せず、チェック対象パスを指定した。
 - 正しいやり方の補足: app:ciに含まれないリポジトリ全体を対象にするチェックは、`-v "$PWD:/workspace:ro" -w /workspace`を付けて実行する。
