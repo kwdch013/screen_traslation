@@ -71,6 +71,12 @@ public sealed class FrameProcessor
 		}
 	}
 
+	/// <summary>
+	/// 取得fps上限により、いま取得しても破棄される(Throttled)見込みか。画素の読み出し前の間引きに使う。
+	/// 記録はしないため、読み出しを許可した後の実際の判定は<see cref="Process"/>が行う。
+	/// </summary>
+	public bool WouldThrottle(long nowNanoseconds) => acquisitionLimiter.DelayNanoseconds(nowNanoseconds) > 0;
+
 	public FrameProcessingResult Process(CapturedFrame source, Rect2D roi)
 	{
 		ArgumentNullException.ThrowIfNull(source);
