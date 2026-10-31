@@ -5,7 +5,9 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
@@ -49,7 +51,7 @@ public sealed class ConnectionTests
 		var transport = transportHandle.Client;
 		try
 		{
-			await transport.ConnectAsync(timeout.Token);
+			await ConnectWithServerDiagnosticsAsync(server, () => transport.ConnectAsync(timeout.Token));
 			transport.ActivateSession(SessionId, 1, 1);
 			await transport.SendFrameAsync(new FrameMetadata(1, SessionId, 1, 1, 1, 64, 32, "image/png", 3), new byte[] { 1, 2, 3 }, 1, timeout.Token);
 
@@ -84,9 +86,9 @@ public sealed class ConnectionTests
 		var transport = transportHandle.Client;
 	
 		if (authenticationFailure)
-			await Assert.ThrowsAsync<TransportAuthenticationException>(() => transport.ConnectAsync(timeout.Token));
+			await AssertConnectThrowsAsync<TransportAuthenticationException>(server, () => transport.ConnectAsync(timeout.Token));
 		else
-			await Assert.ThrowsAsync<TransportProtocolException>(() => transport.ConnectAsync(timeout.Token));
+			await AssertConnectThrowsAsync<TransportProtocolException>(server, () => transport.ConnectAsync(timeout.Token));
 
 		Assert.Equal(1, server.RequestCount);
 		Assert.Equal(TransportConnectionStatus.Failed, transport.Status);
@@ -206,7 +208,7 @@ public sealed class ConnectionTests
 		await using var transportHandle = await CreateTransport(server, certificates, retries: 3);
 		var transport = transportHandle.Client;
 
-		await Assert.ThrowsAsync<TransportSecurityException>(() => transport.ConnectAsync(timeout.Token));
+		await AssertConnectThrowsAsync<TransportSecurityException>(server, () => transport.ConnectAsync(timeout.Token));
 		Assert.Equal(0, server.RequestCount);
 		Assert.False(transport.IsConnected);
 	}
@@ -219,6 +221,37 @@ public sealed class ConnectionTests
 		var client = new StreamTransportClient(new ConnectionSettings(server.BaseUri), credentials, new ClientWebSocketStreamFactory(certificates.ValidateServerCertificate),
 			new ReconnectPolicy(retries, TimeSpan.Zero, TimeSpan.Zero), (_, _) => Task.CompletedTask);
 		return new TransportHandle(client, credentialFile);
+	}
+
+	private static async Task ConnectWithServerDiagnosticsAsync(MockStreamServer server, Func<Task> connect)
+	{
+		try
+		{
+			await connect();
+		}
+		catch (Exception exception)
+		{
+			throw new Xunit.Sdk.XunitException($"接続に失敗しました: {exception.GetType().Name}: {exception.Message}{Environment.NewLine}{server.TlsHandshakeDiagnostic}");
+		}
+	}
+
+	private static async Task AssertConnectThrowsAsync<TException>(MockStreamServer server, Func<Task> connect)
+		where TException : Exception
+	{
+		try
+		{
+			await connect();
+		}
+		catch (TException)
+		{
+			return;
+		}
+		catch (Exception exception)
+		{
+			throw new Xunit.Sdk.XunitException($"期待した例外 {typeof(TException).Name} ではなく {exception.GetType().Name}: {exception.Message}。{Environment.NewLine}{server.TlsHandshakeDiagnostic}");
+		}
+
+		throw new Xunit.Sdk.XunitException($"期待した例外 {typeof(TException).Name} が発生しませんでした。{Environment.NewLine}{server.TlsHandshakeDiagnostic}");
 	}
 
 	private static JsonDocument ReadFixture(string name) => JsonDocument.Parse(File.ReadAllText(FindFixture(name)));
@@ -304,7 +337,11 @@ public sealed class ConnectionTests
 			var start = kind == CertificateKind.Expired ? now.AddDays(-10) : now.AddMinutes(-1);
 			var end = kind == CertificateKind.Expired ? now.AddDays(-1) : now.AddDays(1);
 			using var issued = serverRequest.Create(authority, start, end, RandomNumberGenerator.GetBytes(16));
-			server = issued.CopyWithPrivateKey(serverKey);
+			using var issuedWithPrivateKey = issued.CopyWithPrivateKey(serverKey);
+			const string pfxPassword = "integration-test-key";
+			var pfx = issuedWithPrivateKey.Export(X509ContentType.Pkcs12, pfxPassword);
+			server = X509CertificateLoader.LoadPkcs12(pfx, pfxPassword, X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable);
+			CryptographicOperations.ZeroMemory(pfx);
 			trustAuthority = kind != CertificateKind.UntrustedAuthority;
 		}
 
@@ -336,6 +373,36 @@ public sealed class ConnectionTests
 		}
 	}
 
+	// Kestrelのログからサーバー側のTLS関連例外を保持し、CIログで原因を事実として確認するため
+	private sealed class TlsDiagnosticLoggerProvider : ILoggerProvider
+	{
+		private readonly ConcurrentQueue<string> entries = new();
+
+		public ILogger CreateLogger(string categoryName) => new Logger(categoryName, entries);
+
+		public string Snapshot() => entries.IsEmpty
+			? "サーバー側TLSハンドシェイク例外: 記録なし"
+			: "サーバー側TLSハンドシェイク例外: " + string.Join(" | ", entries);
+
+		public void Dispose() { }
+
+		private sealed class Logger(string category, ConcurrentQueue<string> entries) : ILogger
+		{
+			public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+			public bool IsEnabled(LogLevel logLevel) => true;
+
+			public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+			{
+				if (!category.StartsWith("Microsoft.AspNetCore.Server.Kestrel", StringComparison.Ordinal)) return;
+				var message = formatter(state, exception);
+				if (exception is null && !message.Contains("SSL", StringComparison.OrdinalIgnoreCase) && !message.Contains("TLS", StringComparison.OrdinalIgnoreCase)) return;
+				if (entries.Count >= 10) return;
+				var detail = exception is null ? string.Empty : $" [{exception.GetType().FullName}: {exception.Message}; inner={exception.InnerException?.GetType().FullName}: {exception.InnerException?.Message}]";
+				entries.Enqueue($"{logLevel} {category}: {message}{detail}");
+			}
+		}
+	}
+
 	private sealed class MockStreamServer : IAsyncDisposable
 	{
 		private readonly WebApplication app;
@@ -343,23 +410,29 @@ public sealed class ConnectionTests
 		private readonly int rejectionStatus;
 		private readonly string? rejectionBody;
 		private readonly Func<CancellationToken, Task>? beforeHandshakeResponse;
+		private readonly TlsDiagnosticLoggerProvider tlsDiagnosticLogger;
 		private int requestCount;
 
-		private MockStreamServer(WebApplication app, Func<WebSocket, CancellationToken, Task> accepted, int rejectionStatus, string? rejectionBody, Func<CancellationToken, Task>? beforeHandshakeResponse)
+		private MockStreamServer(WebApplication app, TlsDiagnosticLoggerProvider tlsDiagnosticLogger, Func<WebSocket, CancellationToken, Task> accepted, int rejectionStatus, string? rejectionBody, Func<CancellationToken, Task>? beforeHandshakeResponse)
 		{
-			this.app = app; this.accepted = accepted; this.rejectionStatus = rejectionStatus; this.rejectionBody = rejectionBody; this.beforeHandshakeResponse = beforeHandshakeResponse;
+			this.tlsDiagnosticLogger = tlsDiagnosticLogger; this.app = app; this.accepted = accepted; this.rejectionStatus = rejectionStatus; this.rejectionBody = rejectionBody; this.beforeHandshakeResponse = beforeHandshakeResponse;
 		}
 
 		public string BaseUri { get; private set; } = string.Empty;
 		public int RequestCount => Volatile.Read(ref requestCount);
 		public string? LastAuthorization { get; private set; }
+		public string TlsHandshakeDiagnostic => tlsDiagnosticLogger.Snapshot();
 
 		public static async Task<MockStreamServer> StartAsync(X509Certificate2 certificate, Func<WebSocket, CancellationToken, Task> accepted, int rejectionStatus = 0, string? rejectionBody = null, Func<CancellationToken, Task>? beforeHandshakeResponse = null)
 		{
+			var tlsLogger = new TlsDiagnosticLoggerProvider();
 			var builder = WebApplication.CreateSlimBuilder();
+			builder.Logging.ClearProviders();
+			builder.Logging.SetMinimumLevel(LogLevel.Debug);
+			builder.Logging.AddProvider(tlsLogger);
 			builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(certificate)));
 			var app = builder.Build();
-			var server = new MockStreamServer(app, accepted, rejectionStatus, rejectionBody, beforeHandshakeResponse);
+			var server = new MockStreamServer(app, tlsLogger, accepted, rejectionStatus, rejectionBody, beforeHandshakeResponse);
 			app.UseWebSockets();
 			app.Map("/api/v1/stream", async (HttpContext context) =>
 			{
