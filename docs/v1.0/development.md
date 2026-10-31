@@ -140,6 +140,7 @@ requiredにするcontextは、[公式のrequired status checkの条件](https://
 | #66 全TaskのBase / Merge target | GitHubのv1.0 Task本文、旧参照移行手順 | developへ確定。依存とClaimは別に管理 |
 | #66 Ruleset / required導入順 | Rulesetとrequired checkの導入順 | 手順確定。実設定の変更とGitHub実証は #118 |
 | #67 Work Unit・Claim・独立レビューゲート | `scripts/ai-work-unit.py`・`scripts/ai-claim.py`・`scripts/ai-review-gate.py`・hooks・workflow、`tests/ai_gate/` | 正常/拒否の61件とworkflow信頼境界をコンテナで検証。GitHub実証条件は #118 へ移管 |
+| #186 DependabotのPRをAI Review Gateの規則違反扱いにしない | `scripts/ai_review_gate_dependabot.py`・`scripts/ai-review-gate.py`・`tests/ai_gate/test_dependabot_exemption.py` | REQ-NF-010。bot単独のみ免除、bot+人手commit・本文の自称・同名ユーザーは従来規則。免除条件の緩和mutationでテストが落ちることを確認 |
 | #79 翻訳結果・状態イベント配信 | `server/src/screen_translation_server/events/`・`observability.py`・`server/tests/test_result_delivery.py`・WSS契約 | REQ-F-003 / 004 / 006 / 009 / 010、REQ-NF-001 / 004 / 007。実エンジンの遅延/品質測定は #80 / #109、Windows/Linux実機E2Eは #108 で実施 |
 | #68 client/server/contractsの雛形 | `client/ScreenTranslation.sln`・`client/global.json`・Linux Core試験、`server/`のPython 3.14コンテナ、`contracts/README.md`、旧Web文書・共存テスト | .NET SDK 10.0.402 / Runtime 10.0.14とディレクトリ境界を固定。Windowsキャプチャのsession基盤・対象状態監視は#92、実画面取得・自己キャプチャ除外/WDA・混在DPIの実機確認は#135/#136/#148系で行う |
 | #69 Linuxコンテナ・WindowsクライアントCI | `.github/workflows/ci.yml`・`codeql.yml`・`dependabot.yml`・`src/tests/test_ci_workflow_structure.py` | REQ-NF-008/009/010。Python/C#契約fixtureを別jobで検査し、required `test` を常時集約 |
@@ -239,6 +240,8 @@ GITHUB_TOKEN="$(gh auth token)" python3 scripts/ai-review-gate.py \
 PR側のscriptを実行せず、常にdefault branchをcheckoutします。workflow全体は`contents: read`、評価jobだけ`pull-requests: read`・`issues: read`・`statuses: write`を持ちます。評価中にIssue/PR状態が変われば再評価し、結果を現在のPR HEADへ発行します。2026-10-31に`AI Review Gate trusted pull request evaluation` policy（workflow path: `.github/workflows/ai-review-gate.yml`）を作成し、ID `10134`としてactive/read-back済みです。
 
 構造化承認がまだ無く、ほかに違反も無い状態はCLIで`PENDING`と表示し、commit status `AI Review Gate`を説明「独立レビュー待ち」の`pending`で発行します。workflow job `gate`は成功終了しますが、requiredなcommit statusはpendingのままなのでmergeできません。自己承認・古いHEAD・最新の変更要求・証跡不備・Issue状態不整合・`pr/block`は`FAIL`としてstatusをfailureにし、CLI終了コード1を返します。PASS/PENDINGは終了コード0です。`test`などCIの成功とconversation解決は別のrequired条件です。
+
+Dependabotが作成したPRは、AIエージェントのWork Unitが当てはまらないため`AI Review Gate`の規則違反とせず、「AI Review 対象外」として扱います（`scripts/ai_review_gate_dependabot.py`）。免除は次をすべて満たす場合だけです。(1) PR作成者がGitHub APIの`dependabot[bot]`（type `Bot`）、(2) PR内の全commitについてGitHubが解決した作者が`dependabot[bot]`（type `Bot`）、committerが`dependabot[bot]`または`web-flow`で、署名がGitHubにより検証済み、(3) commit一覧が250件未満で全件確認できる。PR本文の記載・同名ユーザー・署名未検証のcommit・人手/AIの追加commitは免除せず、従来の規則（marker・trailer・承認）を適用します。免除PRのstatusは説明「AI Review 対象外: Dependabot。人手で確認して merge」の`pending`、CLIは`EXEMPT`で終了コード0です。承認や自動mergeの経路は作らず、mergeはOwnerまたは人手の確認で行います。判定は信頼済みscriptがGitHub APIの値だけで行い、PR側のコードや本文を判定に使いません。実際のDependabot PRでの動作は、本変更がdevelopへ入った後にしか確認できません（#186）。
 
 この公開リポジトリで確認したGitHub公式情報:
 
