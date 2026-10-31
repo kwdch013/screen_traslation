@@ -160,7 +160,13 @@ paths:
             schema: {$ref: './schemas/settings-update.schema.json'}
       responses:
         '200':
-          description: 保存確定後の新revisionと設定値
+          description: 保存確定後の新revisionと設定値。次の新規frameから有効。
+          headers:
+            ETag: {required: true, schema: {type: string, pattern: '^"[1-9][0-9]{0,19}"$'}}
+            X-Effective-From:
+              required: true
+              description: 反映時期。常に`next-frame`(保存確定後に採番する新規frameから有効)。
+              schema: {type: string, enum: [next-frame]}
           content:
             application/json:
               schema: {$ref: './schemas/settings.schema.json'}
@@ -211,7 +217,13 @@ paths:
             schema: {$ref: './schemas/glossary-update.schema.json'}
       responses:
         '200':
-          description: 保存確定後の新revisionと辞書
+          description: 保存確定後の新revisionと辞書。次の新規frameから有効。
+          headers:
+            ETag: {required: true, schema: {type: string, pattern: '^"[1-9][0-9]{0,19}"$'}}
+            X-Effective-From:
+              required: true
+              description: 反映時期。常に`next-frame`(保存確定後に採番する新規frameから有効)。
+              schema: {type: string, enum: [next-frame]}
           content:
             application/json:
               schema: {$ref: './schemas/glossary.schema.json'}

@@ -53,6 +53,14 @@ class SessionManager:
 		self._owners: dict[str, str] = {}
 		self._lock = asyncio.Lock()
 
+	def set_dictionary_revision(self, revision: int) -> None:
+		"""確定した辞書revisionを稼働中sessionと次回開始へ即時反映する(逆行は無視)。"""
+		if revision <= self._dictionary_revision:
+			return
+		self._dictionary_revision = revision
+		if self._active is not None and self._active.active:
+			self._active.dictionary_revision = revision
+
 	async def start(self, owner_id: str) -> Session:
 		"""所有者がいない場合だけ新しいsessionを発行する。"""
 		async with self._lock:
