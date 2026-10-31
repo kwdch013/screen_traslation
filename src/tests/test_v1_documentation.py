@@ -153,7 +153,7 @@ class V1DocumentationTest(unittest.TestCase):
 			with self.subTest(expected=expected):
 				self.assertIn(expected, guide)
 
-	def test_development_issue_traceability_ids_exist_and_issue_89_is_complete(self) -> None:
+	def test_development_issue_traceability_ids_exist_and_issue_89_and_92_are_complete(self) -> None:
 		requirements = self.requirement_ids()
 		guide = self.read("docs/v1.0/development.md")
 		issue_rows = [line for line in guide.splitlines() if re.match(r"\| #\d+", line)]
@@ -170,6 +170,23 @@ class V1DocumentationTest(unittest.TestCase):
 		for requirement_id in ("REQ-F-008", "REQ-NF-009"):
 			with self.subTest(requirement=requirement_id):
 				self.assertIn(requirement_id, issue_89_rows[0])
+
+		issue_92_rows = [row for row in issue_rows if row.startswith("| #92 ")]
+		self.assertEqual(len(issue_92_rows), 1, "#92の対応表を1行記載する")
+		for expected in (
+			"client/src/ScreenTranslation.Client/Capture/",
+			"client/src/ScreenTranslation.Windows/Capture/",
+			"REQ-F-006",
+			"WGC session/factory",
+			"対象状態watcher",
+			"実画面取得",
+			"自己キャプチャ除外/WDA",
+			"混在DPI",
+			"#135/#136/#148",
+		):
+			with self.subTest(issue_92=expected):
+				self.assertIn(expected, issue_92_rows[0])
+		self.assertNotIn("Windows APIを使う機能は後続Taskで実装", guide)
 
 	def test_issue_73_traceability_records_requirements_deliverables_and_open_scope(self) -> None:
 		guide = self.read("docs/v1.0/development.md")

@@ -27,8 +27,9 @@
 - 何が起きたか: Issue #57用worktreeを作成するコマンドの末尾で`python3 scripts/ai-work-unit.py`を実行し、親worktreeのcwdから別のWork Unit IDを一度生成した。Claim前に対象worktreeで再取得し、正しいIDだけを使ったためClaim/commitには影響していない。
 - 根本原因: worktree作成とWork Unit取得を1つのコマンド列にまとめ、実行cwdが親のまま変わらない点を見落とした。
 - 正しいやり方: worktree作成後、別の実行で対象worktreeをcwdに指定し、`git rev-parse --show-toplevel`が期待パスと一致することを確認してからhelperを呼ぶ。
-- 発生回数: 2
+- 発生回数: 3
 - 2026-10-30の差分: Issue #63のClaim前に、親worktreeでhelperを誤実行した。専用worktreeで再取得したIDをClaimに使い、Claim後のID不一致はない。
+- 2026-10-30の差分: Issue #92でClaim前にTask branchを作った。ClaimとWork Unit IDは正しい専用worktreeで取得したが、初期worktreeはdetachedにし、Claim勝利後にbranchを作る手順へ guard を拡張する。
 - 再発原因: worktree作成とhelper実行を同じコマンド列にまとめた。
 - guard: guard-worktree-command-cwd
 
@@ -84,5 +85,12 @@
 - 何が起きたか: 再選択テストで再選択taskを一度だけyieldした後にキャンセル通知を検査し、実装が正しくcancelしているのに通知前のタイミングで失敗した。
 - 根本原因: 複数のasyncio task間のスケジューリング順序を一回の`asyncio.sleep(0)`で固定できると仮定した。
 - 正しいやり方: 通知イベントを検査する前に制御されたscheduler checkpointを必要回数進める。キャンセルを外したmutationでもtestが終了するよう、検査前にdrain解放イベントを必ずセットする。
+- 発生回数: 1
+- guard: なし
+
+## 2026-10-30 Python回帰テストでイメージ内の静的資産をマウントで隠した
+- 何が起きたか: `app:ci`回帰時にリポジトリ全体を`/workspace`へマウントし、イメージに含まれる`/app/frontend/dist`を使えなくしたため、既存Web回帰で503を発生させた。`src/`だけを`/app/src`へマウントして再実行し306件成功した。
+- 根本原因: イメージ実行環境のパス構成を確認せず、source rootをイメージ外の別パスへ重ねた。
+- 正しいやり方: マウント回帰は既定の実行パス`/app/src`へ`src/`だけをread-onlyで重ね、イメージ内frontend資産・設定を維持してからテストする。
 - 発生回数: 1
 - guard: なし
