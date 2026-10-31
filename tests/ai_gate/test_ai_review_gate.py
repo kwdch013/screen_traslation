@@ -80,7 +80,47 @@ class ReviewGateTests(unittest.TestCase):
 	def test_accepts_independent_reviewer_for_current_head(self):
 		result = self.gate.evaluate(self.make_client(), "octo/repo", 7)
 		self.assertTrue(result.ok, result.errors)
+		self.assertEqual(result.state, "PASS")
 		self.assertEqual(result.contributors, {BUILDER_UNIT})
+
+	def test_missing_independent_approval_is_pending(self):
+		client = self.make_client()
+		client.comments = []
+		client.pull["labels"] = [{"name": "pr/review-required"}]
+		result = self.gate.evaluate(client, "octo/repo", 7)
+		self.assertEqual(result.state, "PENDING")
+		self.assertFalse(result.ok)
+		self.assertEqual(result.errors, [])
+
+	def test_approval_after_change_request_is_selected_by_comment_order(self):
+		client = self.make_client()
+		client.comments[0].update({"id": 10, "created_at": "2026-10-30T10:00:00Z"})
+		client.comments.append({
+			"id": 11,
+			"created_at": "2026-10-30T10:01:00Z",
+			"body": self.changes_requested_comment()["body"],
+		})
+		client.comments.append({
+			"id": 12,
+			"created_at": "2026-10-30T10:02:00Z",
+			"body": client.comments[0]["body"],
+		})
+		self.assertEqual(self.gate.evaluate(client, "octo/repo", 7).state, "PASS")
+
+	def test_comment_id_breaks_equal_timestamp_ties(self):
+		client = self.make_client()
+		approval = client.comments[0]["body"]
+		client.comments = [
+			{"id": 10, "created_at": "2026-10-30T10:00:00Z", "body": approval},
+			{"id": 11, "created_at": "2026-10-30T10:00:00Z", "body": self.changes_requested_comment()["body"]},
+		]
+		self.assertEqual(self.gate.evaluate(client, "octo/repo", 7).state, "FAIL")
+
+	def test_latest_change_request_without_approval_is_failure_not_pending(self):
+		client = self.make_client()
+		client.comments = [self.changes_requested_comment()]
+		client.comments[0].update({"id": 1, "created_at": "2026-10-30T10:00:00Z"})
+		self.assertEqual(self.gate.evaluate(client, "octo/repo", 7).state, "FAIL")
 
 	def test_rejects_pr_work_unit_as_reviewer(self):
 		client = self.make_client()
@@ -235,14 +275,18 @@ class ReviewGateTests(unittest.TestCase):
 	def test_rejects_changes_requested_comment_newer_than_approval(self):
 		# Label を外すだけで変更要求を握りつぶせないよう、構造化 Comment の新旧で判定する
 		client = self.make_client()
-		client.comments.append(self.changes_requested_comment())
+		change_request = self.changes_requested_comment()
+		change_request["id"] = 11
+		client.comments.append(change_request)
 		result = self.gate.evaluate(client, "octo/repo", 7)
 		self.assertFalse(result.ok)
 		self.assertTrue(any("changes-requested" in error for error in result.errors))
 
 	def test_accepts_approval_newer_than_changes_requested_comment(self):
 		client = self.make_client()
-		client.comments.insert(0, self.changes_requested_comment())
+		change_request = self.changes_requested_comment()
+		change_request["id"] = 9
+		client.comments.insert(0, change_request)
 		result = self.gate.evaluate(client, "octo/repo", 7)
 		self.assertTrue(result.ok, result.errors)
 

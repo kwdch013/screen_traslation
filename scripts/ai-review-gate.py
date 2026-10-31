@@ -35,6 +35,10 @@ CLOSING_RE = re.compile(
 
 
 class GateResult:
+	PASS = "PASS"
+	PENDING = "PENDING"
+	FAIL = "FAIL"
+
 	def __init__(self, head_sha):
 		self.head_sha = head_sha
 		self.errors = []
@@ -43,8 +47,14 @@ class GateResult:
 		self.review_work_unit = None
 
 	@property
+	def state(self):
+		if self.errors:
+			return self.FAIL
+		return self.PASS if self.review_work_unit else self.PENDING
+
+	@property
 	def ok(self):
-		return not self.errors
+		return self.state == self.PASS
 
 
 def label_names(item):
@@ -104,10 +114,6 @@ def evaluate(client, repo, pr_number):
 	labels = label_names(pull)
 	if pull.get("draft") or pull.get("state", "open") != "open":
 		result.errors.append("PR must be open and ready for review.")
-	if labels & {"pr/review-required", "pr/in-progress"}:
-		result.errors.append("PR review labels conflict with approval.")
-	if LABEL_PR_APPROVED not in labels:
-		result.errors.append(f"PR requires the {LABEL_PR_APPROVED} label.")
 	if LABEL_PR_REQUEST_CHANGES in labels:
 		result.errors.append(f"PR still has the {LABEL_PR_REQUEST_CHANGES} label.")
 	if LABEL_PR_BLOCK in labels:
@@ -141,23 +147,30 @@ def evaluate(client, repo, pr_number):
 		result.contributors.update(unit.casefold() for unit in work_units)
 
 	comments = client.get_paginated(f"{prefix}/issues/{pr_number}/comments")
-	approval_comments = [
-		comment for comment in comments if APPROVAL_START_RE.search(comment.get("body") or "")
-	]
 	decisions = [
-		comment
-		for comment in comments
+		(index, comment)
+		for index, comment in enumerate(comments)
 		if APPROVAL_START_RE.search(comment.get("body") or "")
 		or CHANGES_REQUESTED_START_RE.search(comment.get("body") or "")
 	]
-	if not approval_comments:
-		result.errors.append("A structured ai-review-approval comment is required.")
-	elif CHANGES_REQUESTED_START_RE.search(decisions[-1].get("body") or ""):
+	decisions.sort(
+		key=lambda item: (
+			item[1].get("created_at") or "",
+			int(item[1].get("id") or item[0]),
+		)
+	)
+	latest_decision = decisions[-1][1] if decisions else None
+	latest_body = latest_decision.get("body") or "" if latest_decision else ""
+	if latest_decision and CHANGES_REQUESTED_START_RE.search(latest_body):
 		# Label を外すだけで変更要求を握りつぶせないよう、最新のレビュー判断 Comment で判定する
 		result.errors.append("Latest review decision is an ai-review-changes-requested comment.")
-	else:
+	elif latest_decision:
 		try:
-			approval = parse_approval(approval_comments[-1].get("body") or "")
+			if not APPROVAL_START_RE.search(latest_body):
+				raise ValueError("Latest review decision is not a structured approval.")
+			approval = parse_approval(latest_body)
+			if not approval:
+				raise ValueError("Latest review decision has a malformed ai-review-approval marker.")
 			result.review_work_unit, approved_sha = approval
 			result.review_work_unit = result.review_work_unit.casefold()
 			if approved_sha != head_sha:
@@ -169,6 +182,16 @@ def evaluate(client, repo, pr_number):
 		except (TypeError, ValueError) as error:
 			result.errors.append(str(error))
 
+	if LABEL_PR_APPROVED in labels and not result.review_work_unit:
+		result.errors.append(f"PR has {LABEL_PR_APPROVED} without a valid approval comment.")
+	if result.review_work_unit and LABEL_PR_APPROVED not in labels:
+		result.errors.append(f"PR requires the {LABEL_PR_APPROVED} label for its approval.")
+	if result.review_work_unit and labels & {"pr/review-required", "pr/in-progress"}:
+		result.errors.append("PR review labels conflict with approval.")
+	review_states = labels & {LABEL_PR_APPROVED, "pr/review-required", "pr/in-progress", LABEL_PR_REQUEST_CHANGES}
+	if len(review_states) > 1:
+		result.errors.append("PR has conflicting review state labels.")
+
 	issue_numbers = linked_issue_numbers(pull.get("body") or "", repo)
 	if not issue_numbers:
 		result.warnings.append(
@@ -176,7 +199,7 @@ def evaluate(client, repo, pr_number):
 		)
 	for issue_number in issue_numbers:
 		issue = client.get(f"{prefix}/issues/{issue_number}")
-		if issue.get("state") == "closed":
+		if issue.get("state") != "open":
 			result.errors.append(f"Linked Issue #{issue_number} must be open before merge.")
 		if LABEL_ISSUE_REVIEW_REQUIRED not in label_names(issue):
 			result.errors.append(
@@ -207,12 +230,22 @@ def build_parser():
 
 def publish_result(client, args, pr_number, result):
 	server_url = os.getenv("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+	state = {
+		GateResult.PASS: "success",
+		GateResult.PENDING: "pending",
+		GateResult.FAIL: "failure",
+	}[result.state]
+	description = {
+		GateResult.PASS: "独立レビュー承認済み",
+		GateResult.PENDING: "独立レビュー待ち",
+		GateResult.FAIL: "AIレビューのポリシー違反",
+	}[result.state]
 	client.publish_status(
 		args.repo,
 		result.head_sha,
 		args.status_context,
-		"success" if result.ok else "failure",
-			"Independent Work Unit review is valid." if result.ok else "AI review policy failed.",
+		state,
+		description,
 		f"{server_url}/{args.repo}/pull/{pr_number}",
 	)
 
@@ -259,12 +292,16 @@ def evaluate_one(client, args, pr_number):
 		print(f"PR #{pr_number} ERROR: {error}", file=sys.stderr)
 	if args.publish_status and result.head_sha:
 		publish_result(client, args, pr_number, result)
-	if result.ok:
+	if result.state == GateResult.PASS:
 		print(
 			f"PR #{pr_number} PASS: review-work-unit={result.review_work_unit} "
 			f"head={result.head_sha}"
 		)
-	return result.ok
+	elif result.state == GateResult.PENDING:
+		print(f"PR #{pr_number} PENDING: 独立レビュー待ち head={result.head_sha}")
+	else:
+		print(f"PR #{pr_number} FAIL: AIレビューのポリシー違反 head={result.head_sha}", file=sys.stderr)
+	return result.state
 
 
 def main():
@@ -287,7 +324,7 @@ def main():
 			print(f"WARNING: no open PR links Issue #{args.issue_number}.")
 			return 0
 		results = [evaluate_one(client, args, number) for number in pr_numbers]
-		return 0 if all(results) else 1
+		return 1 if GateResult.FAIL in results else 0
 	except Exception as error:
 		print(f"ERROR: {error}", file=sys.stderr)
 		return 2

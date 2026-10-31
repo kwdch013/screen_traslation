@@ -14,23 +14,25 @@ class WorkflowTests(unittest.TestCase):
 
 	def test_uses_trusted_default_branch_scripts(self):
 		self.assertIn("pull_request_target:", self.text)
-		self.assertNotRegex(self.text, r"\bpull_request:")
+		self.assertNotRegex(self.text, r"(?m)^  pull_request:")
 		self.assertIn("ref: ${{ github.event.repository.default_branch }}", self.text)
 		self.assertNotIn("github.event.pull_request.head", self.text)
 		self.assertNotIn("github.head_ref", self.text)
 
 	def test_listens_to_review_related_events(self):
-		for event in ("issue_comment:", "issues:", "workflow_dispatch:"):
+		for event in ("pull_request_target:", "issue_comment:", "issues:", "workflow_dispatch:"):
 			self.assertIn(event, self.text)
 
 	def test_does_not_run_workflow_definition_from_pr_ref(self):
-		# pull_request_review は PR の merge ref 上の workflow 定義で動き、PR 側で改変できるため使わない
+		# pull_request_targetはdefault branch版のworkflowを起動し、PR側scriptを使わない
 		self.assertNotIn("pull_request_review", self.text)
+		self.assertNotIn("download-artifact", self.text)
 
 	def test_permissions_are_minimal(self):
 		self.assertRegex(self.text, r"(?m)^permissions:\n  contents: read$")
 		self.assertIn("statuses: write", self.text)
 		self.assertNotRegex(self.text, r"(contents|issues|pull-requests): write")
+		self.assertIn("runs-on: ubuntu-24.04", self.text)
 
 	def test_cancels_superseded_runs(self):
 		self.assertIn("concurrency:", self.text)
