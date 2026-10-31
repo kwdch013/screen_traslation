@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import struct
 import threading
+import time
 import unicodedata
 from typing import Any
 
@@ -132,11 +133,26 @@ _VALIDATOR = Draft202012Validator(
 )
 
 
-def read_until(websocket: Any, predicate: Callable[[dict[str, Any]], bool], *, timeout: float = 120) -> list[dict[str, Any]]:
-	"""契約に照合しながら、条件に合うtext messageまでを順に集める。timeoutは無応答検出専用。"""
+def read_until(
+	websocket: Any,
+	predicate: Callable[[dict[str, Any]], bool],
+	*,
+	timeout: float = 120,
+	overall_timeout: float = 180,
+	clock: Callable[[], float] = time.monotonic,
+) -> list[dict[str, Any]]:
+	"""契約に照合しながら、条件に合うtext messageまでを順に集める。
+
+	timeoutは1回のrecv、overall_timeoutはこの呼び出し全体の上限。heartbeat等が続いて
+	条件に合わない場合でも、全体の期限で失敗するため試験が長時間ハングしない(いずれも合否の同期条件ではない)。
+	"""
 	messages: list[dict[str, Any]] = []
+	deadline = clock() + overall_timeout
 	while True:
-		message = json.loads(websocket.recv(timeout=timeout))
+		remaining = deadline - clock()
+		if remaining <= 0:
+			raise TimeoutError(f"{overall_timeout}秒以内に期待するmessageが届きませんでした。受信済み: {[m['type'] for m in messages]}")
+		message = json.loads(websocket.recv(timeout=min(timeout, remaining)))
 		_VALIDATOR.validate(message)
 		messages.append(message)
 		if predicate(message):

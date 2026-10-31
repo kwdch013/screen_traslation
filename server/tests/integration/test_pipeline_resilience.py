@@ -30,11 +30,16 @@ def clear_cases() -> list[dict[str, Any]]:
 def drain_until_closed(websocket: Any) -> list[dict[str, Any]]:
 	"""サーバー切断までの受信済みtext messageを集める(送信待ちが無くなればConnectionClosed)。"""
 	import json
+	import time
 
 	messages: list[dict[str, Any]] = []
+	deadline = time.monotonic() + 180  # 切断されない場合に全体で失敗させる(合否条件ではない)
 	while True:
+		remaining = deadline - time.monotonic()
+		if remaining <= 0:
+			raise TimeoutError("180秒以内にサーバーが切断しませんでした。")
 		try:
-			messages.append(json.loads(websocket.recv(timeout=60)))
+			messages.append(json.loads(websocket.recv(timeout=min(60, remaining))))
 		except ConnectionClosed:
 			return messages
 

@@ -214,6 +214,42 @@ OCRは`server/src/screen_translation_server/engines/robust_ocr.py`(server専用�
 - Argos Translateの文分割(Stanza)は、既定では翻訳初回に外部(GitHub等)から資源一覧を取得し、外向き通信がないと最初の翻訳が失敗します。本試験は、取得済み資源だけを使う設定(`download_method=reuse_resources`)を試験側でStanzaへ与えて外向き通信なしで実行しています。製品サーバーを外向き通信なしで運用する場合は、同じ設定を製品側へ入れるか、準備段階で資源を取得する必要があります(#81/#109/#173の検討事項)。翻訳対象の文章を外部へ送るものではありません。
 - (解消済み・#173) 停止(DELETE)で待機中frameへ`pipeline.cancel`が呼ばれず、停止済みsessionの待機frameにも実OCRが走っていた件は、DELETEで`cancel`を別taskとして呼び、待機frameの取り出し時にもsession・世代・revisionを再照合してOCR前に破棄することで解消しました(`server/tests/test_delivery_diagnostics.py`)。
 
+## サーバー全体の設定更新・再起動結合試験 (Issue #85)
+
+R2(#76〜#84)の各Phaseをまたぎ、認証・準備確認・セッション・実エンジン翻訳・辞書/設定の更新と永続化・停止・再起動・再翻訳を、実TLS/WSSの本物のappで通します。ファイルは`server/tests/integration/test_server_scenario.py`(試験)と`scenario_support.py`(再起動・ログ捕捉・同期の部品)です。事前準備は#80と同じ(`prepare-model`済みのボリュームが必要。未準備なら**skipせず失敗**)。
+
+```bash
+docker compose -f server/compose.test.yml --profile integration run --build --rm integration \
+	python -B -m unittest discover -s tests/integration -p test_server_scenario.py -v
+```
+
+**本番と同じ経路**: 保存先は環境変数`SCREEN_TRANSLATION_DATA_DIR`、pipelineはappが最初のframeで`create_default_pipeline`により作る経路(辞書wrapper・保存済みfpsを引き継ぐ)です。重い実エンジンだけを共有し、pipeline生成関数を差し替えています。
+
+**「再起動」の定義**: 同じ保存先・資格情報・証明書のまま、listener・Session・辞書とキャッシュ・pipelineを止めて新しく作り直します(プロセス再起動の再現)。コンテナの停止・起動、名前付きvolumeの再マウントはこの試験では行っていません(下の未検証)。
+
+### 検証内容
+
+| 試験 | 内容 |
+| --- | --- |
+| 全体シナリオ | 未認証401→準備前503(readyとsession開始)→準備後200→セッション開始→翻訳→辞書(管理token+If-Match)と設定の更新(`ETag`・`X-Effective-From: next-frame`、pipelineのfps反映)→更新前revisionのframeは切断せず破棄→更新後revisionのframeに辞書訳(キャッシュ失効の確認)→停止→再起動→辞書・設定・revisionが一致→旧session_idは404、旧session_id付きframeは1008で拒否、再度POSTが必要で新しいsessionはgeneration 1・保存済みrevisionから開始→再翻訳で辞書が効き、新pipelineが保存済みfpsを使う |
+| 同時更新 | 同じ`If-Match`の2要求をBarrierで同時に解放し、200と409が1件ずつ、409の`ETag`が最新revision、保存値・実行中revisionが勝者と一致、敗者が読み直して再試行できる、再起動後も一致 |
+| 保存失敗 | 保存関数が失敗(例外文字列に目印を含める)したとき500 `INTERNAL_ERROR`、保存済み・実行中の辞書とrevisionが不変でframeも破棄されず、障害解消後に同じrevisionで更新できる |
+| モデル準備失敗 | モデル未導入のlifecycleがunreadyを返す間はsession開始が503 `MODEL_NOT_READY`でも辞書更新は成功し、再起動後に実エンジンで反映される |
+| 処理中の更新 | 実OCRを`Event`で保留中に辞書を更新し、旧revisionのframe結果は配信前に破棄され、次のframeだけが新辞書で配信される |
+| 切断中の更新 | 処理中に切断し、その間に辞書を更新。次のsessionは新revisionから始まり、旧sessionの結果・状態が届かない(購読・worker・待機画像の残留なし) |
+| ログ | 運用の既定(INFO)で出る全ログと自サーバーのDEBUGに、端末/管理token・原文・訳文・辞書訳・保存失敗の例外文字列とパスが出ない。session_idは診断ログに出ない(下の例外を除く) |
+| 待ち時間の上限 | `read_until`に全体の期限を設け(`overall_timeout`、既定180秒)、条件に合わないmessageが続いても失敗が早く分かる。注入クロックの単体試験つき。`drain_until_closed`にも同じ期限 |
+
+同期は`Event`・`Barrier`・破棄通知の`Condition`・サーバーloop内の状態待ちだけで、固定sleepを同期条件にしていません。timeoutは無応答時の失敗検出専用で、watchdogは合否条件にしていません。
+
+### 未解決事項・未検証 (#85)
+
+- **未検証**: コンテナの停止・起動をまたぐ名前付きvolumeの永続、製品の起動経路(`main`)での再起動。8時間連続稼働、性能(p50/p95)、Windows実機を含むE2E、複数端末の同時利用は#108/#109。
+- **製品の起動経路**: `main()`は`create_app()`を`is_ready=False`で起動し、`EngineLifecycle`のreadyをappへ反映する配線が見当たりません。本試験はlifecycleのreadyを試験側で反映しており、製品起動でsessionが開始できるかは未検証です(要確認の課題)。
+- **uvicornのaccessログ**: `DELETE /api/v1/sessions/{session_id}`のパスにsession_idが出ます。診断ログへsession_idを出さない不変条件([security.md](design/security.md))の対象外ですが、運用ログには残ります。accessログの抑止またはパス伏せが必要です(本試験は`uvicorn.access`をsession_id検査から除外し、token・訳文は含めて検査)。
+- **第三者ライブラリのログ**: `argostranslate`はINFOで原文・訳文をログに出し、rootにhandlerを足すと漏れます(既定では出力先がありません)。本試験は`argostranslate`のloggerを検査から除外しています。製品側で当該loggerを抑止する対処が必要です。運用でroot loggerにhandlerを付ける場合は注意してください。
+- **Stanza資源の外部取得**: #80と同じく`download_method=reuse_resources`を試験側で与えています(#189)。
+
 ## 変更後の回帰・静的検査
 
 サーバーや共通処理を変更した場合は、通常のサーバー試験に加え、アプリ用イメージとリポジトリをマウントした回帰試験を実行します。

@@ -28,6 +28,7 @@ class RealEngines:
 	ocr: Any
 	translator: Any
 	versions: dict[str, str]
+	lifecycle: EngineLifecycle
 
 
 _ENGINES: RealEngines | None = None
@@ -39,8 +40,9 @@ def real_engines() -> RealEngines:
 	if _ENGINES is None:
 		manifest = require_model()
 		use_installed_stanza_resources()
-		ocr, translator = EngineLifecycle(manifest, model_directory()).prepare()  # type: ignore[misc]
-		_ENGINES = RealEngines(manifest, ocr, translator, engine_versions(manifest))
+		lifecycle = EngineLifecycle(manifest, model_directory())
+		ocr, translator = lifecycle.prepare()  # type: ignore[misc]
+		_ENGINES = RealEngines(manifest, ocr, translator, engine_versions(manifest), lifecycle)
 	return _ENGINES
 
 
@@ -80,15 +82,20 @@ class PipelineCase(unittest.TestCase):
 		サーバーloop内で状態変化を待つ。timeoutは終了しない場合の失敗検出専用。
 		"""
 		async def wait_released() -> dict[str, int]:
+			# pipelineは最初のframeで作られるため、frameを送らなかった試験ではNoneのまま。
+			def workers() -> int:
+				return server.pipeline.active_worker_count if server.pipeline is not None else 0
+
 			async with asyncio.timeout(60):
 				await server.app.state.events.wait_until_empty()
-				while server.pipeline.active_worker_count or server.sessions._active is not None or server.app.state.streams:
+				while workers() or server.sessions._active is not None or server.app.state.streams:
 					await asyncio.sleep(0.01)
+			pipeline = server.pipeline
 			return {
 				"subscribers": server.app.state.events.subscriber_count_total,
-				"workers": server.pipeline.active_worker_count,
-				"pending": server.pipeline.pending_frame_count,
-				"published": len(server.pipeline.published_results),
+				"workers": workers(),
+				"pending": pipeline.pending_frame_count if pipeline is not None else 0,
+				"published": len(pipeline.published_results) if pipeline is not None else 0,
 				"streams": len(server.app.state.streams),
 			}
 		residue = server.run(wait_released(), timeout=90)
