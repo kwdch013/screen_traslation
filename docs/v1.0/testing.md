@@ -16,7 +16,7 @@ docker compose -f server/compose.test.yml run --build --rm test
 docker compose --profile integration -f server/compose.test.yml run --build --rm integration
 ```
 
-接続するたびにOpenSSLで一時CA・証明書・秘密鍵を生成し、テスト内で資格情報も生成します。期限切れ・SANなし・未信頼証明書、鍵不一致、不正/期限切れ/失効token、2台目開始、停止後の再開始、無通信WSS切断、HTTP 413、WSS 1009を検証します。通信期限を0.5秒に短縮して切断検知と所有権解放を測り、watchdogと登録処理taskの残留も確認します。HTTP応答は`contracts/schemas/`と`contracts/fixtures/errors.json`、WSS上限は`contracts/fixtures/binary-message-boundaries.json`に照合します。
+接続するたびにOpenSSLで一時CA・証明書・秘密鍵を生成し、テスト内で資格情報も生成します。期限切れ・SANなし・未信頼証明書、鍵不一致、不正/期限切れ/失効token、2台目開始、停止後の再開始、無通信WSS切断、HTTP 413、WSS 1009を検証します。通信期限を0.5秒に短縮して切断検知と所有権解放を測り、watchdogと登録処理taskの残留も確認します。HTTP応答は`contracts/schemas/`と`contracts/fixtures/errors.json`、WSS上限は`contracts/fixtures/binary-message-boundaries.json`に照合します。別資格情報のTLS実接続については、所有者以外のDELETEが403 `FORBIDDEN`、2台目POSTが409 `SESSION_IN_USE`となることをHTTP error fixture/schemaに照合し、別資格情報WSSから既存sessionのsession_id/generationを持つ有効frameを送った場合にclose 1008で拒否されることを確認します。各拒否の後もsession状態・owner_id・generationが不変で、所有者本人が停止できることを検証します。
 
 再実行は上記コマンドをそのまま使います。実行記録には実行日、コマンド、`docker compose`/Python/OpenSSL版、`server/requirements-dev.txt`のhttpx・websockets・jsonschema版、テスト件数、成功/失敗を残します。実行時のOpenSSL版は`docker compose --profile integration -f server/compose.test.yml run --rm integration openssl version`で確認できます。
 
@@ -42,11 +42,11 @@ docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -v "
 | 試験 | 実行環境・版 | 結果 |
 | --- | --- | --- |
 | server単体・契約 | Python 3.14.7 | 100件成功、3件skip |
-| TLS/接続境界integration | Python 3.14.7、OpenSSL 3.5.7、httpx 0.28.1、websockets 15.0.1、jsonschema 4.26.0 | 8件成功 |
-| app:ci全体試験 | Python 3.14 | 307件成功、73件skip |
+| TLS/接続境界integration | Python 3.14.7、OpenSSL 3.5.7、httpx 0.28.1、websockets 15.0.1、jsonschema 4.26.0 | 9件成功（Issue #165の所有権ケースを含む） |
+| app:ci全体試験 | Python 3.14 | 308件成功、74件skip |
 | read-only mount server回帰 | Python 3.14.7 | 93件成功、3件skip |
 | mypy `server/src` | app:ci / mypy 1.18.2 | 19 source files、問題なし |
 | mypy `src` / Windows platform | app:ci / mypy 1.18.2 | 各79 source files、問題なし |
 | ruff `server/src server/tests` (`--no-cache`) | app:ci / ruff 0.16.1 | 成功 |
 
-実行コマンド・Issueへの記録は [作業記録](../../tasks/2026-10-31_issue-74_session-integration.md) とIssue #74の試験結果Commentを参照してください。
+実行コマンド・Issueへの記録は [Issue #74作業記録](../../tasks/2026-10-31_issue-74_session-integration.md)、[Issue #165作業記録](../../tasks/2026-10-31_issue-165_session-ownership-tests.md)、Issue #74の試験結果Commentを参照してください。
