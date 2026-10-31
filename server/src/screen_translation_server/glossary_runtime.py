@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
+import logging
 import threading
 from typing import Any, Protocol
 
 from app.glossary import Glossary
 
 MAX_CACHE_ENTRIES = 512
+_LOGGER = logging.getLogger(__name__)
 
 
 class _Translator(Protocol):
@@ -42,12 +44,16 @@ class GlossaryRuntime:
 	def apply(self, entries: Sequence[Mapping[str, Any]], revision: int) -> bool:
 		"""新しい辞書を反映する。古いrevisionは無視し、反映したかを返す。"""
 		glossary = Glossary()
+		skipped = 0
 		for entry in entries:
 			try:
 				glossary.register(entry["source"], entry["target"])
 			except ValueError:
 				# 予約名など照合できない語は反映対象から外す。保存値は変えない。
-				continue
+				skipped += 1
+		if skipped:
+			# 語そのものは出さず、反映できなかった件数だけを記録する。
+			_LOGGER.warning("glossary_terms_skipped", extra={"skipped_count": skipped})
 		with self._lock:
 			if revision < self._revision:
 				return False

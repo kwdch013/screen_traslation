@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 from pathlib import Path
 import tempfile
@@ -9,6 +11,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
+import httpx
 from starlette.testclient import TestClient
 
 from _api_support import (
@@ -174,6 +177,15 @@ class GlossaryLiveReflectionTest(unittest.TestCase):
 		self.pipeline = TranslationPipeline(ocr, translator, clock=lambda: 1.0,
 			is_current=self.sessions.is_current)
 		self.app.state.pipeline = self.pipeline
+		# 破棄分岐の効果(処理に渡さない)を検証するため、submitされたframeを記録する。
+		self.submitted: list[int] = []
+		original_submit = self.pipeline.submit
+
+		async def spy_submit(frame):
+			self.submitted.append(frame.frame_id)
+			await original_submit(frame)
+
+		self.pipeline.submit = spy_submit  # type: ignore[method-assign]
 
 	def next_result(self, websocket) -> dict:
 		while True:
@@ -209,12 +221,110 @@ class GlossaryLiveReflectionTest(unittest.TestCase):
 				ws.send_bytes(binary_frame(session, 2, 2))
 				result = self.next_result(ws)
 				self.assertEqual((result["frame_id"], result["dictionary_revision"]), (2, 2))
+				self.assertEqual(self.submitted, [2])
 
 	def test_new_session_starts_with_current_revision(self) -> None:
 		with TestClient(self.app, base_url=BASE_URL) as client:
 			self.assertEqual(put(client, [ENTRY]).status_code, 200)
 			session = client.post("/api/v1/sessions", headers=DEVICE, json={}).json()
 			self.assertEqual(session["dictionary_revision"], 2)
+
+
+class ProductionPipelineWiringTest(unittest.TestCase):
+	"""pipelineを注入せず、本番の生成経路(_ensure_pipeline)の配線を検証する。"""
+
+	def setUp(self) -> None:
+		self.tmp = tempfile.TemporaryDirectory()
+		self.addCleanup(self.tmp.cleanup)
+
+		def ocr(_frame: Frame):
+			return [TextRegion("Start", Rect(0, 0, 32, 16), 0.9)]
+
+		translator = type("T", (), {"translate": lambda _s, text: "既定"})()
+		patcher = patch("screen_translation_server.engines.build_engines", return_value=(ocr, translator))
+		patcher.start()
+		self.addCleanup(patcher.stop)
+		self.app = make_app(Path(self.tmp.name))
+		self.assertIsNone(self.app.state.pipeline)
+
+	def first_result(self, client: TestClient, revision: int) -> dict:
+		session = client.post("/api/v1/sessions", headers=DEVICE, json={}).json()
+		with client.websocket_connect("wss://server.example/api/v1/stream", headers=DEVICE) as ws:
+			ws.receive_json()
+			ws.receive_json()
+			ws.send_bytes(binary_frame(session, 1, revision))
+			while True:
+				message = ws.receive_json()
+				if message["type"] == "result":
+					return message
+
+	def test_glossary_update_reaches_translation_of_production_pipeline(self) -> None:
+		with TestClient(self.app, base_url=BASE_URL) as client:
+			self.assertEqual(put(client, [ENTRY]).status_code, 200)
+			result = self.first_result(client, 2)
+		self.assertEqual(result["regions"][0]["translation"], "開始")
+
+	def test_settings_update_reaches_production_pipeline_rate_limit(self) -> None:
+		with TestClient(self.app, base_url=BASE_URL) as client:
+			response = client.put("/api/v1/settings", headers={**ADMIN, "If-Match": '"1"'},
+				json={"capture_fps": 5})
+			self.assertEqual(response.status_code, 200)
+			self.first_result(client, 1)
+			self.assertEqual(self.app.state.pipeline.capture_fps, 5)
+
+
+class CommitProtectionTest(unittest.IsolatedAsyncioTestCase):
+	async def test_cancelled_request_still_applies_committed_glossary(self) -> None:
+		loop = asyncio.get_running_loop()
+		entered = asyncio.Event()
+		applied = asyncio.Event()
+		release = threading.Event()
+		with tempfile.TemporaryDirectory() as tmp:
+			store = GlossaryStore(Path(tmp))
+			real_update = store.update
+
+			def slow_update(revision, payload):
+				loop.call_soon_threadsafe(entered.set)
+				release.wait(10)
+				return real_update(revision, payload)
+
+			store.update = slow_update  # type: ignore[method-assign]
+			runtime = GlossaryRuntime()
+			real_apply = runtime.apply
+
+			def apply(entries, revision):
+				result = real_apply(entries, revision)
+				applied.set()
+				return result
+
+			runtime.apply = apply  # type: ignore[method-assign]
+			app = make_app(Path(tmp), glossary_store=store, glossary_runtime=runtime)
+			applied.clear()  # 起動時の復元によるapplyを除く
+			async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE_URL) as client:
+				request = asyncio.create_task(client.put("/api/v1/glossary",
+					headers={**ADMIN, "If-Match": '"1"'}, json={"entries": [ENTRY]}))
+				await entered.wait()
+				request.cancel()
+				with contextlib.suppress(asyncio.CancelledError):
+					await request
+			release.set()
+			await asyncio.wait_for(applied.wait(), 10)  # 失敗時の保険であり同期判定ではない
+			self.assertEqual(runtime.revision, 2)
+			self.assertEqual(GlossaryStore(Path(tmp)).get()["revision"], 2)
+			self.assertEqual(app.state.sessions._dictionary_revision, 2)
+
+
+class SkippedTermLogTest(unittest.TestCase):
+	def test_skipped_terms_are_logged_as_count_only(self) -> None:
+		runtime = GlossaryRuntime()
+		with self.assertLogs("screen_translation_server.glossary_runtime", level="WARNING") as captured:
+			runtime.apply([{"source": "..", "target": "秘密の訳"}, ENTRY], 2)
+		self.assertEqual(len(captured.records), 1)
+		record = captured.records[0]
+		self.assertEqual(record.skipped_count, 1)
+		logged = record.getMessage() + repr(record.__dict__)
+		for text in ("..", "秘密の訳", "Start", "開始"):
+			self.assertNotIn(text, logged.replace("skipped_count", ""))
 
 
 if __name__ == "__main__":

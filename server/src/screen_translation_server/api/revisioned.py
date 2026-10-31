@@ -110,19 +110,25 @@ def build_routes(
 		store = get_store()
 		if store is None:
 			return internal()
-		async with update_lock:
-			try:
+		async def commit() -> dict[str, Any]:
+			async with update_lock:
 				updated = await asyncio.to_thread(store.update, int(match.group(1)), payload)
-			except RevisionConflict as conflict:
-				return error_response("REVISION_CONFLICT", "設定が更新されています。再読み込みしてください。",
-					409, {"ETag": _etag(conflict.current_revision)})
-			except StoreValidationError as error:
-				return too_large if error.too_large else invalid
-			except Exception:
-				_LOGGER.error("revisioned_update_failed")
-				return internal()
-			# 保存確定と同じtickで反映し、以降の新規frameだけが新値を使う。
-			apply_committed(updated)
+				# 保存確定と同じtickで反映し、以降の新規frameだけが新値を使う。
+				apply_committed(updated)
+				return updated
+
+		# 保存スレッドは取消されても止まらないため、保存と反映を1つのtaskにまとめてshieldし、
+		# 要求が取消されても「保存済みなのに未反映」の状態を残さない。
+		try:
+			updated = await asyncio.shield(asyncio.ensure_future(commit()))
+		except RevisionConflict as conflict:
+			return error_response("REVISION_CONFLICT", "設定が更新されています。再読み込みしてください。",
+				409, {"ETag": _etag(conflict.current_revision)})
+		except StoreValidationError as error:
+			return too_large if error.too_large else invalid
+		except Exception:
+			_LOGGER.error("revisioned_update_failed")
+			return internal()
 		return ok(updated, updated=True)
 
 	return [Route(path, read, methods=["GET"]), Route(path, write, methods=["PUT"])]

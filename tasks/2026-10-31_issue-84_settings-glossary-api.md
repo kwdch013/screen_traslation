@@ -30,6 +30,21 @@
 | 応答へ内部パスを追加 | test_responses_never_expose_secrets_or_internal_paths | 検出 |
 | 翻訳キャッシュ失効を除去 | test_update_invalidates_cache_and_applies_new_terms | 検出 |
 
+## 再レビュー対応(変更要求)
+
+- 指摘1: `ProductionPipelineWiringTest`を追加。pipelineを注入せず、`build_engines`をダブルに差し替えて本番生成経路(`_ensure_pipeline`)をWSSで検証(辞書反映、capture_fps反映)。
+- 指摘2: stale frameがpipelineへsubmitされないことをspyで検証。
+- 指摘3: 保存と反映を1つのtaskにまとめ`asyncio.shield`で保護。保存スレッドは取消されても止まらず、保存済みなのに未反映の状態を残さないため。取消を模擬するテストを追加。
+- 指摘4: 反映できなかった語は件数のみ固定文言でログ(`skipped_count`)。語・訳は出さない。
+
+| 追加Mutation | 検出したテスト | 結果 |
+| --- | --- | --- |
+| 配線削除(translator_wrapper) | test_glossary_update_reaches_translation_of_production_pipeline | 検出 |
+| 配線削除(capture_fps) | test_settings_update_reaches_production_pipeline_rate_limit | 検出 |
+| stale分岐のcontinueをpassに変更 | test_late_old_revision_frame_is_dropped_without_closing_stream | 検出 |
+| shield除去 | test_cancelled_request_still_applies_committed_glossary | 検出 |
+| skipログ削除 | test_skipped_terms_are_logged_as_count_only | 検出 |
+
 ## 未実施範囲
 
 実エンジンでの検証は#80/#109、サーバー全体の再起動結合は#85。
