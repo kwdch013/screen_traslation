@@ -54,7 +54,7 @@ from screen_translation_server.sessions import (
 	SessionNotFound,
 )
 from screen_translation_server.events import EventHub
-from screen_translation_server.lifecycle_readiness import LifecycleReadiness, ReadinessSource, ReadinessStatus
+from screen_translation_server.lifecycle_readiness import LifecycleReadiness, PipelineNotReady, ReadinessSource, ReadinessStatus
 from screen_translation_server.startup import StartupConfigurationError, lifecycle_from_environment
 from screen_translation_server.observability import ProcessingObserver
 from screen_translation_server.operational_logging import disable_access_logger, restrict_dependency_loggers
@@ -310,8 +310,17 @@ def create_app(
 					# 辞書更新前に送られたframeは切断せず、処理せず破棄する。
 					app.state.observer.dropped("stale_dictionary_revision", correlation_id=str(uuid4()))
 					continue
-				pipeline = _ensure_pipeline(app)
 				correlation_id = str(uuid4())
+				try:
+					pipeline = _ensure_pipeline(app)
+				except PipelineNotReady:
+					# 準備が整っていない間はエンジンを作らず、フレームを破棄して再試行可能な通知だけ返す。
+					app.state.observer.dropped("model_not_ready", correlation_id=correlation_id)
+					app.state.events.publish_error(
+						"MODEL_NOT_READY", correlation_id, session.session_id, session.generation,
+						session.dictionary_revision, frame_id=frame.metadata["frame_id"],
+					)
+					continue
 				started = app.state.observer.start("receive", correlation_id)
 				app.state.events.publish_state(
 					session.session_id, session.generation, session.dictionary_revision,
@@ -414,6 +423,11 @@ def _readiness_status(app: Starlette) -> ReadinessStatus:
 
 
 def _ensure_pipeline(app: Starlette) -> TranslationPipeline:
+	readiness: ReadinessSource | None = app.state.readiness
+	# readiness指定時は、準備前・準備失敗中・停止開始後にpipelineを使わせない(fail-closed)。
+	# 既存pipelineがあっても、readyを失った後はフレームを処理しない。
+	if readiness is not None and not readiness.status().ready:
+		raise PipelineNotReady()
 	pipeline = app.state.pipeline
 	if pipeline is None:
 		options = dict(
@@ -423,13 +437,15 @@ def _ensure_pipeline(app: Starlette) -> TranslationPipeline:
 			capture_fps=app.state.capture_fps,
 			translator_wrapper=app.state.glossary_runtime.wrap,
 		)
-		readiness: ReadinessSource | None = app.state.readiness
 		engines = readiness.engines if readiness is not None else None
-		if engines is not None:
+		if readiness is None:
+			# readiness未指定の互換経路(既存の単体試験・単独起動)だけが既定構成を組み立てる。
+			pipeline = create_default_pipeline(**options)
+		elif engines is not None:
 			# EngineLifecycleが検証・warmup済みのエンジンをそのまま使う(二重ロードしない)。
 			pipeline = create_pipeline_from_engines(*engines, **options)  # type: ignore[arg-type]
 		else:
-			pipeline = create_default_pipeline(**options)
+			raise PipelineNotReady()
 		app.state.pipeline = pipeline
 	if hasattr(pipeline, "set_frame_current_check"):
 		pipeline.set_frame_current_check(app.state.sessions.is_frame_current)

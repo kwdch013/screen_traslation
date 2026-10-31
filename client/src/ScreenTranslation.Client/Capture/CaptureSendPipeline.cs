@@ -40,6 +40,9 @@ public sealed class CaptureSendPipeline
 	public bool HasPending => sender.HasPending;
 	public ulong Generation { get { lock (sync) return generation; } }
 
+	/// <summary>取得fps上限のため、いま画素を読み出しても破棄される見込みか。</summary>
+	public bool WouldThrottle(long nowNanoseconds) => processor.WouldThrottle(nowNanoseconds);
+
 	public void BeginSession(Guid sessionId, ulong newGeneration, ulong dictionaryRevision)
 	{
 		lock (sync)

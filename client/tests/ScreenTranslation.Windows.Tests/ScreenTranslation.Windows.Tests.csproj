@@ -17,6 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Shared\CaptureTestSupport.cs" Link="Shared\CaptureTestSupport.cs" />
+    <Compile Include="..\Shared\AppHostTestSupport.cs" Link="Shared\AppHostTestSupport.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\ScreenTranslation.Windows\ScreenTranslation.Windows.csproj" />

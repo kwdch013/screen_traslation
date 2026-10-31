@@ -25,14 +25,22 @@ public sealed class CaptureFrameRouter : ICapturedFrameSink
 {
 	private readonly CaptureSendPipeline pipeline;
 	private readonly Func<CaptureRoute?> currentRoute;
+	private readonly Func<long> monotonicNanoseconds;
 
-	public CaptureFrameRouter(CaptureSendPipeline pipeline, Func<CaptureRoute?> currentRoute)
+	/// <param name="monotonicNanoseconds">取得fps上限による間引きの判定に使う単調時計(ナノ秒)。省略時はStopwatch。</param>
+	public CaptureFrameRouter(CaptureSendPipeline pipeline, Func<CaptureRoute?> currentRoute, Func<long>? monotonicNanoseconds = null)
 	{
 		this.pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
 		this.currentRoute = currentRoute ?? throw new ArgumentNullException(nameof(currentRoute));
+		this.monotonicNanoseconds = monotonicNanoseconds ?? (() => System.Diagnostics.Stopwatch.GetTimestamp() * (1_000_000_000L / System.Diagnostics.Stopwatch.Frequency));
 	}
 
-	public CaptureRoute? TryBeginFrame() => currentRoute();
+	/// <summary>ROI未選択・停止中、または取得fps上限で破棄される見込みのフレームは読み出さない(高コストなGPU→CPU転送を避ける)。</summary>
+	public CaptureRoute? TryBeginFrame()
+	{
+		var route = currentRoute();
+		return route is not null && !pipeline.WouldThrottle(monotonicNanoseconds()) ? route : null;
+	}
 
 	public CapturePipelineOutcome Deliver(CapturedFrame frame, CaptureRoute route)
 	{

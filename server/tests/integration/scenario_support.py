@@ -139,6 +139,7 @@ class ScenarioCase(PipelineCase):
 		server = LiveServer(None, sessions, site=site, readiness=readiness)
 		self.addCleanup(server.close)
 		if lifecycle is None:
+			self.assertTrue(readiness.started, "準備ループが開始されていない(lifespanのstart除去の疑い)")
 			self.assertTrue(readiness.ready_event.wait(WAIT_SECONDS))
 		# uvicornのConfigがloggingを再設定してhandlerを外すため、起動のたびに付け直す。
 		for logger in self._loggers:
