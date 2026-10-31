@@ -28,18 +28,32 @@ public sealed class WindowsRegionSelectionOverlay
 		}
 
 		var selection = new RegionSelection(monitors);
+		var session = new RegionSelectionSession();
 		var completion = new TaskCompletionSource<Rect2D?>(TaskCreationOptions.RunContinuationsAsynchronously);
-		var windows = monitors.Select(monitor => new RegionSelectionWindow(monitor)).ToArray();
+		var windows = monitors.Select(monitor => new RegionSelectionWindow(monitor, session)).ToArray();
 		foreach (var window in windows)
 		{
 			window.SelectionCompleted += region =>
 			{
-				if (selection.TrySelect(region))
+				if (selection.TrySelect(region) && session.Complete())
 				{
 					completion.TrySetResult(region);
 				}
 			};
-			window.Cancelled += () => completion.TrySetResult(null);
+			window.Cancelled += () =>
+			{
+				if (session.Cancel())
+				{
+					completion.TrySetResult(null);
+				}
+			};
+			window.Invalidated += () =>
+			{
+				if (session.NotifyEnvironmentChanged())
+				{
+					completion.TrySetException(new OperationCanceledException("DPIまたは画面構成が変わったため、領域選択を無効化しました。"));
+				}
+			};
 			window.Show();
 		}
 
@@ -62,14 +76,17 @@ public sealed class WindowsRegionSelectionOverlay
 		private const uint SwpNoActivate = 0x0010;
 		private const uint SwpShowWindow = 0x0040;
 		private readonly MonitorContext monitor;
+		private readonly RegionSelectionSession session;
 		private readonly Canvas canvas = new();
 		private readonly TextBlock hint;
 		private Point? dragStart;
 		private Rectangle? selectionShape;
+		private bool initialPlacementComplete;
 
-		public RegionSelectionWindow(MonitorContext monitor)
+		public RegionSelectionWindow(MonitorContext monitor, RegionSelectionSession session)
 		{
 			this.monitor = monitor;
+			this.session = session;
 			WindowStyle = WindowStyle.None;
 			ResizeMode = ResizeMode.NoResize;
 			AllowsTransparency = true;
@@ -99,6 +116,7 @@ public sealed class WindowsRegionSelectionOverlay
 
 		public event Action<Rect2D>? SelectionCompleted;
 		public event Action? Cancelled;
+		public event Action? Invalidated;
 
 		protected override void OnContentRendered(EventArgs e)
 		{
@@ -121,19 +139,21 @@ public sealed class WindowsRegionSelectionOverlay
 			var handle = new WindowInteropHelper(this).Handle;
 			SetWindowPos(handle, new IntPtr(-1), monitor.PhysicalBounds.Left, monitor.PhysicalBounds.Top,
 				checked((int)monitor.PhysicalBounds.Width), checked((int)monitor.PhysicalBounds.Height), SwpNoActivate | SwpShowWindow);
+			initialPlacementComplete = true;
 		}
 
 		private IntPtr HandleWindowMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
 		{
-			if (message == 0x02E0)
+			if (initialPlacementComplete && (message is 0x02E0 or 0x007E))
 			{
-				Cancelled?.Invoke();
+				Invalidated?.Invoke();
 			}
 			return IntPtr.Zero;
 		}
 
 		private void BeginSelection(object sender, MouseButtonEventArgs args)
 		{
+			session.BeginSelection();
 			dragStart = args.GetPosition(canvas);
 			Mouse.Capture(this);
 			selectionShape = new Rectangle
