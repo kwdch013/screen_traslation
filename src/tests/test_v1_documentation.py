@@ -169,7 +169,13 @@ class V1DocumentationTest(unittest.TestCase):
 				self.assertIn(expected, row)
 		architecture = self.read("docs/v1.0/design/architecture.md")
 		design_row = next(line for line in architecture.splitlines() if line.startswith("| #73 |"))
-		self.assertIn("REQ-F-006/010、REQ-NF-004", design_row)
+		self.assertIn("REQ-F-006 / REQ-F-010 / REQ-NF-004", design_row)
+		operations = self.read("docs/v1.0/operations.md")
+		for expected in ("## セッションと切断時の運用", "409 SESSION_IN_USE", "#74", "#108"):
+			with self.subTest(operation_doc=expected):
+				self.assertIn(expected, operations)
+		contract = self.read("contracts/session-state.md")
+		self.assertIn("Issue #73 の `SessionManager` はこの遷移表に従い", contract)
 
 	def test_roadmap_maps_bootstrap_to_v1_requirements(self) -> None:
 		roadmap = self.read("plan/version_1/roadmap.md")
