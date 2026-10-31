@@ -91,6 +91,7 @@ class TranslationPipeline:
 		self._epoch: dict[str, int] = {}
 		self._results: deque[PipelineResult] = deque(maxlen=1)
 		self._active_generation: dict[str, int | None] = {}
+		self._latest_generation: dict[str, int] = {}
 		self.dropped_frames = 0
 		self.expired_frames = 0
 		self.failed_frames = 0
@@ -103,12 +104,20 @@ class TranslationPipeline:
 			self.dropped_frames += 1
 			return
 		async with self._lifecycle_lock:
+			if not await self._current(frame.session_id, frame.generation):
+				self.dropped_frames += 1
+				return
+			latest_generation = self._latest_generation.get(frame.session_id)
+			if latest_generation is not None and frame.generation < latest_generation:
+				self.dropped_frames += 1
+				return
 			previous_generation = self._active_generation.get(frame.session_id)
 			if frame.session_id in self._active_generation and previous_generation != frame.generation:
 				if previous_generation is None:
 					self.dropped_frames += 1
 					return
 				await self._cancel_locked(frame.session_id, new_generation=frame.generation)
+			self._latest_generation[frame.session_id] = frame.generation
 			async with self._lock:
 				active_generation = self._active_generation.get(frame.session_id)
 				if frame.session_id in self._active_generation and active_generation != frame.generation:
@@ -134,6 +143,11 @@ class TranslationPipeline:
 	async def cancel(self, session_id: str, *, new_generation: int | None = None) -> None:
 		"""停止・再選択・切断・世代変更時に処理を取消して完了まで待つ。"""
 		async with self._lifecycle_lock:
+			latest_generation = self._latest_generation.get(session_id)
+			if new_generation is not None and latest_generation is not None and new_generation < latest_generation:
+				return
+			if new_generation is not None:
+				self._latest_generation[session_id] = new_generation
 			await self._cancel_locked(session_id, new_generation=new_generation)
 
 	async def _cancel_locked(self, session_id: str, *, new_generation: int | None) -> None:

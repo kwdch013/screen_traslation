@@ -42,6 +42,49 @@ class ObservableTask(asyncio.Task[Any]):
 
 
 class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
+	async def test_stale_submit_after_generation_switch_cannot_cancel_current_worker(self) -> None:
+		ocr_started = threading.Event()
+		release_generation_one_check = threading.Event()
+		generation_one_check_entered = threading.Event()
+		release_generation_two_ocr = threading.Event()
+		generation = 1
+		seen: list[int] = []
+		def recognize(frame: object) -> list[object]:
+			seen.append(frame.frame_id)  # type: ignore[attr-defined]
+			ocr_started.set()
+			if frame.frame_id == 2:  # type: ignore[attr-defined]
+				release_generation_two_ocr.wait()
+			return []
+		async def is_current(session: str, value: int) -> bool:
+			if value == 1 and not generation_one_check_entered.is_set():
+				was_current = value == generation
+				generation_one_check_entered.set()
+				await asyncio.to_thread(release_generation_one_check.wait)
+				return was_current
+			return value == generation
+		pipeline = TranslationPipeline(recognize, lambda text: text, clock=lambda: 0.0,
+			is_current=is_current,
+			create_task=lambda coroutine: ObservableTask(coroutine,
+				loop=asyncio.get_running_loop()))
+		stale_submit = asyncio.create_task(pipeline.submit(self.frame(1, generation=1)))
+		try:
+			self.assertTrue(await asyncio.to_thread(generation_one_check_entered.wait, 1))
+			generation = 2
+			await pipeline.submit(self.frame(2, generation=2))
+			self.assertTrue(await asyncio.to_thread(ocr_started.wait, 1))
+			current_worker = pipeline._worker
+			self.assertIsNotNone(current_worker)
+		finally:
+			release_generation_one_check.set()
+			release_generation_two_ocr.set()
+		await stale_submit
+		await pipeline.wait_idle()
+		self.assertFalse(current_worker.cancel_requested.is_set())  # type: ignore[union-attr]
+		self.assertIs(pipeline._worker, None)
+		self.assertEqual(pipeline._active_generation["session"], 2)
+		self.assertEqual(seen, [2])
+		self.assertEqual([item.result.generation for item in pipeline.published_results], [2])
+
 	async def test_rejects_excessive_image_and_roi_without_allocating_worker(self) -> None:
 		pipeline = TranslationPipeline(lambda frame: [], lambda text: text, clock=lambda: 0.0, max_image_bytes=8)
 		with self.assertRaises(PipelineLimitError):
