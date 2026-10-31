@@ -99,13 +99,22 @@ class CredentialLifecycleTests(unittest.TestCase):
 		root = Path(self.directory.name)
 		ca_key, ca_cert = root / "test-ca.key", root / "test-ca.pem"
 		leaf_key, leaf_csr, leaf_cert = root / "leaf.key", root / "leaf.csr", root / "leaf.pem"
+		sanless_csr, sanless_cert = root / "sanless.csr", root / "sanless.pem"
+		mismatch_cert, untrusted_ca, untrusted_cert = root / "mismatch.pem", root / "untrusted-ca.pem", root / "untrusted.pem"
 		wrong_key = root / "wrong.key"
 		extensions = root / "extensions.cnf"
+		mismatch_extensions = root / "mismatch-extensions.cnf"
 		extensions.write_text("subjectAltName=DNS:test.invalid\nbasicConstraints=CA:FALSE\n", encoding="utf-8")
+		mismatch_extensions.write_text("subjectAltName=DNS:other.example.test\nbasicConstraints=CA:FALSE\n", encoding="utf-8")
 		commands = [
 			["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(ca_key), "-out", str(ca_cert), "-days", "2", "-subj", "/CN=test-ca"],
 			["openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", str(leaf_key), "-out", str(leaf_csr), "-subj", "/CN=test.invalid"],
 			["openssl", "x509", "-req", "-in", str(leaf_csr), "-CA", str(ca_cert), "-CAkey", str(ca_key), "-CAcreateserial", "-out", str(leaf_cert), "-days", "1", "-extfile", str(extensions)],
+			["openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", str(root / "sanless.key"), "-out", str(sanless_csr), "-subj", "/CN=test.invalid"],
+			["openssl", "x509", "-req", "-in", str(sanless_csr), "-CA", str(ca_cert), "-CAkey", str(ca_key), "-CAcreateserial", "-out", str(sanless_cert), "-days", "1"],
+			["openssl", "x509", "-req", "-in", str(leaf_csr), "-CA", str(ca_cert), "-CAkey", str(ca_key), "-CAcreateserial", "-out", str(mismatch_cert), "-days", "1", "-extfile", str(mismatch_extensions)],
+			["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(root / "untrusted-ca.key"), "-out", str(untrusted_ca), "-days", "2", "-subj", "/CN=untrusted-ca"],
+			["openssl", "x509", "-req", "-in", str(leaf_csr), "-CA", str(untrusted_ca), "-CAkey", str(root / "untrusted-ca.key"), "-CAcreateserial", "-out", str(untrusted_cert), "-days", "1", "-extfile", str(extensions)],
 			["openssl", "genpkey", "-algorithm", "RSA", "-out", str(wrong_key), "-pkeyopt", "rsa_keygen_bits:2048"],
 		]
 		for command in commands:
@@ -114,6 +123,14 @@ class CredentialLifecycleTests(unittest.TestCase):
 		environment = {**os.environ, "SCREEN_TRANSLATION_TLS_MIN_REMAINING_SECONDS": "60"}
 		valid = subprocess.run([str(script), str(leaf_cert), str(leaf_key), str(ca_cert), "test.invalid"], env=environment, capture_output=True, timeout=15)
 		self.assertEqual(valid.returncode, 0, valid.stderr.decode("utf-8", errors="replace"))
+		sanless = subprocess.run([str(script), str(sanless_cert), str(root / "sanless.key"), str(ca_cert), "test.invalid"], env=environment, capture_output=True, timeout=15)
+		self.assertNotEqual(sanless.returncode, 0, "CN一致でもDNS SANがない証明書は拒否する")
+		mismatch = subprocess.run([str(script), str(mismatch_cert), str(leaf_key), str(ca_cert), "test.invalid"], env=environment, capture_output=True, timeout=15)
+		self.assertNotEqual(mismatch.returncode, 0, "対象名と異なるDNS SANは拒否する")
+		near_expiry = subprocess.run([str(script), str(leaf_cert), str(leaf_key), str(ca_cert), "test.invalid"], env={**environment, "SCREEN_TRANSLATION_TLS_MIN_REMAINING_SECONDS": "172800"}, capture_output=True, timeout=15)
+		self.assertNotEqual(near_expiry.returncode, 0, "必要な残存期間を満たさない証明書は拒否する")
+		untrusted = subprocess.run([str(script), str(untrusted_cert), str(leaf_key), str(ca_cert), "test.invalid"], env=environment, capture_output=True, timeout=15)
+		self.assertNotEqual(untrusted.returncode, 0, "信頼されていないCAの証明書は拒否する")
 		mismatch = subprocess.run([str(script), str(leaf_cert), str(wrong_key), str(ca_cert), "test.invalid"], env=environment, capture_output=True, timeout=15)
 		self.assertNotEqual(mismatch.returncode, 0)
 

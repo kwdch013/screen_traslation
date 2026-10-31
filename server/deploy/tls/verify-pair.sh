@@ -13,6 +13,14 @@ dns_name=$4
 minimum_remaining_seconds=${SCREEN_TRANSLATION_TLS_MIN_REMAINING_SECONDS:-86400}
 
 openssl x509 -in "$certificate" -noout -checkend "$minimum_remaining_seconds" >/dev/null
+subject_alt_names=$(openssl x509 -in "$certificate" -noout -ext subjectAltName 2>/dev/null) || {
+	printf '%s\n' '証明書にSubject Alternative Nameがありません。' >&2
+	exit 1
+}
+if ! printf '%s\n' "$subject_alt_names" | grep -q 'DNS:'; then
+	printf '%s\n' '証明書にDNS Subject Alternative Nameがありません。' >&2
+	exit 1
+fi
 openssl x509 -in "$certificate" -noout -checkhost "$dns_name" >/dev/null
 openssl verify -CAfile "$trusted_ca" "$certificate" >/dev/null
 
