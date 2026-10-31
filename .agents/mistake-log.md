@@ -66,8 +66,10 @@
 - 何が起きたか: `gh issue comment --body`の二重引用符内にMarkdownのバッククォートを含めたため、shellがコマンド置換として実行し、Claim本文のBase/Merge targetが空欄になった。Claim自体は投稿された。
 - 根本原因: 複数行のMarkdown本文をshell文字列へ直接埋め込み、バッククォートをコマンド構文として扱うshellの挙動を避けなかった。
 - 正しいやり方: GitHubへ複数行本文を送る場合は、クォート済みの一時ファイルへヒアドキュメントで本文を書き、`--body-file`を使う。投稿後に本文を読み戻して重要項目を確認する。
-- 発生回数: 1
-- guard: なし
+- 発生回数: 2
+- guard: guard-safe-github-body-edit
+- 2026-10-31の差分: PR #161の新規本文を未引用here-documentで作り、Markdownのバッククォート部分がshell command substitutionされて欠落した。引用済みhere-documentで本文ファイルを再作成してPRから読み戻し、内容を復旧した。
+- 再発原因: 既存guardのdescriptionが本文の編集・追記だけを対象にし、新規作成を起動条件に含めていなかった。また、新規本文作成コマンドで引用済みhere-documentを使うチェックが不足していた。
 
 ## 2026-10-30 Compose内のテストへホスト側のモジュール名を指定した
 - 何が起きたか: 専用Composeコンテナのテスト対象をホスト側の`server.tests.*`として指定し、コンテナ内に存在しないモジュール名で実行してしまった。
@@ -84,5 +86,9 @@
 - 何が起きたか: 再選択テストで再選択taskを一度だけyieldした後にキャンセル通知を検査し、実装が正しくcancelしているのに通知前のタイミングで失敗した。
 - 根本原因: 複数のasyncio task間のスケジューリング順序を一回の`asyncio.sleep(0)`で固定できると仮定した。
 - 正しいやり方: 通知イベントを検査する前に制御されたscheduler checkpointを必要回数進める。キャンセルを外したmutationでもtestが終了するよう、検査前にdrain解放イベントを必ずセットする。
+
+## 2026-10-31 workflow回帰テストを関連テスト集合から漏らした
+- 何が起きたか: `.github/workflows/ai-review-gate.yml`の説明コメントを変更したTask #160で、`src.tests.test_development_branch`をローカル実行しなかった。PR CIで`test_issue_closes_when_task_pr_merges_into_develop`が既存のworkflowコメント文字列を期待して失敗した。
+- 根本原因: 文書マウント回帰の定型コマンドだけを実行し、変更ファイルに対応する別の構成回帰テストを収集しなかった。
 - 発生回数: 1
 - guard: なし
