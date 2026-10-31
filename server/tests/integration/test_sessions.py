@@ -324,6 +324,9 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 			with self.assertRaises(ConnectionClosed) as closed:
 				websocket.recv(timeout=2)
 		self.assertEqual(closed.exception.rcvd.code, 1000)
+		asyncio.run_coroutine_threadsafe(
+			self.app.state.events.wait_until_empty(), self.server_loop,
+		).result(timeout=60)
 		self.assertFalse(self._is_current(first["session_id"], first["generation"]))
 
 		second = self._start().json()

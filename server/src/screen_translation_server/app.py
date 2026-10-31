@@ -310,11 +310,14 @@ def create_app(
 		except WebSocketDisconnect:
 			return
 		finally:
-			revocation_watch.cancel()
+			background_tasks = [revocation_watch]
 			if heartbeat_task is not None:
-				heartbeat_task.cancel()
+				background_tasks.append(heartbeat_task)
 			if sender_task is not None:
-				sender_task.cancel()
+				background_tasks.append(sender_task)
+			for task in background_tasks:
+				task.cancel()
+			await asyncio.gather(*background_tasks, return_exceptions=True)
 			if subscription is not None:
 				app.state.events.unsubscribe(subscription)
 			if session is not None and app.state.streams.get(session.session_id) is websocket:
