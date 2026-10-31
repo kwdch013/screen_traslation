@@ -66,3 +66,21 @@
 - 最終検証: `docker compose -p issue-93 -f client/compose.test.yml run --build --rm test` 成功（Core 1、Client 60、Contracts 4）。`docker build -t app:ci .` 成功後、指定のPython回帰は308件成功（74 skip）。`src/`を`/app/src`へread-only mountした回帰も308件成功（74 skip）。
 - 文書と要件ID検証: repository文書をread-only mountした`test_v1_documentation`/`test_web_documentation`は39件成功。`mypy src`と`mypy --platform win32 src`は各79 source files成功、`ruff check --no-cache src scripts tests/ai_gate`成功。
 - PR #164の`windows-client`などGitHub checksはpush後に確認する。独立レビューは依頼しない。
+
+## PR #164 追加変更要求 (high・結果配線の回帰テスト) の対応
+
+- `RegionSelectionCoordinator`をWindows非依存のClientロジックへ追加。`RegionSelection`・既存状態機械・結果mapper・`TaskCompletionSource<Rect2D?>`を所有し、`OnDpiChanged` / `OnLayoutChanged` / `OnEscape` / `OnCommit` / `OnSelectionStarted`を公開する。
+- Windows overlayはOSイベントをcoordinatorへ渡し、その`Completion` Taskを返すだけに変更。overlayに`TaskCompletionSource`・`TrySetResult`・`TrySetException`を置かない。`WM_DPICHANGED`と`WM_DISPLAYCHANGE`は各専用メソッドへ分けて渡す。
+- ClientテストでEsc=null、確定=ROI、初回配置時のDPI通知無視と後続選択、選択中のDPI/画面変更=`OperationCanceledException`、二重完了と完了後イベントの無視、取消後の新規選択、overlay内の完了ソース不在を確認する。
+- 指定mutationをそれぞれ実施し、失敗を確認後に復元:
+
+| Mutation | 結果 | 検出 |
+| --- | --- | --- |
+| coordinatorの環境無効化を`TrySetResult(null)`へ変更 | 失敗 (66 passed / 2 failed) | DPI変更と画面構成変更の例外契約テスト |
+| overlayへダミーの`TaskCompletionSource` / `TrySetResult(null)`を再導入 | 失敗 (67 passed / 1 failed) | overlay構造テスト |
+| 初回配置ガードを状態機械から除去 | 失敗 (66 passed / 2 failed) | 初回配置DPI通知と既存状態機械テスト |
+
+- 混在DPI環境での実測誤差2 px以下、実際のROI操作、OSメッセージが実機でoverlayからcoordinatorへ届くことは**未実施（Windows実機が必要、#136/#148系）**。Windows CIの`windows-client`でoverlayビルドを確認する。
+- 最終検証: Client compose Core 1 / Client 68 / Contracts 4 成功。`docker build -t app:ci .`と指定Python全回帰・read-only mount回帰はいずれも成功（各308件、74 skip）。mount付き文書/要件ID検査39件、`mypy src` / `mypy --platform win32 src`（各79 source files）、ruff成功。
+- `docker run --rm issue-93-test dotnet build client/ScreenTranslation.sln --configuration Release -p:EnableWindowsTargeting=true`: 0 error。既存`TransportPlatformTests.cs`のxUnit analyzer warning 1件のみ。Windows CIの`windows-client`チェックもpush後に確認する。
+- overlayの`TaskCompletionSource` / `TrySetResult` / `TrySetException`不在をgrepで確認。実機での混在DPI誤差・ROI操作・OSイベント到達は未実施のまま。
