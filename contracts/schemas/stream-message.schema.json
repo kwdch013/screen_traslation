@@ -5,24 +5,39 @@
   "oneOf": [
     {
       "type": "object", "additionalProperties": false,
-      "required": ["type", "session_id", "generation", "dictionary_revision", "state"],
+        "required": ["type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id", "state"],
       "properties": {
         "type": {"const": "state"},
         "session_id": {"type": "string", "format": "uuid", "maxLength": 36},
         "generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
         "dictionary_revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
-        "state": {"type": "string", "enum": ["accepted", "processing", "ready", "stopped"]}
+        "correlation_id": {"type": "string", "format": "uuid", "maxLength": 36},
+        "state": {"type": "string", "enum": ["accepted", "processing", "ready", "stopped"]},
+        "frame_id": {"oneOf": [{"type": "null"}, {"type": "integer", "minimum": 1, "maximum": 18446744073709551615}]}
       }
     },
     {
       "type": "object", "additionalProperties": false,
-      "required": ["type", "session_id", "generation", "frame_id", "dictionary_revision", "status", "image_width", "image_height", "regions", "server_processing_ms"],
+      "required": ["type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id"],
+      "properties": {
+        "type": {"const": "heartbeat"},
+        "session_id": {"type": "string", "format": "uuid", "maxLength": 36},
+        "generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+        "dictionary_revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+        "correlation_id": {"type": "string", "format": "uuid", "maxLength": 36},
+        "frame_id": {"oneOf": [{"type": "null"}, {"type": "integer", "minimum": 1, "maximum": 18446744073709551615}]}
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id", "status", "image_width", "image_height", "regions", "server_processing_ms"],
       "properties": {
         "type": {"const": "result"},
         "session_id": {"type": "string", "format": "uuid", "maxLength": 36},
         "generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
         "frame_id": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
         "dictionary_revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+        "correlation_id": {"type": "string", "format": "uuid", "maxLength": 36},
         "status": {"type": "string", "enum": ["ok", "empty"]},
         "image_width": {"type": "integer", "minimum": 64, "maximum": 1920},
         "image_height": {"type": "integer", "minimum": 32, "maximum": 1080},
@@ -33,6 +48,9 @@
             "required": ["rect", "source", "translation", "confidence"],
             "properties": {
               "rect": {
+                "oneOf": [
+                  {"type": "null"},
+                  {
                 "type": "object", "additionalProperties": false,
                 "required": ["left", "top", "right", "bottom"],
                 "properties": {
@@ -40,7 +58,9 @@
                   "top": {"type": "integer", "minimum": 0, "maximum": 1080},
                   "right": {"type": "integer", "minimum": 1, "maximum": 1920},
                   "bottom": {"type": "integer", "minimum": 1, "maximum": 1080}
-                }
+                  }
+                  }
+                ]
               },
               "source": {"type": "string", "minLength": 1, "maxLength": 2048},
               "translation": {"type": "string", "minLength": 1, "maxLength": 2048},
@@ -53,11 +73,14 @@
     },
     {
       "type": "object", "additionalProperties": false,
-      "required": ["type", "code", "correlation_id"],
+      "required": ["type", "code", "correlation_id", "session_id", "generation", "frame_id", "dictionary_revision"],
       "properties": {
         "type": {"const": "error"},
         "code": {"type": "string", "enum": ["AUTHENTICATION_FAILED", "SESSION_MISMATCH", "PROTOCOL_VIOLATION", "INVALID_IMAGE", "MESSAGE_TOO_LARGE", "PROCESSING_FAILED", "MODEL_NOT_READY"]},
         "correlation_id": {"type": "string", "format": "uuid", "maxLength": 36},
+        "session_id": {"type": "string", "format": "uuid", "maxLength": 36},
+        "generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+        "dictionary_revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
         "frame_id": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615}
       }
     }

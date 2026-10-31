@@ -308,6 +308,9 @@ paths:
         textMessage:
           schema: ./schemas/stream-message.schema.json
           direction: server-to-client
+          heartbeatIntervalSeconds: 1
+          boundedSubscriberQueueEvents: 8
+          messages: [state, heartbeat, result, error]
       responses:
         '101': {description: tokenとsession所有権を確認した後にUpgrade}
         '400': {$ref: '#/components/responses/InvalidRequest'}

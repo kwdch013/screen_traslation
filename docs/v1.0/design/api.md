@@ -105,14 +105,17 @@ ROIの仮想screen physical px、負座標、画像座標原点・矩形半開�
 
 ## WSS text state / result
 
-serverからclientへのtext JSONは[`stream-message.schema.json`](../../../contracts/schemas/stream-message.schema.json)で`state`または`result`のどちらか一つに限定します。
+serverからclientへのtext JSONは[`stream-message.schema.json`](../../../contracts/schemas/stream-message.schema.json)で`state`, `heartbeat`, `result`, `error`のいずれか一つに限定します。
 
-- `state`: session/generation/dictionary_revisionと`accepted | processing | ready | stopped`を示します。エラーcloseを空結果に読み替えません。
-- `error`: `code`, `correlation_id`と任意の`frame_id`のみを持ち、入力内容・例外詳細を返しません。
-- `result`: frame相関値、status (`ok | empty`)、画像寸法、領域配列、`server_processing_ms`を含みます。
-- 領域: `rect`は画像座標の`left, top, right, bottom`、英語原文`source`、日本語`translation`、0..1のconfidence。
+- `state`: session/generation/frame/revisionとUUID `correlation_id`、`accepted | processing | ready | stopped`を示します。frame未割当の状態では`frame_id: null`です。エラーcloseを空結果に読み替えません。
+- `heartbeat`: 1秒間隔の生存通知です。session/generation/frame/revisionとcorrelation IDを含み、未関連frameは`frame_id: null`です。
+- `error`: 失敗したframeのsession/generation/frame/revisionと`code`, `correlation_id`を持ち、入力内容・例外詳細を返しません。
+- `result`: session/generation/frame/revision、UUID correlation ID、status (`ok | empty`)、画像寸法、領域配列、`server_processing_ms`を含みます。
+- 領域: `rect`は画像座標の`left, top, right, bottom`、または位置不明を表す`null`。英語原文`source`、日本語`translation`、0..1のconfidenceを含みます。
 - `empty`は有効に処理したframeに文字が無かったことを意味し、`regions=[]`。status/event欠落やエラーはemptyではありません。
-- Serverは処理中1件と待機最新1件を超えて蓄積しません。破棄したframeの結果は返しません。
+- Serverは処理中1件と待機最新1件を超えて蓄積しません。受信者ごとのevent queueは最大8件で、送信期限は1秒です。満杯なら最古eventを破棄し、期限超過の受信者は切断します。破棄したframeの結果は返しません。
+
+`frame_id`はstate/heartbeatにも必須とし、frameに未関連なら`null`を送ります。これにより制御状態と画像処理状態を同じ形式で相関できます。全messageの`correlation_id`は、段階時間・破棄診断とclient/server間の追跡を本文を記録せず結び付けるため必須です。result/errorの`session_id`、`generation`、`frame_id`、`dictionary_revision`は、clientが所有session・現世代・送信frame・有効revisionを照合して古い結果を拒否するため必須です。これはstream-messageに対するwire上の破壊的変更であり、v1.0未リリースの間にclient/server双方を同時更新します。旧clientは未知の`heartbeat` typeを拒否するため、新serverと混在させません。互換性方針は[contracts README](../../../contracts/README.md#互換性と版管理)を参照してください。
 
 相関値の発行者、generation/frame採番、辞書反映、逆順/旧世代結果の破棄、単調時計の5秒期限は[session state契約](../../../contracts/session-state.md)を正本とします。
 

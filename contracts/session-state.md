@@ -65,6 +65,8 @@
 
 有効な最新frameの処理完了が「文字なし」を示す場合は空のregion一覧と明示statusで返し、現在字幕を消去する。エラー・heartbeat・状態通知・欠落messageを空結果として扱わない。空結果もsession/generation/frame/revision/期限の検査を通す。
 
+WSS server-to-client textは`stream-message.schema.json`に従い、state/heartbeat/result/errorを送る。各messageはcorrelation IDとsession/generation/frame/revisionを持つ。frame未割当のstate/heartbeatでは`frame_id: null`を使い、frameに起因するerror/resultには実frame IDを付ける。位置を決定できないregionは`rect: null`で示し、結果自体を破棄しない。
+
 逆順に到着した結果は、既により大きいframe_idを適用済みなら破棄する。同一frame_idの重複結果も破棄する。frameが処理中/待機中にgenerationが変わった場合、serverは可能な範囲で処理をキャンセルし、完了しても結果を配信しない。クライアントの上記照合は最後の防御線として常に適用する。
 
 ## セッション所有権と切断
