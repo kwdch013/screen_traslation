@@ -84,4 +84,23 @@ public sealed class CaptureFrameRouterTests
 		Assert.Throws<ArgumentNullException>(() => new CaptureFrameRouter(pipeline, null!));
 		Assert.Throws<ArgumentNullException>(() => new CaptureFrameRouter(pipeline, () => null).Deliver(null!, default));
 	}
+
+	[Fact]
+	public void FrameThatWouldBeThrottledIsNotReadOut_AndIsAllowedAgainAfterTheInterval()
+	{
+		var (pipeline, _) = CreatePipeline();
+		pipeline.BeginSession(Guid.NewGuid(), 1, 1);
+		long now = 10_000_000_000;
+		var router = new CaptureFrameRouter(pipeline, () => new CaptureRoute(new Rect2D(0, 0, 100, 50), 1), () => now);
+
+		var route = router.TryBeginFrame();
+		Assert.NotNull(route);
+		Assert.Equal(CapturePipelineOutcome.Submitted, router.Deliver(Frame(now), route.Value));
+
+		// 取得fps(5)の最小間隔200ms未満は、画素を読み出さない
+		now += 100_000_000;
+		Assert.Null(router.TryBeginFrame());
+		now += 100_000_000;
+		Assert.NotNull(router.TryBeginFrame());
+	}
 }

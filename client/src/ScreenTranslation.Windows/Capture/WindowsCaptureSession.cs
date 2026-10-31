@@ -101,6 +101,12 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 				return;
 			}
 			var captured = WgcFrameReader.Read(frame);
+			// 読み出し中にStopAsyncが走ると、停止後に1フレーム配信されうる。配信の直前に停止を再確認する
+			// (残る隙間は、経路側のsession・世代検査が旧フレームとして拒否する)
+			if (IsStopped())
+			{
+				return;
+			}
 			sink!.Deliver(captured, route.Value);
 		}
 		catch

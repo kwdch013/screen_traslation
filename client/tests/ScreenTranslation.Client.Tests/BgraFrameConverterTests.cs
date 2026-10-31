@@ -144,4 +144,37 @@ public sealed class BgraFrameConverterTests
 		Assert.DoesNotContain("195", error.Message);
 		Assert.DoesNotContain("C3", error.Message, StringComparison.OrdinalIgnoreCase);
 	}
+
+	[Fact]
+	public void Owned_TightlyPackedBuffer_IsUsedWithoutCopy()
+	{
+		var source = new byte[2 * 4 * 3];
+		source[5] = 9;
+
+		var frame = BgraFrameConverter.ToCapturedFrameOwned(source, 0, 8, 2, 3, 7);
+
+		Assert.True(System.Runtime.InteropServices.MemoryMarshal.TryGetArray(frame.Pixels, out var segment));
+		Assert.Same(source, segment.Array);
+		Assert.Equal((2, 3, 8, 7L), (frame.Width, frame.Height, frame.Stride, frame.CapturedMonotonicNanoseconds));
+	}
+
+	[Fact]
+	public void Owned_PaddedOrOffsetBuffer_IsRepackedIntoNewArray()
+	{
+		var source = new byte[4 + 12 * 2];
+		for (var i = 0; i < source.Length; i++) source[i] = (byte)i;
+
+		var frame = BgraFrameConverter.ToCapturedFrameOwned(source, 4, 12, 2, 2, 1);
+
+		Assert.Equal(8, frame.Stride);
+		Assert.Equal(source[4..12].Concat(source[16..24]), frame.Pixels.ToArray());
+	}
+
+	[Fact]
+	public void Owned_RejectsInsufficientBufferAndReportsOwnedParameter()
+	{
+		var error = Assert.Throws<ArgumentException>(() => BgraFrameConverter.ToCapturedFrameOwned(new byte[8], 0, 8, 2, 3, 1));
+
+		Assert.Equal("owned", error.ParamName);
+	}
 }

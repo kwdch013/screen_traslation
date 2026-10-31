@@ -50,7 +50,8 @@ CaptureIntegrationはWindows専用で、Linuxでは対象プロジェクトが�
 - WGCは`WS_EX_NOACTIVATE`のウィンドウを取得対象にできません(CIで`E_INVALIDARG`を確認)。取得対象のWinRTオブジェクトは`MarshalInspectable.FromAbi`で変換します(COMのRCWへ直接キャストすると`InvalidCastException`)。
 - 対象終了などの無効化は`WindowsCaptureTargetWatcher`のWinEventフックで検出します。アウトオブコンテキストのフックは設定したスレッドがメッセージを処理しないとコールバックが届かないため、`StartAsync`はUIスレッド(メッセージループあり)から呼びます。CIの対象終了試験ではメッセージ処理スレッド(`PumpingThread`)で開始し、WGCのClosedイベントの到着には依存しません(最初の30秒タイムアウトの原因は、メッセージを処理しないスレッドで開始していたこと)。
 - マウスカーソルは翻訳対象の画像へ含めません(`IsCursorCaptureEnabled=false`)。対象のサイズが変わったらフレームプールを作り直し、以降のフレームは新しい内容サイズで届きます(ROIが範囲外になれば`Rejected`で再選択を案内)。
-- アプリ全体の配線(`CaptureFrameRouter`と`CaptureLifecycleController`の接続、取得fps上限に合わせた読み出しの間引き)は別Taskです。現状は`WindowsCaptureSessionFactory`の`ICapturedFrameSink`を指定した場合だけ画素を読み出します。
+- アプリ全体の配線(`CaptureFrameRouter`と`CaptureLifecycleController`の接続、取得fps上限に合わせた読み出しの間引き)はIssue #180で`TranslationSessionHost`に実装しました(下の「アプリ構成の配線」)。`WindowsCaptureSessionFactory`は`ICapturedFrameSink`を指定した場合だけ画素を読み出します。
+- Issue #180で読み出しのコピーを削減しました。`CopyToBuffer`の書き込み先を管理配列(`AsBuffer`)にしてWinRTの`Buffer`と`DataReader`経由の2回の複製をなくし(`Buffer`を作らないため破棄漏れも起きない)、行詰めなしなら`BgraFrameConverter.ToCapturedFrameOwned`が配列をそのまま`CapturedFrame`にします(内容サイズが面より小さい等で詰め直しが要るときだけ複製)。削減量の実測は未実施です(実GPUのOwner実機手順で記録)。
 
 ### Owner実機手順 (混在DPI・複数モニター・画面表示)
 
@@ -71,6 +72,33 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 3. 取得開始/停止/対象変更を100回以上反復し、タスクマネージャー(またはPerfMon)でプロセスのハンドル数とGPU専用メモリが増え続けないことを確認する。
 4. 画面取得から除外されたウィンドウ(WDA_EXCLUDEFROMCAPTURE)や保護コンテンツ(DRM動画等)を対象にして、別方式へ切り替わらず、取得できない/黒画像を送らない動作になるか確認し、結果を#135の記録へ追記する(黒画像の検出は現状未実装のため、結果によりTaskを追加する)。
 5. ウィンドウをリサイズしたとき、フレームが新しいサイズで届きROIの範囲外判定が再選択案内になることを確認する。
+
+## アプリ構成の配線 (Issue #180)
+
+`TranslationSessionHost`(`client/src/ScreenTranslation.Client/App/`)が、`CaptureLifecycleController`・`CaptureFrameRouter`・`CaptureSendPipeline`(`FrameProcessor`/`FrameSender`)・WSS接続(`StreamTransportClient`、抽象は`ITranslationTransport`)・`TranslationOverlayController`を組み立て、UIから呼ぶ操作(`ConnectAsync`・`SelectTargetAsync`・`SelectRegion`・`StartAsync`・`StopAsync`)を提供します。Windowsでは`WindowsCaptureRuntime.CreateSessionHost`が実WGCの工場を渡して組み立てます。開始/停止ボタン・ホットキー・履歴・設定画面は#98/#99で、これらのAPIを呼びます。
+
+| 項目 | 振る舞い |
+| --- | --- |
+| 開始前のPrepare必須 (fail-closed) | `StartAsync`は`TranslationOverlayController.Prepare`でキャプチャ除外を確認できるまで`OverlayUnavailable`を返し、取得セッションを作らず、`ActivateSession`も呼ばず、画像を送らない。取得スレッドの読み出し判定も`CanStream`がfalseなら経路を返さない |
+| 失効のタイマー配線 | ホストが失効確認ループを持ち、次の失効時刻(最大250ms間隔)ごとに`Tick`を呼ぶ。取得から5秒を超えた表示は製品経路で消える |
+| 停止・再選択・対象消失・切断・除外失敗・送信失敗 | 世代無効化(`GenerationInvalidated`)・切断(`ConnectionLost`)・除外失敗(`FailedClosed`)・送信例外を受けた同期処理で、取得経路の遮断→待機画像と通信中の送信の破棄と変化判定の基準破棄(`ResetBaseline`)→表示消去を行ってから、取得セッションの停止・解放が進む(停止完了を待たずに旧領域は送られず、表示は消える)。理由は`SessionEnded`で通知 |
+| 世代 | 開始・ROI再選択ごとに世代を1進め、`FrameSender`・`StreamTransportClient`・結果採否・オーバーレイへ同じ値を渡す。ROI再選択は旧画像・通信中の送信・表示を破棄してから新ROIの世代2以降で送る。旧世代フレームは送信直前の照合でも取り下げる |
+| 取得fpsの間引き | `CaptureFrameRouter.TryBeginFrame`が、取得fps上限で破棄される見込みのフレームはGPU→CPUの読み出し前にnullを返す(読み出しコストを払わない) |
+| 停止後の1フレーム | `WindowsCaptureSession`が配信直前に停止を再確認する。残る隙間はホストが先に`pipeline.EndSession`しているため`NoSession`/`StaleGeneration`で拒否される |
+| 切断後の再開 | 切断・送信失敗後は自動では送信を再開しない。利用者の明示操作(`StartAsync`)まで待つ |
+| 例外内容 | `Faulted`には画像・訳文・session_idを含めない固定文言だけを渡す |
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 構成の単体 | `client/tests/ScreenTranslation.Client.Tests/TranslationSessionHostTests.cs`(`HostFixture.cs`、共有代替`client/tests/Shared/AppHostTestSupport.cs`) | .NET SDKコンテナ | Prepare失敗時に取得セッションを作らない、前提不足の結果、ROIの物理座標への変換と画素一致、fps間引き、停止中に取得停止が未完でも表示が消え経路が遮断される、停止後に届く旧フレームの拒否、停止→再開で同一画像を再送(基準破棄)、再選択後は世代2・frame_id 1・新寸法だけが送られる、対象消失、切断、送信失敗、5秒失効のTick、表示中の除外喪失、破棄。注入クロックと手動ティッカーで固定sleepに依存しない |
+| 組み立て済みの結合 | `client/tests/ScreenTranslation.Client.IntegrationTests/AppWiringTests.cs`(`Category=CaptureSendIntegration`) | 同上 | 実`StreamTransportClient`・実PNG符号化・実オーバーレイ制御・実ライフサイクルを通し、ROI選択→(負座標の物理ROI左上が先頭画素の)WSSバイナリ送信→resultの表示→再選択でのオーバーレイ消去と世代2以降の送信→停止と表示消去、および切断で表示消去・取得解放・利用者通知を確認 |
+| Windows構成 | `client/tests/ScreenTranslation.Windows.Tests/WindowsCaptureSessionFactoryTests.cs` | Windowsのみ(`windows-client` CI) | `WindowsCaptureRuntime.CreateSessionHost`が実WGC工場でホストを組み立て、対象未選択ではPrepareも呼ばないこと |
+
+**未実施(Owner実機手順)**: 実WGC・実HWND(WDA)・実WSSサーバーを通した通し(ROI選択→実画面取得→送信→サーバー結果の重畳→再選択/停止/切断で1秒以内に表示が消える)、混在DPI・複数モニター、実GPUでの読み出しコスト削減量の計測。結果は**未実施**で、CI成功をこれらの実施として数えません。手順は上の「Owner実機手順」に、通しとして次を加えます。
+
+1. 実サーバーへ接続し、ウィンドウまたはモニターとROIを選び、開始する(開始前にオーバーレイのキャプチャ除外が確認できないと開始されないこと)。
+2. 訳文が重畳され、取得から5秒たつと消えることを確認する。
+3. 再選択・停止・対象ウィンドウを閉じる・ネットワークを切断のそれぞれで、訳文が1秒以内に消え、旧領域の画像が送られないこと、切断後は自動で送信が再開されないことを確認する。
 
 ## 翻訳オーバーレイと自己キャプチャ防止 (Issue #97)
 
