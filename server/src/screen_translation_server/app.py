@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager, contextmanager
 import logging
 import json
 import os
+from pathlib import Path
 import signal
 import ssl
 import time
@@ -24,6 +25,10 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from screen_translation_server.api.glossary import glossary_routes
+from screen_translation_server.api.settings import settings_routes
+from screen_translation_server.glossary_runtime import GlossaryRuntime
+from screen_translation_server.storage import GlossaryStore, SettingsStore
 from screen_translation_server.api.input_limits import (
 	BINARY_MESSAGE_MAX_BYTES,
 	HTTP_JSON_MAX_BYTES,
@@ -67,6 +72,9 @@ def create_app(
 	sessions: SessionManager | None = None,
 	pipeline: TranslationPipeline | None = None,
 	heartbeat_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+	settings_store: SettingsStore | None = None,
+	glossary_store: GlossaryStore | None = None,
+	glossary_runtime: GlossaryRuntime | None = None,
 ) -> Starlette:
 	"""テスト可能なASGIアプリを作る。環境設定に転送元ヘッダーを信頼させない。"""
 	session_manager = sessions or SessionManager(clock=time.monotonic, sleep=asyncio.sleep)
@@ -90,6 +98,13 @@ def create_app(
 	app.state.pipeline = pipeline
 	app.state.heartbeat_sleep = heartbeat_sleep
 	app.state.streams = {}
+	if settings_store is None and glossary_store is None:
+		settings_store, glossary_store = _stores_from_environment()
+	app.state.settings_store = settings_store
+	app.state.glossary_store = glossary_store
+	app.state.glossary_runtime = glossary_runtime or GlossaryRuntime()
+	app.state.capture_fps = 2
+	_restore_committed_state(app)
 	app.state.http_body_timeout = float(os.environ.get("SCREEN_TRANSLATION_HTTP_BODY_TIMEOUT_SECONDS", "10"))
 
 	async def authenticated(request: Request, roles: frozenset[Role]) -> Credential | Response:
@@ -114,6 +129,8 @@ def create_app(
 		app.state.limiter.finish(remote, success=True)
 		return credential
 
+	app.state.authenticate = authenticated
+
 	async def health(request: Request) -> Response:
 		result = await authenticated(request, frozenset({Role.DEVICE, Role.ADMIN}))
 		if isinstance(result, Response):
@@ -130,29 +147,6 @@ def create_app(
 		result = await authenticated(request, frozenset({Role.ADMIN}))
 		if isinstance(result, Response):
 			return result
-		return JSONResponse(_UNIMPLEMENTED, status_code=501)
-
-	async def control_stub(request: Request) -> Response:
-		admin_only = request.method == "PUT"
-		roles = frozenset({Role.ADMIN}) if admin_only else frozenset({Role.DEVICE, Role.ADMIN})
-		if request.url.path.startswith("/api/v1/sessions"):
-			roles = frozenset({Role.DEVICE})
-		result = await authenticated(request, roles)
-		if isinstance(result, Response):
-			return result
-		try:
-			content_length = request.headers.get("content-length")
-			if content_length is not None:
-				declared = int(content_length)
-				if declared < 0 or declared > HTTP_JSON_MAX_BYTES:
-					return _session_error("PAYLOAD_TOO_LARGE", "画像または要求サイズが上限を超えています。", 413)
-			await read_limited_body(
-				request.stream(),
-				maximum=HTTP_JSON_MAX_BYTES,
-				timeout_seconds=app.state.http_body_timeout,
-			)
-		except (InputLimitError, ValueError):
-			return _session_error("PAYLOAD_TOO_LARGE", "画像または要求サイズが上限を超えています。", 413)
 		return JSONResponse(_UNIMPLEMENTED, status_code=501)
 
 	async def start_session(request: Request) -> Response:
@@ -278,9 +272,10 @@ def create_app(
 					await websocket.close(code=1008)
 					return
 				if (session is None or subscription is None or frame.metadata["session_id"] != session.session_id
-						or frame.metadata["dictionary_revision"] != session.dictionary_revision):
+						or frame.metadata["dictionary_revision"] > session.dictionary_revision):
 					await websocket.close(code=1008)
 					return
+				stale_revision = frame.metadata["dictionary_revision"] < session.dictionary_revision
 				try:
 					await app.state.sessions.heartbeat(
 						session.session_id, credential.credential_id, generation=frame.metadata["generation"],
@@ -288,6 +283,10 @@ def create_app(
 				except (SessionConflict, SessionForbidden, SessionNotFound):
 					await websocket.close(code=1008)
 					return
+				if stale_revision:
+					# 辞書更新前に送られたframeは切断せず、処理せず破棄する。
+					app.state.observer.dropped("stale_dictionary_revision", correlation_id=str(uuid4()))
+					continue
 				pipeline = _ensure_pipeline(app)
 				correlation_id = str(uuid4())
 				started = app.state.observer.start("receive", correlation_id)
@@ -335,8 +334,8 @@ def create_app(
 		Route("/api/v1/admin/status", admin_status, methods=["GET"]),
 		Route("/api/v1/sessions", start_session, methods=["POST"]),
 		Route("/api/v1/sessions/{session_id}", stop_session, methods=["DELETE"]),
-		Route("/api/v1/settings", control_stub, methods=["GET", "PUT"]),
-		Route("/api/v1/glossary", control_stub, methods=["GET", "PUT"]),
+		*settings_routes(app),
+		*glossary_routes(app),
 		WebSocketRoute("/api/v1/stream", stream),
 	])
 	return app
@@ -380,6 +379,8 @@ def _ensure_pipeline(app: Starlette) -> TranslationPipeline:
 			is_current=app.state.sessions.is_current,
 			is_frame_current=app.state.sessions.is_frame_current,
 			observer=app.state.observer,
+			capture_fps=app.state.capture_fps,
+			translator_wrapper=app.state.glossary_runtime.wrap,
 		)
 		app.state.pipeline = pipeline
 	if hasattr(pipeline, "set_frame_current_check"):
@@ -506,6 +507,28 @@ def _source_address(client: object) -> str:
 	if isinstance(client, tuple) and client and isinstance(client[0], str):
 		return client[0]
 	return "unknown"
+
+
+def _stores_from_environment() -> tuple[SettingsStore | None, GlossaryStore | None]:
+	"""保存先ディレクトリは環境変数で受け取る。未設定なら設定・辞書APIは500を返す。"""
+	data_dir = os.environ.get("SCREEN_TRANSLATION_DATA_DIR")
+	if not data_dir:
+		return None, None
+	return SettingsStore(Path(data_dir)), GlossaryStore(Path(data_dir))
+
+
+def _restore_committed_state(app: Starlette) -> None:
+	"""再起動後も保存済みの確定値(辞書revision・fps)で動き始める。"""
+	try:
+		if app.state.glossary_store is not None:
+			committed = app.state.glossary_store.get()
+			app.state.glossary_runtime.apply(committed["entries"], committed["revision"])
+			app.state.sessions.set_dictionary_revision(committed["revision"])
+		if app.state.settings_store is not None:
+			app.state.capture_fps = app.state.settings_store.get()["capture_fps"]
+	except Exception:
+		# 破損や読込失敗は起動を止めず、APIが500を返して既存データを保持する。
+		_LOGGER.error("committed_state_restore_failed")
 
 
 def _credentials_from_environment() -> CredentialStore:

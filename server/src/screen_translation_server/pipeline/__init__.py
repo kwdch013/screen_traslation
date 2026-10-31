@@ -108,6 +108,16 @@ class TranslationPipeline:
 		self.expired_frames = 0
 		self.failed_frames = 0
 
+	@property
+	def capture_fps(self) -> int:
+		return self._capture_fps
+
+	def set_capture_fps(self, capture_fps: int) -> None:
+		"""保存確定した設定を、以降の新規frameのレート上限へ反映する。"""
+		if type(capture_fps) is not int or not 1 <= capture_fps <= MAX_CAPTURE_FPS:
+			raise ValueError("capture_fpsは1から5の整数で指定してください。")
+		self._capture_fps = capture_fps
+
 	async def submit(self, frame: FrameInput) -> None:
 		"""入力制限を確認し、処理中なら待機枠を最新画像で置き換える。"""
 		correlation_id = frame.correlation_id or str(uuid4())
@@ -340,6 +350,9 @@ def create_default_pipeline(**options: object) -> TranslationPipeline:
 	from screen_translation_server.engines import build_engines
 
 	ocr, translator = build_engines()
+	wrap = cast("Callable[[Translator], Translator] | None", options.pop("translator_wrapper", None))
+	if wrap is not None:
+		translator = wrap(translator)
 	return TranslationPipeline(ocr, translator, **options)  # type: ignore[arg-type]
 
 

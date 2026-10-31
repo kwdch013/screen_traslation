@@ -126,6 +126,8 @@ serverからclientへのtext JSONは[`stream-message.schema.json`](../../../cont
 - Serverは認可→body/項目検証→If-Match比較→一時保存/fsync/atomic replace→revision加算→200応答の順で実施します。
 - 現revisionと違えば409 `REVISION_CONFLICT`、bodyは未更新、`ETag: "<current revision>"`を返します。ClientはGETで再読込し、他者の値を上書きせず編集を再適用します。
 - 永続化失敗は500 `INTERNAL_ERROR`、revision/active値とも直前確定状態を保ちます。別種の設定と辞書は個別にcommitします。
+- 200応答は`ETag: "<新revision>"`と`X-Effective-From: next-frame`を返し、反映が次の新規frameからであることを示します。権限不足のPUTは403、If-Matchの欠落・不正形式は422です。辞書の登録・削除は`entries`全置換のPUTで行います。
+- 辞書更新ではサーバーが翻訳キャッシュを失効させ、sessionの辞書revisionを進めます。更新前に送られた旧revisionのframeは切断せず破棄します。
 - 確定revisionは次の新規frameから用い、旧revision結果は表示しません。generation/frame連番をrevision更新だけで戻しません。
 
 | 対象 | field制約 |

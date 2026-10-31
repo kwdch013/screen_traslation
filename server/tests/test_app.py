@@ -97,9 +97,11 @@ class ServerBootstrapTest(unittest.TestCase):
 	def test_settings_writes_require_admin_while_reads_allow_device(self) -> None:
 		device_headers = {"Authorization": f"Bearer {self.DEVICE_TOKEN}"}
 		admin_headers = {"Authorization": f"Bearer {self.ADMIN_TOKEN}"}
-		self.assertEqual(self.client.get("/api/v1/settings", headers=device_headers).status_code, 501)
-		self.assertEqual(self.client.put("/api/v1/settings", headers=device_headers).status_code, 401)
-		self.assertEqual(self.client.put("/api/v1/settings", headers=admin_headers).status_code, 501)
+		# 保存先を持たないappでは認証後に500を返す。認可の境界は専用APIテストで検証する。
+		self.assertEqual(self.client.get("/api/v1/settings", headers=device_headers).status_code, 500)
+		self.assertEqual(self.client.put("/api/v1/settings", headers=device_headers).status_code, 403)
+		self.assertEqual(self.client.put("/api/v1/settings", headers=admin_headers).status_code, 422)
+		self.assertEqual(self.client.put("/api/v1/settings").status_code, 401)
 
 	def test_websocket_authenticates_before_accept_and_uses_authorization_header(self) -> None:
 		from starlette.testclient import WebSocketDenialResponse
