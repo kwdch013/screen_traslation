@@ -141,35 +141,61 @@ public sealed class WgcCaptureIntegrationTests
 	}
 
 	[Fact]
-	public async Task RepeatedStartAndStopReleaseHandlesAndStopDeliveringFrames()
+	public async Task RepeatedStartAndStopReleaseEveryWgcResourceAndStopDeliveringFrames()
 	{
 		using var window = CreateWindow();
 		var (_, pipeline) = CreatePipeline();
 		var roi = new Rect2D(0, 0, 200, 100);
 		pipeline.BeginSession(SessionId, 1, 1);
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => new CaptureRoute(roi, 1)), () => new CaptureRoute(roi, 1));
-		var factory = new WindowsCaptureSessionFactory(sink);
+		var ledger = new CaptureResourceLedger();
+		var factory = new WindowsCaptureSessionFactory(sink, ledger);
 		var target = TargetOf(window, 400, 200);
 
-		// 初回は共通の初期化資源(D3D・WinRTの静的資源)を確保するため基準に含めない
+		// 初回は共通の初期化資源(D3D・WinRTの静的資源)を確保するため、ハンドル数の基準には含めない
 		await RunOnceAsync(factory, target, sink);
-		// 1周ごとに1個でも漏れれば、どの25周でも25個以上増える。揺らぎは両方の区間で同時には起きにくいため、小さい方で判定する
-		var growth = new List<int>();
-		for (var round = 0; round < 2; round++)
+		await AssertAllReleasedAsync(ledger, 0);
+		var handlesBefore = HandleCount();
+
+		// 主指標: 1周ごとに、その周で作った資源が1個も残らないこと。1周1個の漏れでも、その周で確実に検出できる
+		for (var round = 1; round <= 25; round++)
 		{
-			var before = HandleCount();
-			for (var i = 0; i < 25; i++)
-			{
-				await RunOnceAsync(factory, target, sink);
-			}
-			growth.Add(HandleCount() - before);
+			await RunOnceAsync(factory, target, sink);
+			await AssertAllReleasedAsync(ledger, round);
 		}
 
-		Assert.True(growth.Min() < 15, $"ハンドル数が増加しました: {string.Join(", ", growth)}");
+		// 読み出し経路(SoftwareBitmap)も計測の対象に入っていること
+		Assert.True(ledger.Created(CaptureResourceKind.SoftwareBitmap) > 0, "SoftwareBitmapの生成が1度も計測されていません。");
+
+		// 補助指標: 実ハンドル数。CIの背景スレッドで揺れるため、GC後の差分に余裕を持たせた閾値で見る(25周で1周1個の漏れ分は主指標が見る)
+		var growth = HandleCount() - handlesBefore;
+		Assert.True(growth < HandleGrowthLimit, $"ハンドル数が{growth}増加しました(許容 {HandleGrowthLimit} 未満)。");
 
 		var delivered = sink.Delivered;
 		await Task.Delay(500);
 		Assert.Equal(delivered, sink.Delivered);
+	}
+
+	private const int HandleGrowthLimit = 60;
+
+	/// <summary>
+	/// 生成した資源が種類ごとにすべて破棄済みであることを確認する。
+	/// 停止直後は読み出し中のフレームのSoftwareBitmapが少し遅れて解放されるため、短時間だけ待つ。
+	/// </summary>
+	private static async Task AssertAllReleasedAsync(CaptureResourceLedger ledger, int round)
+	{
+		var deadline = Stopwatch.StartNew();
+		while (ledger.Unreleased().Count != 0 && deadline.Elapsed < TimeSpan.FromSeconds(5))
+		{
+			await Task.Delay(20);
+		}
+		var unreleased = ledger.Unreleased();
+		Assert.True(unreleased.Count == 0, $"{round}周目で未破棄の資源があります: {string.Join(", ", unreleased.Select(entry => $"{entry.Kind}={entry.Count}"))}");
+		// 計測が効いていること(フックが外れて常に0個になる見逃しを防ぐ)
+		foreach (var kind in new[] { CaptureResourceKind.CaptureItem, CaptureResourceKind.D3DDevice, CaptureResourceKind.FramePool, CaptureResourceKind.CaptureSession, CaptureResourceKind.TargetWatcher })
+		{
+			Assert.Equal(round + 1, ledger.Created(kind));
+		}
 	}
 
 	private static async Task RunOnceAsync(WindowsCaptureSessionFactory factory, CaptureTarget target, PatternSink sink)
@@ -225,6 +251,6 @@ public sealed class WgcCaptureIntegrationTests
 	}
 }
 
-/// <summary>ハンドル数の測定が他の試験の並列実行で乱れないよう、WGC試験は他の試験と並列に実行しない。</summary>
+/// <summary>実ハンドル数の補助測定が他の試験の並列実行で乱れないよう、WGC試験は他の試験と並列に実行しない。</summary>
 [CollectionDefinition("WgcSerial", DisableParallelization = true)]
 public sealed class WgcSerialCollection;

@@ -8,7 +8,7 @@ using WinRT;
 
 namespace ScreenTranslation.Windows.Capture;
 
-internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrameSink? sink = null) : ICaptureSession
+internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrameSink? sink = null, CaptureResourceLedger? ledger = null) : ICaptureSession
 {
 	private readonly object sync = new();
 	private GraphicsCaptureItem? item;
@@ -33,20 +33,25 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 		try
 		{
 			item = WindowsGraphicsCaptureInterop.CreateItem(target);
+			ledger?.RecordCreated(CaptureResourceKind.CaptureItem);
 			device = Direct3DDeviceFactory.Create();
+			ledger?.RecordCreated(CaptureResourceKind.D3DDevice);
 			poolSize = item.Size;
 			framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
 				device,
 				DirectXPixelFormat.B8G8R8A8UIntNormalized,
 				2,
 				poolSize);
+			ledger?.RecordCreated(CaptureResourceKind.FramePool);
 			framePool.FrameArrived += OnFrameArrived;
 			item.Closed += OnItemClosed;
 			captureSession = framePool.CreateCaptureSession(item);
+			ledger?.RecordCreated(CaptureResourceKind.CaptureSession);
 			// 利用者のマウスカーソルを翻訳対象の画像へ含めない
 			captureSession.IsCursorCaptureEnabled = false;
 			captureSession.StartCapture();
 			targetWatcher = WindowsCaptureTargetWatcher.Start(target, Invalidate);
+			ledger?.RecordCreated(CaptureResourceKind.TargetWatcher);
 		}
 		catch
 		{
@@ -100,7 +105,7 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			{
 				return;
 			}
-			var captured = WgcFrameReader.Read(frame);
+			var captured = WgcFrameReader.Read(frame, ledger);
 			// 読み出し中にStopAsyncが走ると、停止後に1フレーム配信されうる。配信の直前に停止を再確認する
 			// (残る隙間は、経路側のsession・世代検査が旧フレームとして拒否する)
 			if (IsStopped())
@@ -169,18 +174,33 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			(d3dDevice, device) = (device, null);
 		}
 
-		watcher?.Dispose();
-		session?.Dispose();
+		Free(CaptureResourceKind.TargetWatcher, watcher);
+		Free(CaptureResourceKind.CaptureSession, session);
 		if (pool is not null)
 		{
 			pool.FrameArrived -= OnFrameArrived;
-			pool.Dispose();
+			Free(CaptureResourceKind.FramePool, pool);
 		}
 		if (captureItem is not null)
 		{
+			// GraphicsCaptureItemにはDisposeが無いため、イベント購読を外して参照を手放した時点を解放とみなす
 			captureItem.Closed -= OnItemClosed;
+			ledger?.RecordDisposed(CaptureResourceKind.CaptureItem);
 		}
-		(d3dDevice as IDisposable)?.Dispose();
+		Free(CaptureResourceKind.D3DDevice, d3dDevice as IDisposable);
+	}
+
+	/// <summary>破棄と計測を1か所で行う。ledgerがnullなら通常のDisposeだけ行う。</summary>
+	private void Free(CaptureResourceKind kind, IDisposable? resource)
+	{
+		if (ledger is not null)
+		{
+			ledger.Release(kind, resource);
+		}
+		else
+		{
+			resource?.Dispose();
+		}
 	}
 }
 
