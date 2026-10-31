@@ -255,6 +255,20 @@ class V1DesignDecisionTest(unittest.TestCase):
 				self.assertRegex(row[2], r"Q-\d{2}")
 				self.assertRegex(row[3], r"ACC-\d{2}")
 
+	def test_session_id_visibility_and_device_token_changes_trigger_contract_review(self) -> None:
+		section = self.read(self.security).split("### session IDの既知性", 1)[1].split("\n## ", 1)[0]
+		for expected in (
+			"所有者以外に開示される経路",
+			"device tokenの認証・発行・共有範囲",
+			"OpenAPI",
+			"API-004",
+			"error fixture",
+			"テスト",
+			"403/404",
+		):
+			with self.subTest(expected=expected):
+				self.assertIn(expected, section)
+
 	def test_decisions_compare_options_and_leave_validation_explicit(self) -> None:
 		self.read(self.index)
 		adrs = sorted((self.design / "adr").glob("[0-9]*.md"))

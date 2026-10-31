@@ -396,6 +396,54 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 			f"/api/v1/sessions/{reselected.json()['session_id']}", headers=self._headers(),
 		).status_code, 204)
 
+	def test_other_credential_cannot_stop_or_send_frame_to_owned_session(self) -> None:
+		started = self._start()
+		self.assertEqual(started.status_code, 201)
+		session = started.json()
+		active = self._active_session()
+		self.assertIsNotNone(active)
+		self.assertEqual(self._owner(session["session_id"]), "device-primary")
+		initial = (active.session_id, active.owner_id, active.generation, active.active)
+
+		def assert_owner_state_unchanged() -> None:
+			current = self._active_session()
+			self.assertIsNotNone(current)
+			self.assertEqual(
+				(current.session_id, current.owner_id, current.generation, current.active),
+				initial,
+			)
+			self.assertEqual(self._owner(session["session_id"]), "device-primary")
+			self.assertTrue(self._is_current(session["session_id"], session["generation"]))
+
+		stopped_by_other = self.client.delete(
+			f"/api/v1/sessions/{session['session_id']}", headers=self._headers(self.second_token),
+		)
+		self._assert_error_fixture(stopped_by_other, 403, "FORBIDDEN")
+		assert_owner_state_unchanged()
+
+		second_start = self._start(self.second_token)
+		self._assert_error_fixture(second_start, 409, "SESSION_IN_USE")
+		assert_owner_state_unchanged()
+
+		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
+		with websocket_connect(
+			uri, ssl=self._trusted_context(), additional_headers=self._headers(self.second_token),
+		) as websocket:
+			websocket.send(self._png_frame(
+				session["session_id"], session["generation"], session["dictionary_revision"],
+			))
+			with self.assertRaises(ConnectionClosed) as closed:
+				websocket.recv(timeout=2)
+		self.assertEqual(closed.exception.rcvd.code, 1008)
+		assert_owner_state_unchanged()
+
+		stopped_by_owner = self.client.delete(
+			f"/api/v1/sessions/{session['session_id']}", headers=self._headers(),
+		)
+		self.assertEqual(stopped_by_owner.status_code, 204)
+		self.assertIsNone(self._owner(session["session_id"]))
+		self.assertFalse(self._is_current(session["session_id"], session["generation"]))
+
 	def test_invalid_key_expired_key_and_revoked_idle_wss_are_rejected(self) -> None:
 		self._assert_error_fixture(self.client.get("/api/v1/health"), 401, "UNAUTHENTICATED")
 		self._assert_error_fixture(self.client.get("/api/v1/health", headers=self._headers("0" * 64)), 401, "UNAUTHENTICATED")
