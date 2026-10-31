@@ -10,6 +10,7 @@ from pathlib import Path
 # workflow・hook・テストのどこから起動しても同じ場所の補助モジュールを読めるようにする
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from ai_review_gate_dependabot import is_dependabot_only_pull  # noqa: E402
 from ai_review_gate_github import GitHubClient  # noqa: E402
 
 
@@ -38,6 +39,8 @@ class GateResult:
 	PASS = "PASS"
 	PENDING = "PENDING"
 	FAIL = "FAIL"
+	# Dependabot 単独の PR。AI Review の対象外で、承認・merge の経路は作らない (status は pending)
+	EXEMPT = "EXEMPT"
 
 	def __init__(self, head_sha):
 		self.head_sha = head_sha
@@ -45,9 +48,12 @@ class GateResult:
 		self.warnings = []
 		self.contributors = set()
 		self.review_work_unit = None
+		self.exempt = False
 
 	@property
 	def state(self):
+		if self.exempt:
+			return self.EXEMPT
 		if self.errors:
 			return self.FAIL
 		return self.PASS if self.review_work_unit else self.PENDING
@@ -111,6 +117,12 @@ def evaluate(client, repo, pr_number):
 	if not re.fullmatch(r"[0-9a-f]{40,64}", head_sha):
 		result.errors.append("Current PR HEAD SHA is missing or invalid.")
 
+	commits = client.get_paginated(f"{prefix}/pulls/{pr_number}/commits")
+	# 250 件で打ち切られた commit 一覧では全員の作成者を確認できないため免除しない
+	if len(commits) < GITHUB_PR_COMMITS_LIMIT and is_dependabot_only_pull(pull, commits):
+		result.exempt = True
+		return result
+
 	labels = label_names(pull)
 	if pull.get("draft") or pull.get("state", "open") != "open":
 		result.errors.append("PR must be open and ready for review.")
@@ -127,7 +139,6 @@ def evaluate(client, repo, pr_number):
 	else:
 		result.contributors.add(authors[0].casefold())
 
-	commits = client.get_paginated(f"{prefix}/pulls/{pr_number}/commits")
 	# PR commits API は最大 250 件しか返さず、残りの Contributor を検証できないため安全側に倒す
 	if len(commits) >= GITHUB_PR_COMMITS_LIMIT:
 		result.errors.append(
@@ -234,11 +245,13 @@ def publish_result(client, args, pr_number, result):
 		GateResult.PASS: "success",
 		GateResult.PENDING: "pending",
 		GateResult.FAIL: "failure",
+		GateResult.EXEMPT: "pending",
 	}[result.state]
 	description = {
 		GateResult.PASS: "独立レビュー承認済み",
 		GateResult.PENDING: "独立レビュー待ち",
 		GateResult.FAIL: "AIレビューのポリシー違反",
+		GateResult.EXEMPT: "AI Review 対象外: Dependabot。人手で確認して merge",
 	}[result.state]
 	client.publish_status(
 		args.repo,
@@ -297,6 +310,8 @@ def evaluate_one(client, args, pr_number):
 			f"PR #{pr_number} PASS: review-work-unit={result.review_work_unit} "
 			f"head={result.head_sha}"
 		)
+	elif result.state == GateResult.EXEMPT:
+		print(f"PR #{pr_number} EXEMPT: AI Review 対象外 (Dependabot)。人手で確認して merge head={result.head_sha}")
 	elif result.state == GateResult.PENDING:
 		print(f"PR #{pr_number} PENDING: 独立レビュー待ち head={result.head_sha}")
 	else:
