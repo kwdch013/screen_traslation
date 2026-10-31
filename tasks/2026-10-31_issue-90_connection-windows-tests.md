@@ -76,3 +76,10 @@
 - 混在DPI/負座標は#136系、キャプチャ除外/実画面取得は#135/#148系、Windows/Linux実サーバー間E2Eは#108等で検証する。
 - Windows hosted runnerの`windows-client`を含むCI結果はPR作成後に確認する。
 - `origin/develop`の最新commit `b231da4` (#165) を実装後にmergeし、最終回帰を再実行した。#165由来のサーバー変更と文書テストを含む全体が成功した。
+
+## Windows TLS失敗の原因特定 (run 41188994745)
+
+- 事実: Windows hosted runnerでIntegration 12件が全失敗した状態から、テスト用サーバー証明書を`CopyWithPrivateKey`直後のエフェメラル鍵のままKestrelへ渡す方式をやめ、PFXへExportして`X509CertificateLoader.LoadPkcs12(..., UserKeySet | Exportable)`で読み直す方式に変えたところ、`windows-client`ジョブが成功した (1分28秒)。CustomRootTrust検証の`[CERT VALIDATION]`ログでは、有効ケースが`accepted=True`、期限切れが`NotTimeValid`、SANなしが`hasSAN=False`、未信頼CAが`PartialChain`で拒否された。
+- 解釈: 仮説(SChannelがエフェメラル秘密鍵をサーバー側で使えない)と整合する。ただし失敗時のサーバー側TLS例外そのものは取得しておらず(修正前ログに無い)、他の差異(例外の内訳)は未確認。今回追加した診断(`TlsDiagnosticLoggerProvider`)は失敗時に「サーバー側TLSハンドシェイク例外」をテスト失敗メッセージへ含める。
+- 診断のために旧実装の壊れた`AddProvider(null!)`を廃し、Kestrelカテゴリのログのみを保持するproviderへ置換した。
+- 検証: Composeで Core 1 / Client 70 / Integration 12 / Contracts 4 成功、Python 309件成功(75 skip)。TLS検証コールバックは変更していないため、無条件許可mutationの3ケース失敗は前回確認済みの結果を継承(今回は再実行していない)。
