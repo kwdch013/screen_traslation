@@ -131,7 +131,7 @@ OCRの評価は[受入計画](acceptance.md)と同じ正規化・総編集距離
 ### 未解決事項 (製品側)
 
 - Argos Translateの文分割(Stanza)は、既定では翻訳初回に外部(GitHub等)から資源一覧を取得し、外向き通信がないと最初の翻訳が失敗します。本試験は、取得済み資源だけを使う設定(`download_method=reuse_resources`)を試験側でStanzaへ与えて外向き通信なしで実行しています。製品サーバーを外向き通信なしで運用する場合は、同じ設定を製品側へ入れるか、準備段階で資源を取得する必要があります(#81/#109/#173の検討事項)。翻訳対象の文章を外部へ送るものではありません。
-- 停止(DELETE)では待機中のframeに対する`pipeline.cancel`が呼ばれず、停止済みsessionの待機frameにも実OCRが走った後で破棄されます(停止試験で実OCR 2回を観測)。結果は配信されず後始末も完了しますが、無駄なOCRが1回走ります(#173のapp配線で扱う候補。本Taskでは未変更)。
+- (解消済み・#173) 停止(DELETE)で待機中frameへ`pipeline.cancel`が呼ばれず、停止済みsessionの待機frameにも実OCRが走っていた件は、DELETEで`cancel`を別taskとして呼び、待機frameの取り出し時にもsession・世代・revisionを再照合してOCR前に破棄することで解消しました(`server/tests/test_delivery_diagnostics.py`)。
 
 ## 変更後の回帰・静的検査
 

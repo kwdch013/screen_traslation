@@ -237,6 +237,10 @@ class TranslationPipeline:
 				wait_started = self._clock()
 				correlation_id = frame.correlation_id or str(uuid4())
 				self._observe("wait", received_at, wait_started, correlation_id)
+				# 待機中に停止・世代変更・辞書更新があったframeはOCRを始めずに破棄する。
+				if epoch != self._epoch.get(frame.session_id, 0) or not self._frame_current(frame):
+					self._record_drop("stale_frame_context", correlation_id)
+					continue
 				try:
 					result = await self._process(frame, received_at)
 				except asyncio.CancelledError:

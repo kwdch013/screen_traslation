@@ -8,10 +8,12 @@ from collections.abc import Awaitable, Callable
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator, FormatChecker
+
+from screen_translation_server.observability import ProcessingObserver
 
 
 MAX_SUBSCRIBER_QUEUE = 8
@@ -19,6 +21,17 @@ MAX_SEND_TIMEOUT_SECONDS = 1.0
 _LOGGER = logging.getLogger(__name__)
 Send = Callable[[dict[str, Any]], Awaitable[None]]
 DeadlineRunner = Callable[[Send, dict[str, Any], float], Awaitable[None]]
+
+
+class _Envelope(NamedTuple):
+	"""配信待ちのmessageと、app側が採番して渡した診断用相関ID。
+
+	相関IDはmessage辞書から取り出さない。辞書由来の値をログへ渡すとCodeQLが
+	機微情報の流れと判定するため、呼び出し側が所有する値だけを別に保持する。
+	"""
+
+	message: dict[str, Any]
+	correlation_id: str
 
 
 class EventSubscription:
@@ -31,10 +44,10 @@ class EventSubscription:
 		send_timeout: float,
 		deadline_runner: DeadlineRunner,
 		close_callback: Callable[["EventSubscription"], None],
-		timeout_callback: Callable[["EventSubscription", dict[str, Any]], None],
+		timeout_callback: Callable[["EventSubscription", str], None],
 	) -> None:
 		self.session_id = session_id
-		self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=queue_size)
+		self.queue: asyncio.Queue[_Envelope] = asyncio.Queue(maxsize=queue_size)
 		self.send_timeout = send_timeout
 		self._deadline_runner = deadline_runner
 		self._close_callback = close_callback
@@ -43,16 +56,16 @@ class EventSubscription:
 		self.dropped_events = 0
 
 	async def get(self) -> dict[str, Any]:
-		return await self.queue.get()
+		return (await self.queue.get()).message
 
 	async def send_next(self, sender: Send) -> None:
 		if self.closed:
 			return
-		message = await self.queue.get()
+		envelope = await self.queue.get()
 		try:
-			await self._deadline_runner(sender, message, self.send_timeout)
+			await self._deadline_runner(sender, envelope.message, self.send_timeout)
 		except TimeoutError:
-			self._timeout_callback(self, message)
+			self._timeout_callback(self, envelope.correlation_id)
 			self.close()
 
 	def close(self) -> None:
@@ -74,6 +87,7 @@ class EventHub:
 		send_timeout: float = 1.0,
 		deadline_runner: DeadlineRunner | None = None,
 		logger: logging.Logger = _LOGGER,
+		observer: ProcessingObserver | None = None,
 	) -> None:
 		if type(queue_size) is not int or not 1 <= queue_size <= MAX_SUBSCRIBER_QUEUE:
 			raise ValueError("購読キューは1から8の範囲で指定してください。")
@@ -87,6 +101,7 @@ class EventHub:
 		self._empty.set()
 		self._validator: Draft202012Validator | None = None
 		self._logger = logger
+		self._observer = observer or ProcessingObserver()
 		self.dropped_events = 0
 		self._last_drop_logged = 0
 		self.timed_out_sends = 0
@@ -116,23 +131,51 @@ class EventHub:
 		"""全sessionの購読解除が完了するまで待つ。"""
 		await self._empty.wait()
 
-	def publish(self, session_id: str, message: dict[str, Any]) -> None:
+	def publish(self, session_id: str, message: dict[str, Any], *, correlation_id: str | None = None) -> None:
+		"""検証済みmessageを配る。correlation_idは診断ログ専用で、呼び出し側が所有する値を渡す。"""
 		self.validate_message(message)
 		if message.get("session_id") != session_id:
 			raise ValueError("配信先sessionとmessageのsessionが一致しません。")
+		envelope = _Envelope(message, correlation_id or str(uuid4()))
 		for subscriber in tuple(self._subscribers.get(session_id, ())):
 			if subscriber.closed:
 				continue
 			if subscriber.queue.full():
-				subscriber.queue.get_nowait()
+				evicted = subscriber.queue.get_nowait()
 				subscriber.dropped_events += 1
 				self.dropped_events += 1
+				self._observer.dropped("delivery_queue_overflow", correlation_id=evicted.correlation_id)
 				if self.dropped_events >= self._last_drop_logged * 2 or self._last_drop_logged == 0:
 					self._last_drop_logged = self.dropped_events
 					self._logger.warning("stream_event_dropped", extra={
 						"dropped_events": self.dropped_events,
 					})
-			subscriber.queue.put_nowait(message)
+			subscriber.queue.put_nowait(envelope)
+
+	def publish_state(
+		self, session_id: str, generation: int, revision: int, state: str,
+		*, frame_id: int | None = None, correlation_id: str | None = None,
+	) -> None:
+		"""相関IDを採番してstateを作り、同じIDを診断用にも渡して配る。"""
+		owned_id = correlation_id or str(uuid4())
+		self.publish(session_id, self.state_message(
+			session_id, generation, revision, state, frame_id=frame_id, correlation_id=owned_id,
+		), correlation_id=owned_id)
+
+	def publish_heartbeat(self, session_id: str, generation: int, revision: int) -> None:
+		owned_id = str(uuid4())
+		self.publish(session_id, self.heartbeat_message(
+			session_id, generation, revision, correlation_id=owned_id,
+		), correlation_id=owned_id)
+
+	def publish_error(
+		self, code: str, correlation_id: str | None, session_id: str,
+		generation: int, revision: int, *, frame_id: int,
+	) -> None:
+		owned_id = correlation_id or str(uuid4())
+		self.publish(session_id, self.error_message(
+			code, owned_id, session_id, generation, revision, frame_id=frame_id,
+		), correlation_id=owned_id)
 
 	def validate_message(self, message: dict[str, Any]) -> None:
 		if self._validator is None:
@@ -142,8 +185,9 @@ class EventHub:
 	def subscriber_count(self, session_id: str) -> int:
 		return len(self._subscribers.get(session_id, ()))
 
-	def _send_timeout(self, subscription: EventSubscription, message: dict[str, Any]) -> None:
+	def _send_timeout(self, subscription: EventSubscription, correlation_id: str) -> None:
 		self.timed_out_sends += 1
+		self._observer.dropped("delivery_send_timeout", correlation_id=correlation_id)
 		self._logger.warning("stream_send_timeout", extra={
 			"timed_out_sends": self.timed_out_sends,
 		})
