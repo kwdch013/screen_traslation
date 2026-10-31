@@ -38,6 +38,13 @@
 - したがって、取得できた元ログだけでは停止したConnectionTestsのケース名や根本原因を断定できない。後続実行に詳細console loggerとhang dump timeoutを加えて特定する。
 - Windows実行環境はこのworktreeから利用できず、既存ログにはテストケース単位の情報もないため、Windows固有の原因を推測で事実扱いしない。
 
+### 診断・ハング防止の更新
+
+- IntegrationTestsの各接続/送信/受信には30秒のCancellationTokenを渡し、Mock serverの起動・停止と接続破棄にも有限の上限を設けた。固定sleepによる同期は追加していない。
+- `windows-client` のテスト実行にconsole detailed loggerと`--blame-hang --blame-hang-timeout 5m`を追加し、job timeoutを25分にした。元のCIではケース名が記録されていなかったため、前回停止したケース名やWindows固有の根本原因は未特定のまま記録する。
+- 修正後のLinux IntegrationTestsを詳細logger / 2分hang dump付きで3回実行し、毎回12件成功 (5.1〜6.2秒)。Linuxでは停止を再現していない。
+- 修正後のclient Compose試験はCore 1、Client 70、Integration 12、Contracts 4件成功。root unittestは309件成功、75件skip。read-only mount server回帰は105件成功、3件skip。mypy `src`と`--platform win32 src`は各79 source filesで問題なし。Ruff対象範囲は成功。
+
 ## Mutation確認
 
 | 変異 | 検出結果 |

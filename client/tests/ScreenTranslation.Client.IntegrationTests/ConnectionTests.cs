@@ -24,11 +24,13 @@ namespace ScreenTranslation.Client.IntegrationTests;
 public sealed class ConnectionTests
 {
 	private const string DeviceToken = "fixture-device-token";
+	private static readonly TimeSpan IoTimeout = TimeSpan.FromSeconds(30);
 	private static readonly Guid SessionId = Guid.Parse("11111111-1111-4111-8111-111111111111");
 
 	[Fact]
 	public async Task ConnectAndSendFrameOverTrustedLoopbackTlsUsesContractWireFormat()
 	{
+		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates();
 		using var trustedRoot = certificates.TrustRoot();
 		var frameReceived = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -46,11 +48,11 @@ public sealed class ConnectionTests
 		var transport = transportHandle.Client;
 		try
 		{
-			await transport.ConnectAsync();
+			await transport.ConnectAsync(timeout.Token);
 			transport.ActivateSession(SessionId, 1, 1);
-			await transport.SendFrameAsync(new FrameMetadata(1, SessionId, 1, 1, 1, 64, 32, "image/png", 3), new byte[] { 1, 2, 3 }, 1);
+			await transport.SendFrameAsync(new FrameMetadata(1, SessionId, 1, 1, 1, 64, 32, "image/png", 3), new byte[] { 1, 2, 3 }, 1, timeout.Token);
 
-			var frame = await frameReceived.Task.WaitAsync(TimeSpan.FromSeconds(30));
+			var frame = await frameReceived.Task.WaitAsync(timeout.Token);
 			Assert.Equal(SessionId, TransportProtocol.ValidateFrame(frame).SessionId);
 			Assert.Equal(new byte[] { 1, 2, 3 }, frame[^3..]);
 			Assert.Equal(1, server.RequestCount);
@@ -58,7 +60,7 @@ public sealed class ConnectionTests
 		}
 		finally
 		{
-			await transport.DisconnectAsync();
+			await transport.DisconnectAsync().WaitAsync(IoTimeout);
 		}
 	}
 
@@ -70,6 +72,7 @@ public sealed class ConnectionTests
 	[InlineData(426, "PROTOCOL_MISMATCH", false)]
 	public async Task HandshakeFailuresAreNotRetried(int status, string errorCode, bool authenticationFailure)
 	{
+		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates();
 		using var trustedRoot = certificates.TrustRoot();
 		var responseBody = status == 426
@@ -80,9 +83,9 @@ public sealed class ConnectionTests
 		var transport = transportHandle.Client;
 	
 		if (authenticationFailure)
-			await Assert.ThrowsAsync<TransportAuthenticationException>(() => transport.ConnectAsync());
+			await Assert.ThrowsAsync<TransportAuthenticationException>(() => transport.ConnectAsync(timeout.Token));
 		else
-			await Assert.ThrowsAsync<TransportProtocolException>(() => transport.ConnectAsync());
+			await Assert.ThrowsAsync<TransportProtocolException>(() => transport.ConnectAsync(timeout.Token));
 
 		Assert.Equal(1, server.RequestCount);
 		Assert.Equal(TransportConnectionStatus.Failed, transport.Status);
@@ -91,6 +94,7 @@ public sealed class ConnectionTests
 	[Fact]
 	public async Task DisconnectReconnectsOnceAndCancellationLeavesNoLiveSocket()
 	{
+		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates();
 		using var trustedRoot = certificates.TrustRoot();
 		var secondConnection = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -113,20 +117,21 @@ public sealed class ConnectionTests
 		await using var transportHandle = await CreateTransport(server, retries: 2);
 		var transport = transportHandle.Client;
 		using var cancellation = new CancellationTokenSource();
+		using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, cancellation.Token);
 		var receiveTask = transport.RunReceiveLoopAsync(_ =>
 		{
 			stateReceived.TrySetResult();
 			cancellation.Cancel();
 			return Task.CompletedTask;
-		}, cancellation.Token);
+		}, linkedCancellation.Token);
 
-		await stateReceived.Task.WaitAsync(TimeSpan.FromSeconds(30));
-		await receiveTask.WaitAsync(TimeSpan.FromSeconds(30));
+		await stateReceived.Task.WaitAsync(timeout.Token);
+		await receiveTask.WaitAsync(timeout.Token);
 		Assert.True(secondConnection.Task.IsCompleted);
 		Assert.Equal(2, server.RequestCount);
 		Assert.True(transport.IsConnected);
 		Assert.False(transport.IsSessionActive);
-		await transport.DisconnectAsync();
+		await transport.DisconnectAsync().WaitAsync(IoTimeout);
 		Assert.False(transport.IsConnected);
 		Assert.Equal(TransportConnectionStatus.Stopped, transport.Status);
 	}
@@ -134,6 +139,7 @@ public sealed class ConnectionTests
 	[Fact]
 	public async Task CancelledHandshakeIgnoresALaterServerResponse()
 	{
+		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates();
 		using var trustedRoot = certificates.TrustRoot();
 		var requestObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -149,9 +155,10 @@ public sealed class ConnectionTests
 		using var cancellation = new CancellationTokenSource();
 		var connectionStatusChanges = new List<TransportConnectionStatus>();
 		transport.ConnectionStatusChanged += connectionStatusChanges.Add;
-		var connect = transport.ConnectAsync(cancellation.Token);
+		using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, cancellation.Token);
+		var connect = transport.ConnectAsync(linkedCancellation.Token);
 
-		await requestObserved.Task.WaitAsync(TimeSpan.FromSeconds(30));
+		await requestObserved.Task.WaitAsync(timeout.Token);
 		cancellation.Cancel();
 		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connect);
 		releaseResponse.TrySetResult();
@@ -163,6 +170,7 @@ public sealed class ConnectionTests
 	[Fact]
 	public async Task ShutdownDuringReceiveStopsReconnectAndReleasesSocket()
 	{
+		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates();
 		using var trustedRoot = certificates.TrustRoot();
 		var accepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -173,12 +181,12 @@ public sealed class ConnectionTests
 		});
 		await using var transportHandle = await CreateTransport(server, retries: 3);
 		var transport = transportHandle.Client;
-		await transport.ConnectAsync();
-		var receiveLoop = transport.RunReceiveLoopAsync(_ => Task.CompletedTask);
-		await accepted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+		await transport.ConnectAsync(timeout.Token);
+		var receiveLoop = transport.RunReceiveLoopAsync(_ => Task.CompletedTask, timeout.Token);
+		await accepted.Task.WaitAsync(timeout.Token);
 
-		await transport.DisconnectAsync();
-		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => receiveLoop.WaitAsync(TimeSpan.FromSeconds(30)));
+		await transport.DisconnectAsync().WaitAsync(IoTimeout);
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => receiveLoop.WaitAsync(IoTimeout));
 		Assert.Equal(1, server.RequestCount);
 		Assert.False(transport.IsConnected);
 		Assert.Equal(TransportConnectionStatus.Stopped, transport.Status);
@@ -190,13 +198,14 @@ public sealed class ConnectionTests
 	[InlineData(CertificateKind.UntrustedAuthority)]
 	public async Task InvalidServerCertificatesAreRejected(CertificateKind kind)
 	{
+		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates(kind);
 		using var trustedRoot = kind == CertificateKind.UntrustedAuthority ? null : certificates.TrustRoot();
 		await using var server = await MockStreamServer.StartAsync(certificates.ServerCertificate, (_, _) => Task.CompletedTask);
 		await using var transportHandle = await CreateTransport(server, retries: 3);
 		var transport = transportHandle.Client;
 
-		await Assert.ThrowsAsync<TransportSecurityException>(() => transport.ConnectAsync());
+		await Assert.ThrowsAsync<TransportSecurityException>(() => transport.ConnectAsync(timeout.Token));
 		Assert.Equal(0, server.RequestCount);
 		Assert.False(transport.IsConnected);
 	}
@@ -243,7 +252,7 @@ public sealed class ConnectionTests
 
 		public async ValueTask DisposeAsync()
 		{
-			await client.DisconnectAsync();
+			await client.DisconnectAsync().WaitAsync(IoTimeout);
 			File.Delete(credentialFile);
 		}
 	}
@@ -351,12 +360,18 @@ public sealed class ConnectionTests
 				using var socket = await context.WebSockets.AcceptWebSocketAsync("screen-translation.v1");
 				await server.accepted(socket, context.RequestAborted);
 			});
-			await app.StartAsync();
+			using (var timeout = new CancellationTokenSource(IoTimeout))
+				await app.StartAsync(timeout.Token);
 			var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
 			server.BaseUri = address.Replace("127.0.0.1", "localhost", StringComparison.Ordinal);
 			return server;
 		}
 
-		public async ValueTask DisposeAsync() => await app.DisposeAsync();
+		public async ValueTask DisposeAsync()
+		{
+			using var timeout = new CancellationTokenSource(IoTimeout);
+			await app.StopAsync(timeout.Token);
+			await app.DisposeAsync().AsTask().WaitAsync(IoTimeout);
+		}
 	}
 }
