@@ -192,7 +192,7 @@ def create_app(
 		try:
 			await app.state.sessions.stop(request.path_params["session_id"], result.credential_id)
 		except SessionForbidden:
-			return _session_error("FORBIDDEN", "セッションを操作する権限がありません。", 403)
+			return _session_error("FORBIDDEN", "この操作は許可されていません。", 403)
 		except SessionNotFound:
 			return _session_error("NOT_FOUND", "セッションが見つかりません。", 404)
 		stream_websocket = app.state.streams.pop(request.path_params["session_id"], None)
