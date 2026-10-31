@@ -12,7 +12,7 @@ from screen_translation_server import app as app_module
 from screen_translation_server.app import create_server
 from screen_translation_server.operational_logging import disable_access_logger, restrict_dependency_loggers
 
-SECRET_TEXT = "秘密の原文と訳文"
+SAMPLE_TEXT = "検査用の原文と訳文"
 
 
 class _Capture(logging.Handler):
@@ -40,8 +40,8 @@ class DependencyLoggerTests(unittest.TestCase):
 		restrict_dependency_loggers()
 		# argostranslateはimport時に自分のloggerへINFOを明示する。呼び出し後に戻されても出さない。
 		logging.getLogger("argostranslate.utils").setLevel(logging.DEBUG)
-		utils.info("apply_packaged_translation", SECRET_TEXT)
-		utils.debug("translated_paragraphs:", SECRET_TEXT)
+		utils.info("apply_packaged_translation", SAMPLE_TEXT)
+		utils.debug("translated_paragraphs:", SAMPLE_TEXT)
 		self.assertEqual(self.capture.messages, [])
 
 	def test_stanza_and_late_child_loggers_are_dropped(self) -> None:
@@ -49,8 +49,8 @@ class DependencyLoggerTests(unittest.TestCase):
 		child.setLevel(logging.INFO)
 		restrict_dependency_loggers()
 		child.setLevel(logging.INFO)
-		child.info(SECRET_TEXT)
-		logging.getLogger("stanza").info(SECRET_TEXT)
+		child.info(SAMPLE_TEXT)
+		logging.getLogger("stanza").info(SAMPLE_TEXT)
 		self.assertEqual(self.capture.messages, [])
 
 	def test_warning_and_above_remain_visible_and_filter_is_not_duplicated(self) -> None:
@@ -76,8 +76,8 @@ class AccessLoggerTests(unittest.TestCase):
 		self.addCleanup(logger.removeHandler, capture)
 		disable_access_logger()
 		disable_access_logger()
-		logger.info('%s - "%s %s"', "127.0.0.1", "DELETE", "/api/v1/sessions/" + SECRET_TEXT)
-		logger.error(SECRET_TEXT)
+		logger.info('%s - "%s %s"', "127.0.0.1", "DELETE", "/api/v1/sessions/" + SAMPLE_TEXT)
+		logger.error(SAMPLE_TEXT)
 		self.assertEqual(capture.messages, [])
 		self.assertEqual(len(logger.filters), 1)
 

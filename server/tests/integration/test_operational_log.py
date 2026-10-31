@@ -15,7 +15,7 @@ from live_server import LiveServer
 from screen_translation_server.operational_logging import restrict_dependency_loggers
 from screen_translation_server.sessions import SessionManager
 
-SECRET_TEXT = "秘密の原文と訳文"
+SAMPLE_TEXT = "検査用の原文と訳文"
 
 
 class _Capture(logging.Handler):
@@ -33,7 +33,7 @@ class _Capture(logging.Handler):
 
 
 class OperationalLogTests(unittest.TestCase):
-	def test_access_and_library_logs_expose_no_secret(self) -> None:
+	def test_access_and_library_logs_expose_no_content(self) -> None:
 		capture = _Capture()
 		names = ("", "uvicorn", "uvicorn.access", "uvicorn.error")
 		loggers = [logging.getLogger(name) for name in names]
@@ -60,12 +60,12 @@ class OperationalLogTests(unittest.TestCase):
 		from argostranslate import utils
 		restrict_dependency_loggers()
 		logging.getLogger("argostranslate.utils").setLevel(logging.INFO)
-		utils.info("apply_packaged_translation", SECRET_TEXT)
-		logging.getLogger("stanza").info(SECRET_TEXT)
+		utils.info("apply_packaged_translation", SAMPLE_TEXT)
+		logging.getLogger("stanza").info(SAMPLE_TEXT)
 		server.stop()
 		joined = "\n".join(capture.lines)
-		for secret in (session_id, server.token, server.admin_token, SECRET_TEXT, "/sessions/"):
-			self.assertNotIn(secret, joined)
+		for forbidden in (session_id, server.token, server.admin_token, SAMPLE_TEXT, "/sessions/"):
+			self.assertNotIn(forbidden, joined)
 		self.assertNotIn("uvicorn.access", joined)
 
 
