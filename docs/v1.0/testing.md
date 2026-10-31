@@ -1,5 +1,25 @@
 # v1.0 サーバー試験
 
+## C#クライアント試験
+
+OS非依存のCore・Clientロジックと契約fixtureは.NET 10 SDKコンテナ内で実行します。通常のアプリイメージの`src/tests`はこの追加試験の影響を受けません。
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+Windowsの`windows-client` CIは`client/ScreenTranslation.sln`全体をビルド・実行します。`ScreenTranslation.Client.IntegrationTests`ではKestrelの契約準拠モックをloopbackに起動し、試験ごとに一時CA/サーバー証明書を生成して実TLS/WSS接続します。CAはCurrentUserの信頼ストアへ一時登録し、試験終了時に必ず削除します。固定ホスト/IP・秘密鍵・実資格情報はソースやfixtureへ保存しません。
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTranslation.Client.IntegrationTests.csproj --configuration Release --filter Category=ConnectionIntegration
+```
+
+接続・フレーム送信、401/403/409の認証/所有権拒否、503 `MODEL_NOT_READY`、HTTP protocol拒否、WSS切断後の再接続、期限切れ・SANなし・未信頼CAの証明書拒否、取消後に届く遅延応答の無視を確認します。通信の開始/完了は`TaskCompletionSource`と取消tokenで同期します。30秒のtimeoutはハング時のwatchdog専用であり、合否の時間条件には使いません。通信層の自動再接続だけではsessionを再開しないことも既存のClient単体試験で確認します。
+
+WPF画面での設定変更中の接続取消、ウィンドウ終了後の遅延UI更新なし、終了中の再接続なしはOwner実機手順に記録します。手順: (1) サーバー応答を保留した状態で接続先を変更して保存し、旧接続の遅延完了が新しい状態表示を上書きしないことを確認、(2) 接続を取消した直後に旧サーバーから応答させ、状態表示とsocket数が増えないことを確認、(3) 再接続待ち中にウィンドウを閉じ、閉じた後のUI更新/再接続がなくsocketが解放されることを確認、(4) TLS・認証・MODEL_NOT_READY・切断・再接続停止時の日本語状態と復旧案内を確認。担当: Owner。結果: **未実施(Windows実機が必要)**。混在DPI/負座標は #136 系、キャプチャ除外と実画面取得は #135/#148 系の実機Taskで確認します。実Windows/Linux間通信・サーバー実処理を含むE2Eは #108 等で行います。この未実施項目をCI成功やTask合格として数えません。
+
+2026-10-31にLinux .NET SDKコンテナでCore 1件・Client 70件・接続結合12件・Contracts 4件を実行し、すべて成功しました。CPU負荷をかけた同一試験の3反復も成功しました。WPF実機確認とWindows hosted runnerの結果は別扱いにし、手動項目を合格に含めません。実行詳細とmutation確認は[Issue #90作業記録](../../tasks/2026-10-31_issue-90_connection-windows-tests.md)を参照してください。
+
 ## Pythonサーバーの単体試験
 
 リポジトリルートでPython 3.14の専用コンテナからサーバーの単体・契約試験を実行します。
