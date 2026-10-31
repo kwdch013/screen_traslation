@@ -85,6 +85,7 @@ class TranslationPipeline:
 		self._pending: tuple[FrameInput, float, int] | None = None
 		self._worker: asyncio.Task[None] | None = None
 		self._lock = asyncio.Lock()
+		self._lifecycle_lock = asyncio.Lock()
 		self._rate_times: dict[str, deque[float]] = {}
 		self._last_frame: dict[tuple[str, int], int] = {}
 		self._epoch: dict[str, int] = {}
@@ -101,39 +102,45 @@ class TranslationPipeline:
 		if not await self._current(frame.session_id, frame.generation):
 			self.dropped_frames += 1
 			return
-		previous_generation = self._active_generation.get(frame.session_id)
-		if frame.session_id in self._active_generation and previous_generation != frame.generation:
-			if previous_generation is None:
-				self.dropped_frames += 1
-				return
-			await self.cancel(frame.session_id, new_generation=frame.generation)
-		async with self._lock:
-			active_generation = self._active_generation.get(frame.session_id)
-			if frame.session_id in self._active_generation and active_generation != frame.generation:
-				self.dropped_frames += 1
-				return
-			self._active_generation[frame.session_id] = frame.generation
-			key = (frame.session_id, frame.generation)
-			previous_id = self._last_frame.get(key, 0)
-			if frame.frame_id <= previous_id:
-				self.dropped_frames += 1
-				return
-			self._last_frame[key] = frame.frame_id
-			self._check_rate(frame.session_id, received_at)
-			epoch = self._epoch.get(frame.session_id, 0)
-			if self._worker is not None and not self._worker.done():
-				if self._pending is not None:
+		async with self._lifecycle_lock:
+			previous_generation = self._active_generation.get(frame.session_id)
+			if frame.session_id in self._active_generation and previous_generation != frame.generation:
+				if previous_generation is None:
 					self.dropped_frames += 1
+					return
+				await self._cancel_locked(frame.session_id, new_generation=frame.generation)
+			async with self._lock:
+				active_generation = self._active_generation.get(frame.session_id)
+				if frame.session_id in self._active_generation and active_generation != frame.generation:
+					self.dropped_frames += 1
+					return
+				self._active_generation[frame.session_id] = frame.generation
+				key = (frame.session_id, frame.generation)
+				previous_id = self._last_frame.get(key, 0)
+				if frame.frame_id <= previous_id:
+					self.dropped_frames += 1
+					return
+				self._last_frame[key] = frame.frame_id
+				self._check_rate(frame.session_id, received_at)
+				epoch = self._epoch.get(frame.session_id, 0)
+				if self._worker is not None and not self._worker.done():
+					if self._pending is not None:
+						self.dropped_frames += 1
+					self._pending = (frame, received_at, epoch)
+					return
 				self._pending = (frame, received_at, epoch)
-				return
-			self._pending = (frame, received_at, epoch)
-			self._worker = self._create_task(self._run())
+				self._worker = self._create_task(self._run())
 
 	async def cancel(self, session_id: str, *, new_generation: int | None = None) -> None:
 		"""停止・再選択・切断・世代変更時に処理を取消して完了まで待つ。"""
+		async with self._lifecycle_lock:
+			await self._cancel_locked(session_id, new_generation=new_generation)
+
+	async def _cancel_locked(self, session_id: str, *, new_generation: int | None) -> None:
 		async with self._lock:
 			self._epoch[session_id] = self._epoch.get(session_id, 0) + 1
 			self._active_generation[session_id] = new_generation  # Noneは停止後の受理を防ぐ。
+			self._results.clear()
 			if self._pending is not None and self._pending[0].session_id == session_id:
 				self._pending = None
 				self.dropped_frames += 1
@@ -185,14 +192,17 @@ class TranslationPipeline:
 				except Exception:
 					self.failed_frames += 1
 					continue
-				if result is None or epoch != self._epoch.get(frame.session_id, 0):
+				if result is None:
 					continue
 				async with self._lock:
-					self._results.append(result)
+					if epoch == self._epoch.get(frame.session_id, 0):
+						self._results.append(result)
 		finally:
 			async with self._lock:
 				if self._worker is asyncio.current_task():
 					self._worker = None
+					if self._pending is not None:
+						self._worker = self._create_task(self._run())
 
 	async def _process(self, frame: FrameInput, received_at: float) -> PipelineResult | None:
 		image = await asyncio.to_thread(_decode_image, frame)
@@ -223,9 +233,6 @@ class TranslationPipeline:
 		)
 
 	async def _current(self, session_id: str, generation: int) -> bool:
-		active_generation = self._active_generation.get(session_id)
-		if session_id in self._active_generation and active_generation != generation:
-			return False
 		if self._is_current is None:
 			return True
 		value = self._is_current(session_id, generation)

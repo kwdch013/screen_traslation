@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Coroutine
 import threading
 import unittest
 from io import BytesIO
+from typing import Any
 
 from PIL import Image
 
-from screen_translation_server.pipeline import FrameInput, PipelineLimitError, TranslationPipeline
+from app.contracts import TranslationResult
+from screen_translation_server.pipeline import (
+	FrameInput, PipelineLimitError, PipelineResult, TranslationPipeline,
+)
 
 
 class BlockingOcr:
@@ -21,8 +26,19 @@ class BlockingOcr:
 	def recognize(self, frame: object) -> list[object]:
 		self.seen.append(frame.frame_id)  # type: ignore[attr-defined]
 		self.started.set()
-		self.release.wait(2)
+		if len(self.seen) == 1:
+			self.release.wait()
 		return []
+
+
+class ObservableTask(asyncio.Task[Any]):
+	def __init__(self, coroutine: Coroutine[Any, Any, Any], *, loop: asyncio.AbstractEventLoop) -> None:
+		super().__init__(coroutine, loop=loop)
+		self.cancel_requested = asyncio.Event()
+
+	def cancel(self, msg: str | None = None) -> bool:
+		self.cancel_requested.set()
+		return super().cancel(msg)
 
 
 class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
@@ -38,17 +54,110 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 		ocr = BlockingOcr()
 		generation = 1
 		pipeline = TranslationPipeline(ocr, lambda text: text, clock=lambda: 0.0,
-			is_current=lambda session, value: value == generation)
+			is_current=lambda session, value: value == generation,
+			create_task=lambda coroutine: ObservableTask(coroutine,
+				loop=asyncio.get_running_loop()))
 		await pipeline.submit(self.frame(1))
 		self.assertTrue(await asyncio.to_thread(ocr.started.wait, 1))
+		worker = pipeline._worker
+		self.assertIsInstance(worker, ObservableTask)
 		cancel = asyncio.create_task(pipeline.cancel("session", new_generation=2))
-		async def release_engine() -> None:
+		try:
+			await asyncio.wait_for(worker.cancel_requested.wait(), timeout=1)  # type: ignore[union-attr]
+		finally:
 			ocr.release.set()
-		await asyncio.gather(cancel, asyncio.create_task(release_engine()))
+		await cancel
 		generation = 2
 		self.assertEqual(pipeline.active_worker_count, 0)
 		self.assertEqual(pipeline.pending_frame_count, 0)
 		self.assertEqual(pipeline.published_results, [])
+
+	async def test_epoch_change_rejects_result_completed_during_cancel(self) -> None:
+		pipeline = TranslationPipeline(lambda frame: [], lambda text: text, clock=lambda: 0.0,
+			create_task=lambda coroutine: ObservableTask(coroutine,
+				loop=asyncio.get_running_loop()))
+		started = asyncio.Event()
+		release = asyncio.Event()
+		async def delayed_result(frame: FrameInput, received_at: float) -> PipelineResult:
+			started.set()
+			try:
+				await release.wait()
+			except asyncio.CancelledError:
+				await release.wait()
+			return PipelineResult(TranslationResult(frame.generation, frame.frame_id,
+				received_at, received_at, frame.image_width, frame.image_height, ()),
+				frame.dictionary_revision)
+		pipeline._process = delayed_result  # type: ignore[method-assign]
+		await pipeline.submit(self.frame(1))
+		await started.wait()
+		worker = pipeline._worker
+		self.assertIsInstance(worker, ObservableTask)
+		cancel = asyncio.create_task(pipeline.cancel("session"))
+		try:
+			await asyncio.wait_for(worker.cancel_requested.wait(), timeout=1)  # type: ignore[union-attr]
+		finally:
+			release.set()
+			await cancel
+		self.assertEqual(pipeline.published_results, [])
+		self.assertIsNone(await pipeline.next_result())
+
+	async def test_new_generation_frame_during_cancel_drain_is_started_after_drain(self) -> None:
+		ocr = BlockingOcr()
+		generation = 1
+		new_generation_checked = asyncio.Event()
+		async def is_current(session: str, value: int) -> bool:
+			if value == 2:
+				new_generation_checked.set()
+			return value == generation
+		pipeline = TranslationPipeline(ocr, lambda text: text, clock=lambda: 0.0,
+			is_current=is_current,
+			create_task=lambda coroutine: ObservableTask(coroutine,
+				loop=asyncio.get_running_loop()))
+		await pipeline.submit(self.frame(1))
+		self.assertTrue(await asyncio.to_thread(ocr.started.wait, 1))
+		worker = pipeline._worker
+		self.assertIsInstance(worker, ObservableTask)
+		cancel = asyncio.create_task(pipeline.cancel("session", new_generation=2))
+		submit: asyncio.Task[None] | None = None
+		try:
+			await asyncio.wait_for(worker.cancel_requested.wait(), timeout=1)  # type: ignore[union-attr]
+			generation = 2
+			submit = asyncio.create_task(pipeline.submit(self.frame(2, generation=2)))
+			await new_generation_checked.wait()
+			self.assertFalse(submit.done())
+			self.assertEqual(pipeline.pending_frame_count, 0)
+			self.assertEqual(pipeline.active_worker_count, 1)
+		finally:
+			ocr.release.set()
+			await cancel
+		if submit is not None:
+			await submit
+		await pipeline.wait_idle()
+		self.assertEqual(ocr.seen, [1, 2])
+		self.assertEqual(pipeline.pending_frame_count, 0)
+		self.assertEqual(pipeline.active_worker_count, 0)
+		self.assertEqual([item.result.frame_id for item in pipeline.published_results], [2])
+
+	async def test_cancel_discards_already_published_result(self) -> None:
+		pipeline = TranslationPipeline(lambda frame: [], lambda text: text, clock=lambda: 0.0)
+		await pipeline.submit(self.frame(1))
+		await pipeline.wait_idle()
+		self.assertEqual(len(pipeline.published_results), 1)
+		await pipeline.cancel("session")
+		self.assertEqual(pipeline.published_results, [])
+		self.assertIsNone(await pipeline.next_result())
+
+	async def test_generation_change_discards_previous_generation_result(self) -> None:
+		pipeline = TranslationPipeline(lambda frame: [], lambda text: text, clock=lambda: 0.0)
+		await pipeline.submit(self.frame(1))
+		await pipeline.wait_idle()
+		self.assertEqual((await pipeline.next_result()).result.generation, 1)  # type: ignore[union-attr]
+		await pipeline.submit(self.frame(1, generation=2))
+		await pipeline.wait_idle()
+		result = await pipeline.next_result()
+		self.assertIsNotNone(result)
+		self.assertEqual(result.result.generation, 2)  # type: ignore[union-attr]
+		self.assertEqual([item.result.generation for item in pipeline.published_results], [2])
 
 	async def test_expired_frame_is_discarded_using_injected_monotonic_clock(self) -> None:
 		now = 0.0
@@ -77,12 +186,12 @@ class PipelineLimitsTest(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual(pipeline.active_worker_count, 0)
 
 	@staticmethod
-	def frame(frame_id: int, *, image: bytes = b"image", width: int = 64) -> FrameInput:
+	def frame(frame_id: int, *, generation: int = 1, image: bytes = b"image", width: int = 64) -> FrameInput:
 		if image == b"image":
 			buffer = BytesIO()
 			Image.new("RGB", (width, 32)).save(buffer, format="PNG")
 			image = buffer.getvalue()
-		return FrameInput("session", 1, frame_id, 1, image, width, 32)
+		return FrameInput("session", generation, frame_id, 1, image, width, 32)
 
 
 if __name__ == "__main__":
