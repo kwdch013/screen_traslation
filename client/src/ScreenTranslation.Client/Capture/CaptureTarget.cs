@@ -17,7 +17,16 @@ public sealed record CaptureTarget(
 	CaptureTargetKind Kind,
 	string Name,
 	CaptureBounds Bounds,
-	uint Dpi);
+	uint Dpi)
+{
+	public static CaptureTarget CreateDisplay(string id, string name, CaptureBounds bounds, IMonitorDpiProvider dpiProvider) =>
+		new(id, CaptureTargetKind.Display, name, bounds, dpiProvider.GetDpi(bounds));
+}
+
+public interface IMonitorDpiProvider
+{
+	uint GetDpi(CaptureBounds monitorBounds);
+}
 
 public interface ICaptureTargetCatalog
 {

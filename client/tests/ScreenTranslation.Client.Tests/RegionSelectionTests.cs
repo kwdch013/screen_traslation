@@ -54,4 +54,34 @@ public sealed class RegionSelectionTests
 		Assert.Equal(RegionSelectionState.Invalidated, selection.State);
 		Assert.Equal(selectedGeneration + 1, selection.Generation);
 	}
+
+	[Theory]
+	[InlineData(96)]
+	[InlineData(120)]
+	[InlineData(144)]
+	[InlineData(192)]
+	public void MonitorSpecificDpiProducesPhysicalRoiOnThatMonitor(uint dpi)
+	{
+		var bounds = new CaptureBounds(-1920, 0, 0, 1080);
+		var dpiProvider = new FakeMonitorDpiProvider(new Dictionary<CaptureBounds, uint> { [bounds] = dpi });
+		var target = CaptureTarget.CreateDisplay($"monitor-{dpi}", $"monitor-{dpi}", bounds, dpiProvider);
+		var monitor = new MonitorContext(target.Id,
+			new Rect2D(target.Bounds.Left, target.Bounds.Top, target.Bounds.Right, target.Bounds.Bottom), target.Dpi);
+		var topLeft = CoordinateTransform.LogicalToPhysical(new Point2D(16, 16), monitor);
+		var bottomRight = CoordinateTransform.LogicalToPhysical(new Point2D(80, 48), monitor);
+		var roi = new Rect2D(topLeft.X, topLeft.Y, bottomRight.X, bottomRight.Y);
+
+		var selection = new RegionSelection([monitor]);
+
+		Assert.True(selection.TrySelect(roi));
+		Assert.Equal(64 * dpi / 96, roi.Width);
+		Assert.Equal(32 * dpi / 96, roi.Height);
+		Assert.True(monitor.PhysicalBounds.Contains(new Point2D(roi.Left, roi.Top)));
+		Assert.True(monitor.PhysicalBounds.Contains(new Point2D(roi.Right - 1, roi.Bottom - 1)));
+	}
+
+	private sealed class FakeMonitorDpiProvider(IReadOnlyDictionary<CaptureBounds, uint> dpis) : IMonitorDpiProvider
+	{
+		public uint GetDpi(CaptureBounds monitorBounds) => dpis[monitorBounds];
+	}
 }

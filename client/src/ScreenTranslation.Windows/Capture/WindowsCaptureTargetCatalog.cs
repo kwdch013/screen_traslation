@@ -7,7 +7,12 @@ namespace ScreenTranslation.Windows.Capture;
 public sealed class WindowsCaptureTargetCatalog : ICaptureTargetCatalog
 {
 	private const uint MonitorDefaultToNearest = 2;
-	private const uint DpiTypeEffective = 0;
+	private readonly IMonitorDpiProvider monitorDpiProvider;
+
+	public WindowsCaptureTargetCatalog(IMonitorDpiProvider? monitorDpiProvider = null)
+	{
+		this.monitorDpiProvider = monitorDpiProvider ?? new Win32MonitorDpiProvider();
+	}
 
 	public ValueTask<IReadOnlyList<CaptureTarget>> EnumerateAsync(CancellationToken cancellationToken = default)
 	{
@@ -54,17 +59,12 @@ public sealed class WindowsCaptureTargetCatalog : ICaptureTargetCatalog
 			var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
 			if (GetMonitorInfo(monitor, ref info))
 			{
-				var dpi = 96u;
-				if (GetDpiForMonitor(monitor, DpiTypeEffective, out var x, out _) == 0)
-				{
-					dpi = x;
-				}
-				targets.Add(new CaptureTarget(
+				var bounds = new CaptureBounds(info.Monitor.Left, info.Monitor.Top, info.Monitor.Right, info.Monitor.Bottom);
+				targets.Add(CaptureTarget.CreateDisplay(
 					$"display:{info.DeviceName ?? string.Empty}",
-					CaptureTargetKind.Display,
 					info.DeviceName ?? string.Empty,
-					new CaptureBounds(info.Monitor.Left, info.Monitor.Top, info.Monitor.Right, info.Monitor.Bottom),
-					dpi));
+					bounds,
+					monitorDpiProvider));
 			}
 			return true;
 		}, IntPtr.Zero);
@@ -115,6 +115,44 @@ public sealed class WindowsCaptureTargetCatalog : ICaptureTargetCatalog
 	private static extern bool EnumDisplayMonitors(IntPtr deviceContext, IntPtr clip, MonitorEnumCallback callback, IntPtr parameter);
 	[DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW", SetLastError = true)]
 	private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
-	[DllImport("shcore.dll")]
-	private static extern int GetDpiForMonitor(IntPtr monitor, uint dpiType, out uint dpiX, out uint dpiY);
+}
+
+internal sealed class Win32MonitorDpiProvider : IMonitorDpiProvider
+{
+	private const int WsPopup = unchecked((int)0x80000000);
+
+	public uint GetDpi(CaptureBounds monitorBounds)
+	{
+		if (!OperatingSystem.IsWindows())
+		{
+			throw new PlatformNotSupportedException("モニターDPIの取得はWindowsでのみ利用できます。");
+		}
+
+		var x = checked(monitorBounds.Left + monitorBounds.Width / 2);
+		var y = checked(monitorBounds.Top + monitorBounds.Height / 2);
+		var window = CreateWindowEx(0, "STATIC", string.Empty, WsPopup, x, y, 1, 1, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+		if (window == IntPtr.Zero)
+		{
+			throw new InvalidOperationException("DPI取得用ウィンドウを作成できませんでした。");
+		}
+
+		try
+		{
+			var dpi = GetDpiForWindow(window);
+			return dpi == 0 ? throw new InvalidOperationException("モニターDPIを取得できませんでした。") : dpi;
+		}
+		finally
+		{
+			DestroyWindow(window);
+		}
+	}
+
+	[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "CreateWindowExW")]
+	private static extern IntPtr CreateWindowEx(uint extendedStyle, string className, string windowName, int style,
+		int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr parameter);
+	[DllImport("user32.dll")]
+	private static extern uint GetDpiForWindow(IntPtr window);
+	[DllImport("user32.dll")]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	private static extern bool DestroyWindow(IntPtr window);
 }
