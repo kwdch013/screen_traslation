@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
 import tempfile
 import time
 import unittest
@@ -28,6 +29,14 @@ class HealthcheckIntegrationTest(unittest.TestCase):
 		self.assertEqual(self.probe(live, ca, "/api/v1/health", None), 401)
 		self.assertEqual(self.probe(live, ca, "/api/v1/health", live.token), 200)
 		self.assertEqual(self.probe(live, ca, "/api/v1/ready", live.token), 200)
+
+	def test_context_requires_tls_1_2_and_verifies_certificates(self) -> None:
+		live = LiveServer(None, _sessions(), is_ready=True)
+		self.addCleanup(live.close)
+		context = healthcheck.build_context(str(live.directory / "ca.pem"))
+		self.assertGreaterEqual(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+		self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+		self.assertTrue(context.check_hostname)
 
 	def test_not_ready_server_is_alive_but_not_ready(self) -> None:
 		live = LiveServer(None, _sessions(), is_ready=False)

@@ -61,10 +61,17 @@ def read_token(source: str) -> str:
 	return token
 
 
+def build_context(certificate: str) -> ssl.SSLContext:
+	"""設定済み証明書だけを信頼起点にした、TLS 1.2以上の検証付きcontext。"""
+	context = ssl.create_default_context(cafile=certificate)
+	context.minimum_version = ssl.TLSVersion.TLSv1_2
+	return context
+
+
 def request_status(host_header: str, port: int, certificate: str, path: str, token: str | None) -> int:
 	"""loopbackへ検証付きTLSで接続し、HTTPステータスだけを返す(応答本文は読まない)。"""
 	try:
-		context = ssl.create_default_context(cafile=certificate)
+		context = build_context(certificate)
 		with socket.create_connection((_LOOPBACK, port), timeout=TIMEOUT_SECONDS) as raw:
 			with context.wrap_socket(raw, server_hostname=split_host(host_header)) as secure:
 				lines = [f"GET {path} HTTP/1.1", f"Host: {host_header}", "Connection: close", "Accept: application/json"]
