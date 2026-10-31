@@ -345,8 +345,12 @@ def _install_argos_model(path: Path) -> None:
 
 def _load_engines() -> object:
 	from screen_translation_server.engines import build_engines
+	from screen_translation_server.operational_logging import restrict_dependency_loggers
 
-	return build_engines()
+	engines = build_engines()
+	# 読込で初めてimportされたライブラリの子loggerも、内容を出さないよう固定する。
+	restrict_dependency_loggers()
+	return engines
 
 
 def _warmup_engines(engines: object) -> None:

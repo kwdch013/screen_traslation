@@ -55,6 +55,8 @@ internal static class OperationMessages
 		OverlayClearReason.TargetLost => "対象が見つからなくなったため停止しました。対象を選び直して開始してください。",
 		OverlayClearReason.Disconnected => "サーバーとの接続が切れたため停止しました。再接続してから開始してください。",
 		OverlayClearReason.ExclusionFailed => "キャプチャ除外を確認できないため停止しました。設定を確認して、もう一度開始してください。",
+		OverlayClearReason.TargetResized => "対象ウィンドウの大きさが変わったため停止しました。対象と領域を選び直してください。",
+		OverlayClearReason.TargetMoved => "対象ウィンドウが移動したため表示を更新しています。",
 		OverlayClearReason.Disposed => "終了しました。",
 		_ => Stopped
 	};

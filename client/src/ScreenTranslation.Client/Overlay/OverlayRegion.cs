@@ -37,7 +37,11 @@ public enum OverlayClearReason
 	TargetLost,
 	Disconnected,
 	ExclusionFailed,
-	Disposed
+	Disposed,
+	/// <summary>対象ウィンドウが同じ大きさのまま移動し、ROIを追従させるため旧位置の表示を消した。</summary>
+	TargetMoved,
+	/// <summary>対象ウィンドウの大きさが変わり、ROIの意味が変わったため停止した。</summary>
+	TargetResized
 }
 
 /// <summary>キャプチャ除外を確認できず停止した事実。利用者へ通知する文言を持つ。</summary>

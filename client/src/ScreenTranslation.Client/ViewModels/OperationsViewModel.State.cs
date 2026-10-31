@@ -81,6 +81,13 @@ public sealed partial class OperationsViewModel
 		lock (sync)
 		{
 			if (IsDisposed) return;
+			// 大きさが変わると対象とROIが破棄される。選び直すまで開始させない(履歴は停止と同じく保つ)
+			if (reason == OverlayClearReason.TargetResized)
+			{
+				target = null;
+				hasTarget = false;
+				hasRegion = false;
+			}
 			switch (phase)
 			{
 				case OperationPhase.Starting:

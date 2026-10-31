@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Coroutine
 from datetime import UTC, datetime, timedelta
-import logging
 import os
 from pathlib import Path
 import secrets
@@ -125,8 +124,6 @@ class LiveServer:
 			pipeline=pipeline,
 			readiness=readiness,
 		)
-		# accessログのURLにsession_idが載るため、試験出力へは出さない。
-		logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 		self.server = create_server(self.app, tls_context=create_server_tls_context(
 			self.directory / "server.pem", self.directory / "server.key",
 		))

@@ -43,3 +43,14 @@ Q-10は #57/#68 で方式を設計し #104/#108 でSDKのないWindowsへ導入�
 ## 根拠
 
 2026-10-29確認: [WPF概要](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/overview/)はWindows向け.NET UI、[画面取得](https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture)はWGCと利用者選択を説明する。[除外API](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity)は対象HWNDと保護の限界を明記する。[DPI指針](https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows)は動的なDPI対応が必要な根拠とする。[.NET配布](https://learn.microsoft.com/en-us/dotnet/core/deploying/)と[SignTool](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool)を配布検証の参考とする。[.NETサポート方針](https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core)は実装時に再確認し、サポート中安定SDKを固定する。これらは候補APIの根拠であり、本アプリでの実証は別途必要。
+
+## 対象ウィンドウの移動・リサイズ(Issue #198)
+
+取得中のウィンドウ対象で、ROIは選択時の`Bounds`左上を原点としたローカル座標に変換して取得する。ウィンドウが動くと、物理座標のROIと重畳位置が実際の位置とずれる。契約([座標](../../../../contracts/coordinates.md)・[状態](../../../../contracts/session-state.md))とACC-06(移動後も四隅の誤差2 px以下、古い座標を継続しない)に沿って次を採用する。
+
+- **同じ大きさの移動は追従する**: ローカルROIは変えず、物理ROIを新しい左上へ合わせ直す。ウィンドウ上の同じ領域を送り続けるため、利用者の再操作は不要。位置が変わるたびに世代を進め、旧位置の待機画像・通信中の送信・表示を破棄し、旧位置のフレームと結果は世代照合で拒否する(旧座標の画像を送らない・誤った位置へ重畳しない)。
+- **大きさが変わる場合は追従しない**: リサイズで「ウィンドウのどの部分か」というROIの意味が変わり、左・上端のリサイズでは内容の原点も動く。意味を推測して送るより止める方が安全なため、送信と表示を同期的に止め、対象とROIを破棄して選び直しを求める(fail-closed)。取得側(WGC)が新しい大きさのフレームを返した場合も、そのフレームは読み出さず同じ停止にする。
+- DPIが異なるモニターへの移動は、ROIの物理画素数が変わるため従来どおり停止する。
+
+却下した案: 常に停止して再選択を求める(同じ大きさの移動で毎回操作が必要になり、ACC-06の「移動後も四隅の誤差2 px以下」を満たす余地を捨てる)、リサイズでも比率でROIを変換して追従する(認識対象の内容が変わるため誤送信になりうる)。実機での四隅誤差は[#136](../../testing.md)で測定するまで未実施。
+

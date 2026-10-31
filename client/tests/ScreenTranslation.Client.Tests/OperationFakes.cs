@@ -117,6 +117,9 @@ internal sealed class FakeSessionOperations : ISessionOperations
 		SessionEnded?.Invoke(reason);
 	}
 
+	/// <summary>開始の途中など、実行中でなくてもホストが終了を通知する場面の再現用。</summary>
+	public void RaiseEnded(OverlayClearReason reason) => SessionEnded?.Invoke(reason);
+
 	public void LoseConnection()
 	{
 		IsConnected = false;
