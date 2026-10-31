@@ -54,7 +54,9 @@
 - 無条件許可のmutationで、期限切れ・SANなし・未信頼CAの3ケース全てが期待する`TransportSecurityException`を得られず失敗することを確認。mutationは元のCustomRootTrust検証へ復元。
 - 各Integration testの開始・終了を`[TEST START]` / `[TEST END]`で出力し、Windows jobのdetailed logger / `--blame-hang` / 25分job timeoutを維持。
 - 修正後の`docker compose -f client/compose.test.yml run --build --rm test`は成功 (Core 1、Client 70、Integration 12、Contracts 4)。
-- Windows hosted runnerでの修正後確認結果はPR #167のCI完了後に追記する。Windows実行環境はこのworktreeから利用できないため、CIが根本原因仮説の最終検証となる。
+- 初回修正pushのrun `41180492489` ではhangは再現せず、Windows Integration 12件が2分28秒で全失敗。HTTPリクエスト到達前に`SSL connection could not be established` / `unexpected EOF`が起き、CustomRootTrust callbackがWindows上で有効証明書も受理できていないことが分かった。これは初回修正のテスト用検証経路の不具合であり、CAダイアログ仮説を否定する結果ではない。
+- 追加対応ではcallbackの証明書引数を`X509Certificate2`へ決め打ちせず、`X509Certificate`基底型からDERを読み込めるようにした。Windows runnerでcallback入力型・SAN照合・chain build結果・chain statusを記録し、callback拒否時はテスト用証明書エラーへ分類する。
+- 修正後のWindows hosted runner結果は追加pushのCI完了後に追記する。Windows実行環境はこのworktreeから利用できないため、CIがCustomRootTrust経路の最終検証となる。
 
 ## Mutation確認
 
