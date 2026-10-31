@@ -50,6 +50,35 @@ hosted runnerで再現できない項目です。担当: Owner。**結果: 未�
 4. 負荷(別プロセスでCPUを飽和)をかけた状態でROIを再選択し、再選択前の領域の画像が受信されないことを確認する。
 5. 取得除外(自己キャプチャ除外/WDA)が失敗した場合に送信が停止することを確認する(#135/#136系)。
 
+## 翻訳オーバーレイと自己キャプチャ防止 (Issue #97)
+
+訳文は対象アプリとは別のトップレベルWPF窓に描きます。窓はフォーカスもクリックも受け取らず、`SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`の設定と読み戻しの一致を確認できた場合だけ描画します。確認できなければ描かず、`FailedClosed`で理由を通知し、`CanStream`がfalseのままになります(呼び出し側は画像送信を始めない)。
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| OS非依存の状態・変換 | `client/tests/ScreenTranslation.Client.Tests/Overlay*Tests.cs` | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 注入クロックで、取得から5秒ちょうどまで表示し超過で失効、より古い取得・旧generation・非アクティブ・未来の取得時刻の拒否、停止/再選択/対象消失/切断/除外失敗での同期消去と以後の遅延結果の拒否、空結果での消去、画像寸法がROIと異なる結果と画像外領域の破棄、負座標ROIでの物理座標復元、96/144/192 DPIでの窓ローカルDIP変換、除外失敗時の描画禁止、訳文本文を`ToString`へ出さないこと |
+| 実HWNDの検査 | `client/tests/ScreenTranslation.Windows.Tests/OverlayWindowsTests.cs` (`Category=Overlay`) | Windowsのみ(`windows-client` CI) | 拡張スタイル(NOACTIVATE/TRANSPARENT/TOOLWINDOW/LAYERED)、`WM_NCHITTEST`=HTTRANSPARENTと`WM_MOUSEACTIVATE`=MA_NOACTIVATE、表示してもフォアグラウンドにならないこと、除外設定失敗・読み戻し不一致では描画されないこと、実APIの結果が「除外を確認できて表示」または「失敗して非表示」のどちらかに一致すること |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=Overlay
+```
+
+`Category=Overlay`はWindows専用で、Linuxでのskipを合格として扱いません。この試験は実際のWGC/DXGI/GDIから窓が写らないことを検証しません(WDAの設定成功は各取得経路からの除外を保証しない。[調査](research/capture-exclusion.md))。
+
+### Owner実機手順 (オーバーレイ)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要。実測は #135 / #136)**。実施した場合は日付、Windows版、モニター構成、合否をIssueへ記録し、この欄を更新してください。
+
+1. 対象アプリ(テキスト入力できるウィンドウ)を前面にし、取得を開始して訳文を表示する。対象の入力欄でキー入力でき、キャレットとフォーカスが移らず、訳文の上をクリック/ドラッグしても対象が操作できる(クリックが透過する)ことを確認する。
+2. 表示中の訳文が、取得した画像(サーバーログの画像またはデバッグ保存画像)に写っていないことを、WGC・DXGI・GDIそれぞれで3回以上確認する。1回でも写った場合は「除外不成立」とし、送信が止まり理由が表示されることを確認する。
+3. 100% / 150% / 200%のモニターへ対象を移動し、訳文が対応する領域に重なること(四隅の物理px誤差2以下)と、文字の大きさ・折り返し・透明度・「位置不明」行の見た目が読めることを確認する。負座標のモニターでも確認する。
+4. 停止・再選択・対象ウィンドウを閉じる・サーバーを停止して切断、のそれぞれで訳文が1秒以内に消えること、取得から5秒たつと自然に消えること、停止後に遅れて届いた結果で再表示されないことを確認する。
+5. 除外を確認できない状態(別の取得ツールの常駐や古いOSなど)で開始した場合に、開始が止まり理由が通知されることを確認する。
+
 ## Pythonサーバーの単体試験
 
 リポジトリルートでPython 3.14の専用コンテナからサーバーの単体・契約試験を実行します。
