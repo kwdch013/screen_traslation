@@ -14,6 +14,7 @@ namespace ScreenTranslation.Windows.Tests;
 /// 実GPU・混在DPI・複数モニターは hosted runner で再現できないため、Owner実機手順(docs/v1.0/testing.md)で扱う。
 /// </summary>
 [Trait("Category", "CaptureIntegration")]
+[Collection("WgcSerial")]
 public sealed class WgcCaptureIntegrationTests
 {
 	private static readonly TimeSpan Watchdog = TimeSpan.FromSeconds(30);
@@ -152,15 +153,19 @@ public sealed class WgcCaptureIntegrationTests
 
 		// 初回は共通の初期化資源(D3D・WinRTの静的資源)を確保するため基準に含めない
 		await RunOnceAsync(factory, target, sink);
-		var before = HandleCount();
-		for (var i = 0; i < 25; i++)
+		// 1周ごとに1個でも漏れれば、どの25周でも25個以上増える。揺らぎは両方の区間で同時には起きにくいため、小さい方で判定する
+		var growth = new List<int>();
+		for (var round = 0; round < 2; round++)
 		{
-			await RunOnceAsync(factory, target, sink);
+			var before = HandleCount();
+			for (var i = 0; i < 25; i++)
+			{
+				await RunOnceAsync(factory, target, sink);
+			}
+			growth.Add(HandleCount() - before);
 		}
-		var after = HandleCount();
 
-		// 1周ごとに1個でも漏れれば25個増える。スレッドプール等の揺らぎは許容する
-		Assert.True(after - before < 20, $"ハンドル数が増加しました: {before} -> {after}");
+		Assert.True(growth.Min() < 15, $"ハンドル数が増加しました: {string.Join(", ", growth)}");
 
 		var delivered = sink.Delivered;
 		await Task.Delay(500);
@@ -219,3 +224,7 @@ public sealed class WgcCaptureIntegrationTests
 		Assert.Equal(CaptureInvalidationReason.TargetUnavailable, await invalidated.Task.WaitAsync(Watchdog));
 	}
 }
+
+/// <summary>ハンドル数の測定が他の試験の並列実行で乱れないよう、WGC試験は他の試験と並列に実行しない。</summary>
+[CollectionDefinition("WgcSerial", DisableParallelization = true)]
+public sealed class WgcSerialCollection;
