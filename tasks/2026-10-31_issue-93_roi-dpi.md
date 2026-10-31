@@ -63,3 +63,6 @@
 | mapperのTCS結果反映を`TrySetResult(null)`固定（Selected/Invalidated） | 失敗 (58 passed / 2 failed) | Selected ROI契約とInvalidated例外契約で失敗 |
 
 - いずれのmutationも直ちに復元。Windows固有の画面通知・WPF操作を含む実機確認は**未実施（Windows実機が必要、#136/#148系）**。
+- 最終検証: `docker compose -p issue-93 -f client/compose.test.yml run --build --rm test` 成功（Core 1、Client 60、Contracts 4）。`docker build -t app:ci .` 成功後、指定のPython回帰は308件成功（74 skip）。`src/`を`/app/src`へread-only mountした回帰も308件成功（74 skip）。
+- 文書と要件ID検証: repository文書をread-only mountした`test_v1_documentation`/`test_web_documentation`は39件成功。`mypy src`と`mypy --platform win32 src`は各79 source files成功、`ruff check --no-cache src scripts tests/ai_gate`成功。
+- PR #164の`windows-client`などGitHub checksはpush後に確認する。独立レビューは依頼しない。
