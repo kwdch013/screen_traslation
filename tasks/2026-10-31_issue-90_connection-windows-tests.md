@@ -45,6 +45,17 @@
 - 修正後のLinux IntegrationTestsを詳細logger / 2分hang dump付きで3回実行し、毎回12件成功 (5.1〜6.2秒)。Linuxでは停止を再現していない。
 - 修正後のclient Compose試験はCore 1、Client 70、Integration 12、Contracts 4件成功。root unittestは309件成功、75件skip。read-only mount server回帰は105件成功、3件skip。mypy `src`と`--platform win32 src`は各79 source filesで問題なし。Ruff対象範囲は成功。
 
+## PR #167 Windows CIハング根本原因の調査・修正 (2026-10-31)
+
+- run `41178406629` の `--blame-hang` 診断で、5分無活動後に実行中として記録されたケースは`HandshakeFailuresAreNotRetried`。dump本文はCIログに含まれず、この名称だけから内部の停止箇所までは断定できない。
+- 仮説のコード上の事実: `ConnectionTests`内の成功TLS、HTTP拒否、再接続、handshake取消、shutdown、無効証明書の全経路が`TestCertificates.TrustRoot()`を呼び、CurrentUserのRoot storeへ証明書を追加していた。他テストにこのメソッドの利用はなく、同クラスの他ケースも同じOSストア変更にさらされるため、拒否ステータス固有の理由とは確認できなかった。CIの非対話デスクトップで警告UIが実際に表示されたかはdumpを読めず直接確認できていない。
+- 競合仮説をコード確認: `HandshakeFailuresAreNotRetried`のモックはHTTP bodyを書いた後にhandlerからreturnし、意図的な待機を行わない。破棄はtransport → server → certificatesの逆宣言順。各ネットワーク操作と停止・破棄には有限timeoutがある。HTTP拒否応答後の独自無期限待ちや当該ケースだけのDispose順逆転は見つからなかった。
+- 修正: 全`TrustRoot()` / `X509Store`操作を除去。`ClientWebSocketStreamFactory`にIntegrationTestsだけが参照できるinternal検証注入点を設け、テスト側で接続先ホスト名・SAN・サーバー用途・有効期間・CustomRootTrustチェーンを検証し、失効確認は`NoCheck`に固定。本番の公開APIに検証無効化設定は追加せず、既定のOS信頼検証を維持。
+- 無条件許可のmutationで、期限切れ・SANなし・未信頼CAの3ケース全てが期待する`TransportSecurityException`を得られず失敗することを確認。mutationは元のCustomRootTrust検証へ復元。
+- 各Integration testの開始・終了を`[TEST START]` / `[TEST END]`で出力し、Windows jobのdetailed logger / `--blame-hang` / 25分job timeoutを維持。
+- 修正後の`docker compose -f client/compose.test.yml run --build --rm test`は成功 (Core 1、Client 70、Integration 12、Contracts 4)。
+- Windows hosted runnerでの修正後確認結果はPR #167のCI完了後に追記する。Windows実行環境はこのworktreeから利用できないため、CIが根本原因仮説の最終検証となる。
+
 ## Mutation確認
 
 | 変異 | 検出結果 |
