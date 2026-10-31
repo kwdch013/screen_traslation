@@ -55,6 +55,8 @@ class ContractFixtureTests(unittest.TestCase):
 		height = value.get("image_height")
 		for region in regions:
 			rect = region.get("rect", {})
+			if rect is None:
+				continue
 			if not (0 <= rect.get("left", -1) < rect.get("right", 0) <= width):
 				return False
 			if not (0 <= rect.get("top", -1) < rect.get("bottom", 0) <= height):
