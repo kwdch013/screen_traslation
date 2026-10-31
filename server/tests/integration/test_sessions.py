@@ -251,6 +251,14 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 		future = asyncio.run_coroutine_threadsafe(self.sessions.is_current(session_id, generation), self.server_loop)
 		return future.result(timeout=2)
 
+	def _set_active_generation(self, generation: int) -> None:
+		async def set_generation() -> None:
+			if self.sessions._active is None:
+				raise AssertionError("active session is required")
+			self.sessions._active.generation = generation
+		future = asyncio.run_coroutine_threadsafe(set_generation(), self.server_loop)
+		future.result(timeout=2)
+
 	def _assert_error_fixture(self, response: httpx.Response, status: int, code: str) -> None:
 		fixtures = json.loads((CONTRACTS / "fixtures/errors.json").read_text(encoding="utf-8"))
 		fixture = next(item for item in fixtures if item["status"] == status and item["body"]["code"] == code)
@@ -324,16 +332,21 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 
 	def test_current_session_rejects_frame_with_mismatched_generation_over_tls_wss(self) -> None:
 		session = self._start().json()
+		# 下位・上位のどちらもframe schemaを通してから現generation照合を検証する。
+		session["generation"] = 2
+		self._set_active_generation(session["generation"])
 		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
-		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
-			self._state_message(websocket, "accepted", session)
-			self._state_message(websocket, "ready", session)
-			websocket.send(self._png_frame(
-				session["session_id"], session["generation"] + 1, session["dictionary_revision"],
-			))
-			with self.assertRaises(ConnectionClosed) as closed:
-				websocket.recv(timeout=2)
-		self.assertEqual(closed.exception.rcvd.code, 1008)
+		for mismatched_generation in (session["generation"] - 1, session["generation"] + 1):
+			with self.subTest(generation=mismatched_generation):
+				with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+					self._state_message(websocket, "accepted", session)
+					self._state_message(websocket, "ready", session)
+					websocket.send(self._png_frame(
+						session["session_id"], mismatched_generation, session["dictionary_revision"],
+					))
+					with self.assertRaises(ConnectionClosed) as closed:
+						websocket.recv(timeout=2)
+				self.assertEqual(closed.exception.rcvd.code, 1008)
 
 	def test_current_generation_frame_passes_session_validation_over_tls_wss(self) -> None:
 		session = self._start().json()
