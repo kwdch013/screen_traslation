@@ -10,6 +10,7 @@ import json
 import sys
 import unittest
 
+from screen_translation_server.engines.ocr_select import REGION_MIN_CONFIDENCE
 from pipeline_case import PipelineCase, gated
 from pipeline_support import (
 	JAPANESE,
@@ -24,8 +25,9 @@ from pipeline_support import (
 )
 
 CLEAR_CER_LIMIT = 0.05  # requirements.md: 明瞭群 CER 5%以下
-COMPLEX_CER_LIMIT = 0.15  # 同: 複雑背景群 15%以下(本試験は小標本のため判定でなく測定)
-MIN_CONFIDENCE = 0.45  # build_shared_translation_engines が使うOCR信頼度の下限
+COMPLEX_CER_LIMIT = 0.15  # 同: 複雑背景群 15%以下(自作4枚の小標本。最終判定は#109の200枚)
+
+COMPLEX_REGRESSION_LIMIT = 0.02  # 固定4枚の実測0.0%に対する悪化検出(要件値ではない)
 
 
 class FixtureAndMetricTests(unittest.TestCase):
@@ -72,9 +74,14 @@ class RealEnginePipelineTests(PipelineCase):
 				self.assertGreaterEqual(result["server_processing_ms"], 0)
 				for region in result["regions"]:
 					rect = region["rect"]
-					self.assertGreaterEqual(region["confidence"], MIN_CONFIDENCE)
+					# 低信頼度の誤認識を訳文として返さない(領域下限は単語下限より厳しい)
+					self.assertGreaterEqual(region["confidence"], REGION_MIN_CONFIDENCE)
 					self.assertTrue(0 <= rect["left"] < rect["right"] <= case["width"])
 					self.assertTrue(0 <= rect["top"] < rect["bottom"] <= case["height"])
+				if case["group"] == "clear":
+					# 前処理の拡大・白縁を元画像座標へ戻せていること(描画位置は生成スクリプトの固定値: 配信矩形は左約25px・上約25px)
+					rect = result["regions"][0]["rect"]
+					self.assertTrue(22 <= rect["left"] <= 30 and 22 <= rect["top"] <= 28, rect)
 				recognized = " ".join(region["source"] for region in result["regions"])
 				if case["group"] in pairs:
 					pairs[case["group"]].append((case["expected_text"], recognized))
@@ -93,6 +100,10 @@ class RealEnginePipelineTests(PipelineCase):
 		print("ocr_cer=" + json.dumps({"clear": clear, "complex": complex_, "complex_limit_met": complex_ <= COMPLEX_CER_LIMIT,
 			"clear_images": len(pairs["clear"]), "complex_images": len(pairs["complex"])}), file=sys.stderr)
 		self.assertLessEqual(clear, CLEAR_CER_LIMIT)
+		self.assertLessEqual(complex_, COMPLEX_CER_LIMIT)
+		# 回帰検出用: 現在の前処理は固定4枚で0%。15%基準だけでは二値化の欠落(9.2%)を見逃すため、
+		# 固定画像に対する実測値を下限として固定する。基準の緩和ではなく、悪化を検出するための追加基準。
+		self.assertLessEqual(complex_, COMPLEX_REGRESSION_LIMIT)
 		websocket.__exit__(None, None, None)
 		self.settle(server)
 
