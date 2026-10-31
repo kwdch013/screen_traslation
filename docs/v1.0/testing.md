@@ -85,6 +85,7 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 | 世代 | 開始・ROI再選択ごとに世代を1進め、`FrameSender`・`StreamTransportClient`・結果採否・オーバーレイへ同じ値を渡す。ROI再選択は旧画像・通信中の送信・表示を破棄してから新ROIの世代2以降で送る。旧世代フレームは送信直前の照合でも取り下げる |
 | 取得fpsの間引き | `CaptureFrameRouter.TryBeginFrame`が、取得fps上限で破棄される見込みのフレームはGPU→CPUの読み出し前にnullを返す(読み出しコストを払わない) |
 | 停止後の1フレーム | `WindowsCaptureSession`が配信直前に停止を再確認する。残る隙間はホストが先に`pipeline.EndSession`しているため`NoSession`/`StaleGeneration`で拒否される |
+| 解放・並行 | `DisposeAsync`は冪等で並行呼び出しも同じ完了を待つ(`WindowsCaptureRuntime`との二重破棄でも例外にならない)。停止は取得セッションの停止(操作ロック待ち)より先に送信と表示を止める。`ConnectAsync`を2回呼んでも受信ループは1本、`StartAsync`は直列化されPrepareは1回。送信ループの失敗は、そのループ自身が現在のセッションのときだけセッションを止める(停止→即再開の窓で新セッションを止めない)。ループが止まらなくても解放は`ShutdownTimeout`(既定10秒)で先へ進む |
 | 切断後の再開 | 切断・送信失敗後は自動では送信を再開しない。利用者の明示操作(`StartAsync`)まで待つ |
 | 例外内容 | `Faulted`には画像・訳文・session_idを含めない固定文言だけを渡す |
 

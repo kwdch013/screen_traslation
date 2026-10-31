@@ -64,11 +64,15 @@ public sealed class FakeCaptureSessionFactory(ICapturedFrameSink sink) : ICaptur
 	public List<FakeCaptureSession> Sessions { get; } = [];
 	public FakeCaptureSession Last => Sessions[^1];
 
-	public ValueTask<ICaptureSession> CreateAsync(CaptureTarget target, CancellationToken cancellationToken = default)
+	/// <summary>設定すると、取得セッションの生成がこの完了まで戻らない(開始が遅いときの停止の確認用)。</summary>
+	public TaskCompletionSource? CreateGate;
+
+	public async ValueTask<ICaptureSession> CreateAsync(CaptureTarget target, CancellationToken cancellationToken = default)
 	{
+		if (CreateGate is not null) await CreateGate.Task.WaitAsync(cancellationToken);
 		var session = new FakeCaptureSession(sink);
 		lock (Sessions) Sessions.Add(session);
-		return ValueTask.FromResult<ICaptureSession>(session);
+		return session;
 	}
 }
 

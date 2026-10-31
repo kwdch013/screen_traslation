@@ -39,5 +39,8 @@ public sealed class WindowsCaptureSessionFactoryTests
 		Assert.Equal(CaptureClientState.ConnectedStopped, host.State);
 		Assert.Equal(StartResult.TargetNotSelected, await host.StartAsync(Guid.NewGuid(), 1));
 		Assert.Equal(0, surface.PrepareCount);
+
+		// ホストを先に破棄しても、runtimeの破棄が同じホストをもう一度破棄して例外にならない
+		await host.DisposeAsync();
 	}
 }

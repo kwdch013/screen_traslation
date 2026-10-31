@@ -29,6 +29,7 @@ public sealed partial class TranslationSessionHost
 	/// <summary>送信直前の照合。停止済み・世代違いの旧フレームは通信へ渡さず、結果採否へも記録しない。</summary>
 	private void BeforeSend(FrameMetadata metadata, long capturedMonotonicNanoseconds)
 	{
+		BeforeSendProbe?.Invoke(metadata);
 		lock (sync)
 		{
 			if (!active || metadata.SessionId != sessionId || metadata.Generation != generation)
@@ -43,11 +44,12 @@ public sealed partial class TranslationSessionHost
 	/// 送信・表示を止める。取得経路の遮断→待機画像と通信中の送信の破棄(変化判定の基準も破棄)→表示消去を、
 	/// 取得セッションの停止完了を待たずに同期で行う。実行中でなければ何もせずfalse。
 	/// </summary>
-	private bool EndSession(OverlayClearReason reason)
+	private bool EndSession(OverlayClearReason reason, CancellationTokenSource? owner = null)
 	{
 		lock (sync)
 		{
-			if (!active) return false;
+			// ownerを指定した呼び出しは、そのセッション自身が今も現在のセッションである場合だけ止める
+			if (!active || (owner is not null && !ReferenceEquals(sendCancellation, owner))) return false;
 			active = false;
 			route = null;
 			sendCancellation?.Cancel();
@@ -83,9 +85,8 @@ public sealed partial class TranslationSessionHost
 
 	private void OnGenerationInvalidated(ulong _)
 	{
-		OverlayClearReason reason;
-		lock (sync) reason = pendingReason ?? OverlayClearReason.TargetLost;
-		EndSession(reason);
+		// 停止・再選択・破棄はそれぞれ先に理由つきで遮断済みのため、ここへ届くのは取得側から起きた無効化(対象消失など)
+		EndSession(OverlayClearReason.TargetLost);
 	}
 
 	private void OnConnectionLost()
@@ -106,8 +107,9 @@ public sealed partial class TranslationSessionHost
 		return Task.CompletedTask;
 	}
 
-	private async Task RunSendLoopAsync(CancellationToken cancellationToken)
+	private async Task RunSendLoopAsync(CancellationTokenSource owner)
 	{
+		var cancellationToken = owner.Token;
 		try
 		{
 			while (!cancellationToken.IsCancellationRequested)
@@ -120,8 +122,9 @@ public sealed partial class TranslationSessionHost
 		}
 		catch (Exception)
 		{
-			// 停止済みなら旧フレームの取り下げによる例外。実行中の失敗だけを利用者へ通知する(基準はパイプラインが破棄済み)
-			if (EndSession(OverlayClearReason.Disconnected))
+			// 取消済み(停止・再選択・再開で自分のセッションは終了済み)なら、後から届く例外で新しいセッションを止めない
+			if (cancellationToken.IsCancellationRequested) return;
+			if (EndSession(OverlayClearReason.Disconnected, owner))
 			{
 				_ = StopAfterFailureAsync();
 				Faulted?.Invoke("画像の送信に失敗したため停止しました。");
@@ -142,6 +145,11 @@ public sealed partial class TranslationSessionHost
 		{
 			Fail(OverlayClearReason.Disconnected, "サーバーとの接続を維持できなくなりました。接続設定を確認してください。");
 		}
+		finally
+		{
+			// 受信ループが終わったら、再度ConnectAsyncで開始できる
+			lock (sync) receiveRunning = false;
+		}
 	}
 
 	/// <summary>表示の失効(取得から5秒)を製品経路で動かす。次の失効時刻か上限間隔のどちらか早い方で確認する。</summary>
@@ -160,6 +168,18 @@ public sealed partial class TranslationSessionHost
 				return;
 			}
 			overlay.Tick();
+		}
+	}
+
+	/// <summary>ループの終了を待つ。ループが止まらなくても、上限で諦めて解放を先へ進める(解放が固まらない)。</summary>
+	private async Task WaitForLoopsAsync(params Task[] tasks)
+	{
+		try
+		{
+			await Task.WhenAll(tasks.Select(IgnoreAsync)).WaitAsync(shutdownTimeout).ConfigureAwait(false);
+		}
+		catch (TimeoutException)
+		{
 		}
 	}
 

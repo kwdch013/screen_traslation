@@ -24,6 +24,10 @@ internal sealed class FakeTransport : ITranslationTransport
 	public Exception? FailSend;
 	/// <summary>設定すると、送信がこの完了まで戻らない(通信中の送信の確認用)。取消で打ち切られる。</summary>
 	public TaskCompletionSource? SendGate;
+	public readonly TaskCompletionSource SendEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	/// <summary>設定すると、取消された送信がこの完了を待ってからIOExceptionで失敗する(停止後に遅れて届く送信失敗の再現用)。</summary>
+	public TaskCompletionSource? FailAfterCancel;
+	public int ReceiveLoopStarts;
 	public event Action? ConnectionLost;
 
 	public Task ConnectAsync(CancellationToken cancellationToken = default) { IsConnected = true; return Task.CompletedTask; }
@@ -42,18 +46,31 @@ internal sealed class FakeTransport : ITranslationTransport
 			throw new InvalidOperationException("session、generation、revisionが現在値と一致しません。");
 		}
 		if (FailSend is not null) throw FailSend;
-		if (SendGate is not null) await SendGate.Task.WaitAsync(cancellationToken);
+		if (SendGate is not null)
+		{
+			SendEntered.TrySetResult();
+			try
+			{
+				await SendGate.Task.WaitAsync(cancellationToken);
+			}
+			catch (OperationCanceledException) when (FailAfterCancel is not null)
+			{
+				await FailAfterCancel.Task;
+				throw new IOException("late failure");
+			}
+		}
 		await sent.Writer.WriteAsync((metadata, imageBytes.ToArray()), CancellationToken.None);
 	}
 
-	public async Task<(FrameMetadata Metadata, byte[] Image)> NextSentAsync() =>
-		await sent.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(20));
+	public async Task<(FrameMetadata Metadata, byte[] Image)> NextSentAsync(TimeSpan? timeout = null) =>
+		await sent.Reader.ReadAsync().AsTask().WaitAsync(timeout ?? TimeSpan.FromSeconds(20));
 
 	public bool HasSent => sent.Reader.TryPeek(out _);
 
 	public async Task RunReceiveLoopAsync(Func<JsonElement, Task> handler, CancellationToken cancellationToken = default)
 	{
 		onMessage = handler;
+		Interlocked.Increment(ref ReceiveLoopStarts);
 		receiveReady.TrySetResult();
 		await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
 	}
@@ -90,7 +107,7 @@ internal sealed class HostFixture : IAsyncDisposable
 			Transport,
 			sink => Factory = new FakeCaptureSessionFactory(sink),
 			Surface,
-			new TranslationSessionOptions(captureFps, sendFps),
+			new TranslationSessionOptions(captureFps, sendFps, TimeSpan.FromSeconds(1)),
 			monotonicNanoseconds: () => Interlocked.Read(ref Now),
 			// 送信間隔の待機は実時間を使わず、注入時計を進めるだけにする
 			sendDelay: (wait, _) => { Interlocked.Add(ref Now, wait.Ticks * 100); return Task.CompletedTask; },
@@ -124,5 +141,6 @@ internal sealed class HostFixture : IAsyncDisposable
 		 "regions":[{"rect":{"left":10,"top":20,"right":110,"bottom":60},"source":"src","translation":"訳文","confidence":0.9}],"server_processing_ms":1}
 		""";
 
-	public ValueTask DisposeAsync() => Host.DisposeAsync();
+	// 解放が固まっても試験全体を止めない
+	public async ValueTask DisposeAsync() => await Host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(20));
 }

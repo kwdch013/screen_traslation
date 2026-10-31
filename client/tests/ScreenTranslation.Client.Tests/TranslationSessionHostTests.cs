@@ -102,12 +102,19 @@ public sealed class TranslationSessionHostTests
 
 		var stopping = f.Host.StopAsync().AsTask();
 
-		// 取得セッションの停止が終わる前に、旧領域は送られず・表示は消えている
-		Assert.False(stopping.IsCompleted);
-		Assert.Equal(hides + 1, f.Surface.HideCount);
-		Assert.Equal([OverlayClearReason.Stopped], f.Ended);
-		Assert.Null(f.EmitFrame(seed: 5));
-		f.Session.StopGate.SetResult();
+		try
+		{
+			// 取得セッションの停止が終わる前に、旧領域は送られず・表示は消えている
+			Assert.False(stopping.IsCompleted);
+			Assert.Equal(hides + 1, f.Surface.HideCount);
+			Assert.Equal([OverlayClearReason.Stopped], f.Ended);
+			Assert.Null(f.EmitFrame(seed: 5));
+		}
+		finally
+		{
+			// assertが失敗しても、後始末が停止の完了待ちで固まらないようにする
+			f.Session.StopGate.SetResult();
+		}
 		await stopping.WaitAsync(TimeSpan.FromSeconds(20));
 		await f.Session.DisposedTask.WaitAsync(TimeSpan.FromSeconds(20));
 		Assert.False(f.Host.IsStreaming);
@@ -293,5 +300,131 @@ public sealed class TranslationSessionHostTests
 		Assert.True(f.Transport.Disconnected);
 		Assert.True(f.Surface.Disposed);
 		Assert.Equal([OverlayClearReason.Disposed], f.Ended);
+	}
+
+	[Fact]
+	public async Task Dispose_CanBeCalledTwiceAndConcurrently()
+	{
+		var f = new HostFixture();
+		await f.StartStreamingAsync();
+
+		await Task.WhenAll(f.Host.DisposeAsync().AsTask(), f.Host.DisposeAsync().AsTask());
+		await f.Host.DisposeAsync();
+
+		Assert.Equal([OverlayClearReason.Disposed], f.Ended);
+		await Assert.ThrowsAsync<ObjectDisposedException>(() => f.Host.StartAsync(SessionId, 1));
+	}
+
+	[Fact]
+	public async Task Stop_EndsSendLoop()
+	{
+		await using var f = new HostFixture();
+		await f.StartStreamingAsync();
+		Assert.True(f.Host.SendLoopRunning);
+
+		await f.Host.StopAsync();
+
+		Assert.False(f.Host.SendLoopRunning);
+	}
+
+	[Fact]
+	public async Task LateSendFailureOfStoppedSession_DoesNotStopTheRestartedSession()
+	{
+		await using var f = new HostFixture();
+		await f.StartStreamingAsync();
+		f.Transport.SendGate = new TaskCompletionSource();
+		f.Transport.FailAfterCancel = new TaskCompletionSource();
+		f.EmitFrame();
+		await f.Transport.SendEntered.Task.WaitAsync(TimeSpan.FromSeconds(20));
+		var oldLoop = f.Host.SendLoopTask;
+
+		await f.Host.StopAsync();
+		f.Transport.SendGate = null;
+		Assert.Equal(StartResult.Started, await f.Host.StartAsync(SessionId, 1));
+		f.Transport.FailAfterCancel.SetResult();
+		await oldLoop.WaitAsync(TimeSpan.FromSeconds(20));
+
+		// 旧ループの遅れた失敗は、新しいセッションを止めず、利用者への失敗通知にもならない
+		Assert.True(f.Host.IsStreaming);
+		Assert.Empty(f.Faults);
+		Assert.Equal([OverlayClearReason.Stopped], f.Ended);
+	}
+
+	[Fact]
+	public async Task OldGenerationFrameStalledBeforeSend_DoesNotBreakNewGenerationFrameIds()
+	{
+		await using var f = new HostFixture();
+		await f.StartStreamingAsync();
+		var entered = new TaskCompletionSource();
+		using var release = new ManualResetEventSlim();
+		f.Host.BeforeSendProbe = metadata =>
+		{
+			if (metadata.Generation != 1) return;
+			entered.TrySetResult();
+			release.Wait(TimeSpan.FromSeconds(20));
+		};
+		f.EmitFrame(seed: 1);
+		await entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
+
+		// 旧世代のframe_id=1が結果採否の記録より前で止まっている間に再選択する
+		Assert.True(f.Host.SelectRegion(new Geometry.Rect2D(1100, 100, 1540, 420)));
+		release.Set();
+		f.Now += Second;
+		Assert.Equal(CapturePipelineOutcome.Submitted, f.EmitFrame(seed: 2));
+
+		var (metadata2, _) = await f.Transport.NextSentAsync(TimeSpan.FromSeconds(5));
+		Assert.Equal((2ul, 1ul), (metadata2.Generation, metadata2.FrameId));
+		Assert.Empty(f.Faults);
+		Assert.True(f.Host.IsStreaming);
+	}
+
+	[Fact]
+	public async Task Stop_ClearsOverlayWithoutWaitingForSlowCaptureStart()
+	{
+		await using var f = new HostFixture();
+		await f.ConnectedWithTargetAndRegionAsync();
+		f.Factory.CreateGate = new TaskCompletionSource();
+		var starting = f.Host.StartAsync(SessionId, 1);
+
+		var stopping = f.Host.StopAsync().AsTask();
+
+		try
+		{
+			// 取得セッションの生成が終わらなくても、停止の遮断と表示消去は直ちに済む
+			Assert.False(stopping.IsCompleted);
+			Assert.Equal([OverlayClearReason.Stopped], f.Ended);
+			Assert.False(f.Host.IsStreaming);
+		}
+		finally
+		{
+			f.Factory.CreateGate.SetResult();
+		}
+		await starting.WaitAsync(TimeSpan.FromSeconds(20));
+		await stopping.WaitAsync(TimeSpan.FromSeconds(20));
+	}
+
+	[Fact]
+	public async Task ConnectTwice_RunsASingleReceiveLoop()
+	{
+		await using var f = new HostFixture();
+		await f.Host.ConnectAsync();
+		await f.Host.ConnectAsync();
+		await f.Transport.PushAsync("{\"type\":\"state\"}");
+
+		Assert.Equal(1, f.Transport.ReceiveLoopStarts);
+	}
+
+	[Fact]
+	public async Task ConcurrentStart_PreparesOnceAndStartsOnce()
+	{
+		await using var f = new HostFixture();
+		await f.ConnectedWithTargetAndRegionAsync();
+
+		var results = await Task.WhenAll(f.Host.StartAsync(SessionId, 1), f.Host.StartAsync(SessionId, 1));
+
+		Assert.Equal(1, f.Surface.PrepareCount);
+		Assert.Equal(1, results.Count(r => r == StartResult.Started));
+		Assert.Equal(1, results.Count(r => r == StartResult.AlreadyRunning));
+		Assert.Single(f.Factory.Sessions);
 	}
 }
