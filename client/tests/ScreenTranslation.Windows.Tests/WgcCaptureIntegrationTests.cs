@@ -201,10 +201,17 @@ public sealed class WgcCaptureIntegrationTests
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => new CaptureRoute(roi, 1)), () => new CaptureRoute(roi, 1));
 		var factory = new WindowsCaptureSessionFactory(sink);
 
-		await using var session = await factory.CreateAsync(TargetOf(window, 400, 200));
+		// 対象の状態監視(WinEventフック)はメッセージを処理するスレッドで開始する
+		using var uiThread = new PumpingThread();
 		var invalidated = new TaskCompletionSource<CaptureInvalidationReason>(TaskCreationOptions.RunContinuationsAsynchronously);
-		session.Invalidated += reason => invalidated.TrySetResult(reason);
-		await session.StartAsync();
+		var session = await uiThread.InvokeAsync(async () =>
+		{
+			var created = await factory.CreateAsync(TargetOf(window, 400, 200));
+			created.Invalidated += reason => invalidated.TrySetResult(reason);
+			await created.StartAsync();
+			return created;
+		}).WaitAsync(Watchdog);
+		await using var _ = session;
 		await sink.FirstPatternFrame.WaitAsync(Watchdog);
 
 		window.Dispose();
