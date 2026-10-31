@@ -110,9 +110,9 @@ GitHubのrename動作は[公式のブランチ名変更手順](https://docs.gith
 2. 既存Ruleset `19132355` の `refs/heads/dev` / `refs/heads/main` 対象を点検し、develop/main向けに整理する案とする。developはsquash限定、mainはmerge commit限定とし、PR必須・force push禁止を維持する。develop側の保護を確認してから既存Rulesetを更新する。Phaseを使う場合は `refs/heads/phase/**` にsquash限定・PR必須・force push禁止を適用し、完了後削除できるよう削除禁止は付けない。今回のTaskでは実設定を変更しない。
 3. リポジトリのsquashとmerge commitを有効、rebase mergeとマージ後ブランチ自動削除を無効にする。mainのmerge commit許可を確認してから切り替える。共有Rulesetを残すと制約が重なるため、別Rulesetの保護を確認後に旧共有Rulesetを更新・整理する。
 4. #67でscripts・hooks・AI Review Gate workflowを導入する。未稼働の `AI Review Gate` はまだrequiredにしない。導入PRは別エージェント・別worktreeの独立レビューとゲートCLIのローカル実行で検証し、developへ統合する。
-5. develop上の検証PRで `test` と `AI Review Gate` が最新HEADへ発行されることを確認する。未承認、Contributor本人の承認、承認後に古くなったHEADを拒否し、別Work Unitによる最新HEAD承認を受理することを確認する。
+5. develop上の検証PRで `test` と `AI Review Gate` が最新HEADへ発行されることを確認する。未承認はstatus pendingでmerge不可、Contributor本人の承認と承認後に古くなったHEADはfailureで拒否され、別Work Unitによる最新HEAD承認はsuccessとなることを確認する。
 6. status contextが実在し成功履歴を持つことをread-backしてから、Ruleset #19132355をdevelop/main向けに整理する計画に従い、developに `test` と `AI Review Gate` をrequired設定する。mainはリリース保護としてmerge commitとrequired checkを維持する。strict値とPhase適用範囲は設定前に差分案で明示する。CodeQLの `analyze` は新たにrequired化しない。
-7. required化後、5ケースを再実行する: 未承認・Contributor本人の承認・古いHEAD・CI失敗は統合不可、独立承認+CI成功+conversation解決済みは統合可能。ゲート失敗をLabel変更やbypassで回避しない。
+7. required化後、5ケースを再実行する: 未承認(pending)・Contributor本人の承認・古いHEAD・CI失敗は統合不可、独立承認+CI成功+conversation解決済みは統合可能。ゲート失敗をLabel変更やbypassで回避しない。
 8. 検証PR URL、対象SHA、workflow実行URL、各status結果、Ruleset変更前後の案と実変更、統合可否、確認日時を #118・本文書・tasks/作業記録へ記録する。今回の計画更新TaskではRuleset / repository設定を実変更しない。
 
 requiredにするcontextは、[公式のrequired status checkの条件](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)に従い直近7日以内の成功実績も確認します。developが既定ブランチであるため、develop上のworkflow・Dependabot・ゲートの実行結果を直接read-backします。
@@ -203,7 +203,7 @@ AI Review: APPROVED
 変更要求は `ai-review-changes-requested` markerと同じ2フィールドを使います。最新の判断が変更要求ならLabelを外しても承認扱いになりません。新commitでHEADが変わると古い承認は無効です。PR作成者・修正担当・squash本文に残った全Contributorは承認元から除外します。レビュー状態Labelは1つだけにします。
 
 ```bash
-# 未承認時は非0終了。statusを発行せず読み取りだけで検証する。
+# ローカルではPASS/PENDINGを表示して終了コード0、実際の違反FAILは終了コード1。
 GITHUB_TOKEN="$(gh auth token)" python3 scripts/ai-review-gate.py \
   --repo "$(gh repo view --json nameWithOwner --jq .nameWithOwner)" --pr-number <PR番号>
 ```
@@ -212,15 +212,26 @@ GITHUB_TOKEN="$(gh auth token)" python3 scripts/ai-review-gate.py \
 
 ### workflowの信頼境界と段階導入
 
-`pull_request_target`・PRへの `issue_comment`・`issues`・手動実行で再評価します。PR側の変更scriptを権限付きで実行せず、常にdefault branchをcheckoutします。権限はreadを既定にし、ゲートジョブだけstatus書き込みを許可します。評価中にIssue/PR状態が変われば再評価し、結果は現在のPR HEADへcommit status `AI Review Gate` として発行します。
+`pull_request_target`・PRへの`issue_comment`・`issues`・手動実行で再評価します。公開リポジトリへのGitHub既定event policyが2026-12-02から`pull_request_target`を止めるため、2026-10-31にActions policy一覧を確認し、既存の適用可能なpolicyがないことを確認しました。信頼済み評価workflowを継続するため、リポジトリpolicyで`.github/workflows/ai-review-gate.yml`だけを対象にし、このworkflowが現在利用する`pull_request_target`・`issue_comment`・`issues`・`workflow_dispatch`を許可します。policyの作成・変更後はGitHub Actions policy一覧を読み戻してください。上位のOrganization policy等が追加された場合は再確認が必要です。
+
+PR側のscriptを実行せず、常にdefault branchをcheckoutします。workflow全体は`contents: read`、評価jobだけ`pull-requests: read`・`issues: read`・`statuses: write`を持ちます。評価中にIssue/PR状態が変われば再評価し、結果を現在のPR HEADへ発行します。2026-10-31に`AI Review Gate trusted pull request evaluation` policy（workflow path: `.github/workflows/ai-review-gate.yml`）を作成し、ID `10134`としてactive/read-back済みです。
+
+構造化承認がまだ無く、ほかに違反も無い状態はCLIで`PENDING`と表示し、commit status `AI Review Gate`を説明「独立レビュー待ち」の`pending`で発行します。workflow job `gate`は成功終了しますが、requiredなcommit statusはpendingのままなのでmergeできません。自己承認・古いHEAD・最新の変更要求・証跡不備・Issue状態不整合・`pr/block`は`FAIL`としてstatusをfailureにし、CLI終了コード1を返します。PASS/PENDINGは終了コード0です。`test`などCIの成功とconversation解決は別のrequired条件です。
+
+この公開リポジトリで確認したGitHub公式情報:
+
+- [Workflow execution protections in GitHub Actions generally available (2026-09-17)](https://github.blog/changelog/2026-09-17-workflow-execution-protections-in-github-actions-generally-available/) と[GitHub Docs: Securely using pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)によると、既存の適用可能なActions event policyが無い公開リポジトリでは`pull_request_target`をブロックする既定policyがevaluate modeで動作中で、2026-12-02に施行予定です。施行後は当該triggerのworkflowが実行されません。このゲートはPR更新検知に同triggerを使っていたため影響を受けます。
+- [GitHub Docs: Governing execution of GitHub Actions workflows](https://docs.github.com/en/actions/how-tos/administer/control-workflow-execution) と[REST API endpoints for GitHub Actions policies](https://docs.github.com/en/rest/actions/policies)は、event許可をworkflow path単位で設定できることを示しています。このTaskでは`pull_request_target`の利用を維持し、許可範囲をゲートworkflowファイルに限定します。[pull_request_targetのsecurity guidance](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)に従い、PR由来のコードはcheckout・実行しません。
+- [Ubuntu 26 generally available and latest migration](https://github.blog/changelog/2026-09-17-ubuntu-26-generally-available-and-latest-migration/)では`ubuntu-latest`からUbuntu 26.04への移行が2026-10-19〜11-19に段階実施されると案内されています。ゲートworkflowは再現性のため`ubuntu-24.04`に固定しました。Ubuntu 26.04の検証後に別変更で移行します。
 
 default branchにscriptがまだ無い場合は導入確認stepが評価を見送り、成功した承認statusを捏造しません。workflowからRulesetを自動作成・変更しません。default branchへの導入後、次の表を検証PRで確認して初めてrequiredにします。**GitHub上の統合拒否/受理の実証は #118 の受け入れ条件として追跡します。** #67のローカル正常/拒否テストの成功を実証の代わりにせず、#118でdefault branch反映と以下の検証を完了して証跡を残します。
 
 | 検証PRの状態 | ゲート / required化後の期待結果 |
 | --- | --- |
-| 承認Commentなし | failure / 統合不可 |
+| 承認Commentなし・ほかの違反なし | gate job success、status pending / 統合不可 |
 | Contributor自身の承認 | failure / 統合不可 |
 | 前HEADへの承認後にpush | failure / 統合不可 |
+| 最新判断が変更要求 | failure / 統合不可 |
 | 別Work Unitの最新HEAD承認・CI失敗 | gate success・test failure / 統合不可 |
 | 別Work Unitの最新HEAD承認・CI成功・未解決conversationなし | 両check success / 統合可能（検証のためのmergeは不要） |
 

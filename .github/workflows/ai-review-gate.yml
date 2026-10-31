@@ -1,8 +1,6 @@
 name: AI Review Gate
 
-# PR 内で改変された script を実行しないよう、pull_request ではなく pull_request_target を使い
-# 既定ブランチdevelopの信頼済みscriptだけをcheckoutする。
-# PR Review 提出イベントも PR の merge ref 上の workflow 定義で動くため購読しない (ゲートは Review を参照しない)。
+# Actions event policyでこのworkflowだけpull_request_targetを許可し、信頼済みdefault branch scriptを実行する。
 on:
   pull_request_target:
     types: [opened, reopened, synchronize, edited, labeled, unlabeled, ready_for_review]
@@ -26,9 +24,9 @@ concurrency:
 
 jobs:
   gate:
-    # 通常 Issue へのコメントは評価対象外
+    # 通常Issueへのコメントは対象外。
     if: github.event_name != 'issue_comment' || github.event.issue.pull_request
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -42,7 +40,6 @@ jobs:
           persist-credentials: false
 
       # 導入時にdefault branchへscriptが未反映でも、存在しないcheckをrequired化しない。
-      # 稼働確認後のrequired設定は開発手順に従い別途行う。
       - name: 信頼済みゲートの導入確認
         id: installed
         run: |
