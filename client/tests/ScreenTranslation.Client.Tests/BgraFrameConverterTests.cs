@@ -96,6 +96,22 @@ public sealed class BgraFrameConverterTests
 	}
 
 	[Fact]
+	public void TooShortBufferIsReportedAsASourceProblemNotASliceFailure()
+	{
+		var error = Assert.Throws<ArgumentException>(() => BgraFrameConverter.ToCapturedFrame(new byte[16], 0, 8, 2, 3, 1));
+
+		Assert.Equal("source", error.ParamName);
+	}
+
+	[Fact]
+	public void NegativeStartIndexIsReportedAsAStartIndexProblem()
+	{
+		var error = Assert.Throws<ArgumentOutOfRangeException>(() => BgraFrameConverter.ToCapturedFrame(new byte[64], -4, 8, 2, 2, 1));
+
+		Assert.Equal("startIndex", error.ParamName);
+	}
+
+	[Fact]
 	public void LastRowNeedsNoTrailingPadding()
 	{
 		// 最終行のpaddingが無くても、画素分あれば読める(bufferは stride*(h-1)+w*4 で足りる)
