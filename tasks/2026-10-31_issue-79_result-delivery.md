@@ -55,3 +55,15 @@
 
 - 実OCR/翻訳engineの遅延・品質測定は #80 / #109。
 - Windows/Linux実機間のscenario E2Eは #108。
+
+## PR #168 レビュー指摘対応 (2026-10-31)
+
+| 確認 | 結果 |
+| --- | --- |
+| 破棄・送信timeout診断 | `session_id` を除去し、`correlation_id`・event type・件数を維持 |
+| ログ秘匿回帰 | `test_drop_and_timeout_logs_exclude_session_and_content` を追加。対象ファイル13件成功 |
+| session_id mutation | 2診断ログへ `session_id` を一時的に戻すと回帰test失敗。変更は復元し、回帰test成功を確認 |
+| ログ全件検索 | `observability.py`、`app.py`、`pipeline/`、`sessions/`、`events/`、`security/`、`admin/` のログ呼出箇所を確認。session IDや機微情報をログ/例外へ渡す他の箇所は見つからず |
+| 型検査指摘 | `active_for_owner()` に明示 `return None` を追加。全体検証結果は後段に記録 |
+
+診断ログに`session_id`を出さない運用条件を `docs/v1.0/design/security.md` に追加しました。PR bodyの検証表は全体検証終了後に更新します。

@@ -197,6 +197,39 @@ class ResultDeliveryTests(unittest.IsolatedAsyncioTestCase):
 		self.assertTrue(any(item.get("correlation_id") == correlation_id for item in logged))
 		self.assertIn("duration_ms", lines)
 
+	async def test_drop_and_timeout_logs_exclude_session_and_content(self) -> None:
+		correlation_ids = (str(uuid4()), str(uuid4()))
+		secret_original = "PRIVATE_ORIGINAL"
+		secret_translation = "PRIVATE_TRANSLATION"
+		secret_image = b"PRIVATE_IMAGE_BYTES"
+		started = asyncio.Event()
+		async def timeout(_sender, _message, _timeout) -> None:
+			started.set()
+			raise TimeoutError
+
+		hub = EventHub(queue_size=1, deadline_runner=timeout)
+		subscription = hub.subscribe(self.session_id)
+		with self.assertLogs("screen_translation_server.events", level="WARNING") as captured:
+			hub.publish(self.session_id, make_result_message(
+				self.session_id, 1, 1, 1, 64, 32,
+				[{"rect": None, "source": secret_original, "translation": secret_translation,
+					"confidence": 0.8}], 1, correlation_id=correlation_ids[0],
+			))
+			hub.publish(self.session_id, make_result_message(
+				self.session_id, 1, 2, 1, 64, 32, [], 0, correlation_id=correlation_ids[1],
+			))
+			send_task = asyncio.create_task(subscription.send_next(Mock()))
+			await started.wait()
+			await send_task
+
+		logged = " ".join(record.getMessage() + " " + repr(record.__dict__) for record in captured.records)
+		for secret in (self.session_id, secret_original, secret_translation, secret_image.decode()):
+			self.assertNotIn(secret, logged)
+		self.assertEqual([record.getMessage() for record in captured.records], [
+			"stream_event_dropped", "stream_send_timeout",
+		])
+		self.assertEqual([record.correlation_id for record in captured.records], [correlation_ids[1]] * 2)
+
 	def event(self, frame_id: int) -> dict[str, object]:
 		return make_result_message(self.session_id, 1, frame_id, 1, 64, 32, [], 0)
 
