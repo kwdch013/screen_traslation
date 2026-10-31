@@ -268,7 +268,11 @@ def create_app(
 				await websocket.close(code=1008)
 				return
 			try:
-				await app.state.sessions.heartbeat(frame.metadata["session_id"], credential.credential_id)
+				await app.state.sessions.heartbeat(
+					frame.metadata["session_id"],
+					credential.credential_id,
+					generation=frame.metadata["generation"],
+				)
 			except (SessionConflict, SessionForbidden, SessionNotFound):
 				await websocket.close(code=1008)
 				return
