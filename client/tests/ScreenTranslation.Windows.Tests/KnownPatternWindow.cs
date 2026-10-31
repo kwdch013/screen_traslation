@@ -24,13 +24,17 @@ internal sealed class KnownPatternWindow : IDisposable
 	private static readonly string ClassName = "ScreenTranslationKnownPattern" + Environment.ProcessId;
 	private static bool registered;
 
+	private readonly uint exStyle;
+	private readonly uint style;
 	private readonly int width;
 	private readonly int height;
 	private IntPtr handle;
 	private Thread? pumpThread;
 
-	public KnownPatternWindow(int width, int height, bool pumpOnOwnThread = false)
+	public KnownPatternWindow(int width, int height, bool pumpOnOwnThread = false, uint exStyle = 0x08000000, uint style = WsPopup)
 	{
+		this.exStyle = exStyle;
+		this.style = style;
 		this.width = width;
 		this.height = height;
 		Register();
@@ -77,7 +81,7 @@ internal sealed class KnownPatternWindow : IDisposable
 
 	private IntPtr CreateAndShow()
 	{
-		var created = CreateWindowEx(0x08000000 /* WS_EX_NOACTIVATE */, ClassName, "pattern", WsPopup, 0, 0, width, height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+		var created = CreateWindowEx(exStyle, ClassName, "pattern", style, 0, 0, width, height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 		if (created == IntPtr.Zero)
 		{
 			throw new InvalidOperationException("試験用ウィンドウを作成できませんでした。");
