@@ -18,7 +18,7 @@ RUN npm run lint
 RUN npx vitest run
 
 
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 WORKDIR /app
 
