@@ -8,10 +8,10 @@ services:
     volumes:
       - ../contracts:/workspace/contracts:ro
     command:
-      - dotnet
-      - test
-      - client/tests/ScreenTranslation.Contracts.Tests/ScreenTranslation.Contracts.Tests.csproj
-      - --configuration
-      - Release
-      - --filter
-      - Category=Contract
+      - /bin/sh
+      - -c
+      - >-
+        dotnet test client/tests/ScreenTranslation.Core.Tests/ScreenTranslation.Core.Tests.csproj --configuration Release
+        && dotnet test client/tests/ScreenTranslation.Client.Tests/ScreenTranslation.Client.Tests.csproj --configuration Release
+        && dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTranslation.Client.IntegrationTests.csproj --configuration Release --filter Category=ConnectionIntegration
+        && dotnet test client/tests/ScreenTranslation.Contracts.Tests/ScreenTranslation.Contracts.Tests.csproj --configuration Release --filter Category=Contract
