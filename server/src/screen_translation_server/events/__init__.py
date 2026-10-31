@@ -130,8 +130,6 @@ class EventHub:
 				if self.dropped_events >= self._last_drop_logged * 2 or self._last_drop_logged == 0:
 					self._last_drop_logged = self.dropped_events
 					self._logger.warning("stream_event_dropped", extra={
-						"correlation_id": message.get("correlation_id"),
-						"event_type": message.get("type"),
 						"dropped_events": self.dropped_events,
 					})
 			subscriber.queue.put_nowait(message)
@@ -147,8 +145,6 @@ class EventHub:
 	def _send_timeout(self, subscription: EventSubscription, message: dict[str, Any]) -> None:
 		self.timed_out_sends += 1
 		self._logger.warning("stream_send_timeout", extra={
-			"correlation_id": message.get("correlation_id"),
-			"event_type": message.get("type"),
 			"timed_out_sends": self.timed_out_sends,
 		})
 

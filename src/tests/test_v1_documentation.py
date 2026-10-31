@@ -321,7 +321,21 @@ class V1DesignDecisionTest(unittest.TestCase):
 				self.assertNotRegex(document, r"\b(?:\d{1,3}\.){3}\d{1,3}\b|/home/|[A-Za-z]:\\Users\\|id_(?:rsa|ed25519)|ssh\s+\S+@")
 				for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", document):
 					if "://" not in target and not target.startswith("#"):
-						self.assertTrue(path.parent.joinpath(target.split("#")[0]).is_file(), target)
+						reference, separator, function_name = target.partition("::")
+						reference_path = path.parent.joinpath(reference.split("#")[0])
+						self.assertTrue(reference_path.is_file(), target)
+						if separator:
+							self.assertTrue(self._python_file_defines(reference_path, function_name), target)
+				for reference in re.findall(r"`([^`]+\.py)::([A-Za-z_]\w*)`", document):
+					reference_path = path.parent.joinpath(reference[0])
+					with self.subTest(reference=reference):
+						self.assertTrue(reference_path.is_file(), reference[0])
+						self.assertTrue(self._python_file_defines(reference_path, reference[1]), reference[1])
+
+	def _python_file_defines(self, path: Path, function_name: str) -> bool:
+		if not path.is_file() or path.suffix != ".py":
+			return False
+		return re.search(rf"^\s*(?:async\s+)?def\s+{re.escape(function_name)}\s*\(", path.read_text(), re.MULTILINE) is not None
 
 	def test_existing_guides_link_to_adopted_design_and_open_validation(self) -> None:
 		for name in ("specification.md", "developer_guide.md", "user_guide.md"):

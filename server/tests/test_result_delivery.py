@@ -199,6 +199,7 @@ class ResultDeliveryTests(unittest.IsolatedAsyncioTestCase):
 
 	async def test_drop_and_timeout_logs_exclude_session_and_content(self) -> None:
 		correlation_ids = (str(uuid4()), str(uuid4()))
+		self.assertTrue(all(correlation_id != self.session_id for correlation_id in correlation_ids))
 		secret_original = "PRIVATE_ORIGINAL"
 		secret_translation = "PRIVATE_TRANSLATION"
 		secret_image = b"PRIVATE_IMAGE_BYTES"
@@ -228,7 +229,12 @@ class ResultDeliveryTests(unittest.IsolatedAsyncioTestCase):
 		self.assertEqual([record.getMessage() for record in captured.records], [
 			"stream_event_dropped", "stream_send_timeout",
 		])
-		self.assertEqual([record.correlation_id for record in captured.records], [correlation_ids[1]] * 2)
+		# messageから取り出した値はログへ渡さず、件数のみを記録する
+		for record in captured.records:
+			self.assertFalse(hasattr(record, "correlation_id"))
+			self.assertFalse(hasattr(record, "event_type"))
+		self.assertEqual(captured.records[0].dropped_events, 1)
+		self.assertEqual(captured.records[1].timed_out_sends, 1)
 
 	def event(self, frame_id: int) -> dict[str, object]:
 		return make_result_message(self.session_id, 1, frame_id, 1, 64, 32, [], 0)
