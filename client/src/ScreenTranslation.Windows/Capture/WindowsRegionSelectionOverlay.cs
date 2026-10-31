@@ -37,21 +37,21 @@ public sealed class WindowsRegionSelectionOverlay
 			{
 				if (selection.TrySelect(region) && session.Complete())
 				{
-					completion.TrySetResult(region);
+					RegionSelectionResultMapper.Complete(completion, session.State, region);
 				}
 			};
 			window.Cancelled += () =>
 			{
 				if (session.Cancel())
 				{
-					completion.TrySetResult(null);
+					RegionSelectionResultMapper.Complete(completion, session.State);
 				}
 			};
 			window.Invalidated += () =>
 			{
 				if (session.NotifyEnvironmentChanged())
 				{
-					completion.TrySetException(new OperationCanceledException("DPIまたは画面構成が変わったため、領域選択を無効化しました。"));
+					RegionSelectionResultMapper.Complete(completion, session.State);
 				}
 			};
 			window.Show();
