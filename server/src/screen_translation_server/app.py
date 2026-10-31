@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, contextmanager
 import logging
+import json
 import os
 import signal
 import ssl
@@ -12,7 +13,7 @@ import time
 from uuid import uuid4
 import threading
 from types import FrameType
-from typing import Iterator
+from typing import Awaitable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Callable
 
@@ -47,6 +48,9 @@ from screen_translation_server.sessions import (
 	SessionManager,
 	SessionNotFound,
 )
+from screen_translation_server.events import EventHub, make_result_message
+from screen_translation_server.observability import ProcessingObserver
+from screen_translation_server.pipeline import FrameInput, PipelineLimitError, PipelineResult, TranslationPipeline, create_default_pipeline
 
 
 _UNIMPLEMENTED = {"detail": "not implemented"}
@@ -61,6 +65,8 @@ def create_app(
 	engine: Callable[..., object] | None = None,
 	is_ready: bool = False,
 	sessions: SessionManager | None = None,
+	pipeline: TranslationPipeline | None = None,
+	heartbeat_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> Starlette:
 	"""テスト可能なASGIアプリを作る。環境設定に転送元ヘッダーを信頼させない。"""
 	session_manager = sessions or SessionManager(clock=time.monotonic, sleep=asyncio.sleep)
@@ -69,6 +75,7 @@ def create_app(
 		try:
 			yield
 		finally:
+			app.state.events.close()
 			await session_manager.close()
 
 	app = Starlette(routes=[], lifespan=lifespan)
@@ -78,6 +85,10 @@ def create_app(
 	app.state.engine = engine
 	app.state.ready = is_ready
 	app.state.sessions = session_manager
+	app.state.events = EventHub()
+	app.state.observer = ProcessingObserver()
+	app.state.pipeline = pipeline
+	app.state.heartbeat_sleep = heartbeat_sleep
 	app.state.streams = {}
 	app.state.http_body_timeout = float(os.environ.get("SCREEN_TRANSLATION_HTTP_BODY_TIMEOUT_SECONDS", "10"))
 
@@ -225,16 +236,18 @@ def create_app(
 		app.state.limiter.finish(remote, success=True)
 		await websocket.accept()
 		session = await app.state.sessions.active_for_owner(credential.credential_id)
+		subscription = None
+		sender_task: asyncio.Task[None] | None = None
+		heartbeat_task: asyncio.Task[None] | None = None
 		if session is not None:
 			app.state.streams[session.session_id] = websocket
+			subscription = app.state.events.subscribe(session.session_id)
+			sender_task = asyncio.create_task(_send_stream_events(app, websocket, subscription))
 			for state in ("accepted", "ready"):
-				await websocket.send_json({
-					"type": "state",
-					"session_id": session.session_id,
-					"generation": session.generation,
-					"dictionary_revision": session.dictionary_revision,
-					"state": state,
-				})
+				app.state.events.publish(session.session_id, app.state.events.state_message(
+					session.session_id, session.generation, session.dictionary_revision, state,
+				))
+			heartbeat_task = asyncio.create_task(_send_heartbeats(app, session.session_id))
 		revocation_watch = asyncio.create_task(
 			_watch_websocket_revocation(
 				websocket,
@@ -244,46 +257,74 @@ def create_app(
 			)
 		)
 		try:
-			message = await websocket.receive()
-			if message["type"] == "websocket.disconnect":
-				return
-			if message.get("text") is not None:
-				await websocket.close(code=1003)
-				return
-			data = message.get("bytes")
-			if not isinstance(data, bytes) or len(data) > BINARY_MESSAGE_MAX_BYTES:
-				await websocket.close(code=1008)
-				return
-			try:
-				frame = validate_authenticated_binary_message(
-					data,
-					app.state.credentials,
-					app.state.policy,
-					websocket.headers.get("authorization"),
-					is_secure=websocket.url.scheme == "wss",
-					host=websocket.headers.get("host"),
-					origin=websocket.headers.get("origin"),
-				)
-			except (AuthenticationError, InputLimitError):
-				await websocket.close(code=1008)
-				return
-			try:
-				await app.state.sessions.heartbeat(
-					frame.metadata["session_id"],
-					credential.credential_id,
-					generation=frame.metadata["generation"],
-				)
-			except (SessionConflict, SessionForbidden, SessionNotFound):
-				await websocket.close(code=1008)
-				return
-			await websocket.send_json(_UNIMPLEMENTED)
-			await websocket.close(code=1011)
+			while True:
+				message = await websocket.receive()
+				if message["type"] == "websocket.disconnect":
+					return
+				if message.get("text") is not None:
+					await websocket.close(code=1003)
+					return
+				data = message.get("bytes")
+				if not isinstance(data, bytes) or len(data) > BINARY_MESSAGE_MAX_BYTES:
+					await websocket.close(code=1008)
+					return
+				try:
+					frame = validate_authenticated_binary_message(
+						data, app.state.credentials, app.state.policy,
+						websocket.headers.get("authorization"), is_secure=websocket.url.scheme == "wss",
+						host=websocket.headers.get("host"), origin=websocket.headers.get("origin"),
+					)
+				except (AuthenticationError, InputLimitError):
+					await websocket.close(code=1008)
+					return
+				if (session is None or subscription is None or frame.metadata["session_id"] != session.session_id
+						or frame.metadata["dictionary_revision"] != session.dictionary_revision):
+					await websocket.close(code=1008)
+					return
+				try:
+					await app.state.sessions.heartbeat(
+						session.session_id, credential.credential_id, generation=frame.metadata["generation"],
+					)
+				except (SessionConflict, SessionForbidden, SessionNotFound):
+					await websocket.close(code=1008)
+					return
+				pipeline = _ensure_pipeline(app)
+				correlation_id = str(uuid4())
+				started = app.state.observer.start("receive", correlation_id)
+				app.state.events.publish(session.session_id, app.state.events.state_message(
+					session.session_id, session.generation, session.dictionary_revision,
+					"processing", frame_id=frame.metadata["frame_id"], correlation_id=correlation_id,
+				))
+				try:
+					await pipeline.submit(FrameInput(
+						session.session_id, frame.metadata["generation"], frame.metadata["frame_id"],
+						frame.metadata["dictionary_revision"], frame.image,
+						frame.metadata["image_width"], frame.metadata["image_height"], correlation_id,
+					))
+				except PipelineLimitError:
+					app.state.events.publish(session.session_id, app.state.events.error_message(
+						"INVALID_IMAGE", correlation_id, session.session_id, session.generation,
+						session.dictionary_revision, frame_id=frame.metadata["frame_id"],
+					))
+				app.state.observer.finish("receive", started, correlation_id=correlation_id)
 		except WebSocketDisconnect:
 			return
 		finally:
 			revocation_watch.cancel()
+			if heartbeat_task is not None:
+				heartbeat_task.cancel()
+			if sender_task is not None:
+				sender_task.cancel()
+			if subscription is not None:
+				app.state.events.unsubscribe(subscription)
 			if session is not None and app.state.streams.get(session.session_id) is websocket:
 				app.state.streams.pop(session.session_id, None)
+				if app.state.pipeline is not None:
+					await app.state.pipeline.cancel(session.session_id, new_generation=session.generation + 1)
+				try:
+					await app.state.sessions.disconnected(session.session_id, credential.credential_id)
+				except (SessionConflict, SessionForbidden, SessionNotFound):
+					pass
 
 	app.routes.extend([
 		Route("/api/v1/health", health, methods=["GET"]),
@@ -327,6 +368,84 @@ def main() -> int:
 	context = create_server_tls_context_from_environment()
 	create_server(create_app(), tls_context=context).run()
 	return 0
+
+
+def _ensure_pipeline(app: Starlette) -> TranslationPipeline:
+	pipeline = app.state.pipeline
+	if pipeline is None:
+		pipeline = create_default_pipeline(
+			is_current=app.state.sessions.is_current,
+			observer=app.state.observer,
+		)
+		app.state.pipeline = pipeline
+	def publish_result(completed: PipelineResult) -> None:
+		session_id = completed.session_id
+		result = completed.result
+		regions = [
+			{
+				"rect": {
+					"left": item.bounds.x,
+					"top": item.bounds.y,
+					"right": item.bounds.x + item.bounds.width,
+					"bottom": item.bounds.y + item.bounds.height,
+				} if item.positioning == "available"
+					and 0 <= item.bounds.x < item.bounds.x + item.bounds.width <= result.frame_width
+					and 0 <= item.bounds.y < item.bounds.y + item.bounds.height <= result.frame_height else None,
+				"source": item.source,
+				"translation": item.translated,
+				"confidence": item.confidence,
+			}
+			for item in result.regions
+		]
+		message = make_result_message(
+			session_id, result.generation, result.frame_id, completed.dictionary_revision,
+			result.frame_width, result.frame_height, regions,
+			max(0, round((result.processed_at - result.captured_at) * 1000)),
+			correlation_id=completed.correlation_id,
+		)
+		try:
+			app.state.events.validate_message(message)
+		except Exception:
+			app.state.observer.dropped("invalid_result_contract", correlation_id=completed.correlation_id)
+			publish_error(FrameInput(session_id, result.generation, result.frame_id,
+				completed.dictionary_revision, b"", result.frame_width, result.frame_height,
+				completed.correlation_id))
+			return
+		app.state.events.publish(session_id, app.state.events.state_message(
+			session_id, result.generation, completed.dictionary_revision, "ready",
+			frame_id=result.frame_id, correlation_id=completed.correlation_id,
+		))
+		app.state.events.publish(session_id, message)
+	def publish_error(frame: FrameInput) -> None:
+		app.state.events.publish(frame.session_id, app.state.events.error_message(
+			"PROCESSING_FAILED", frame.correlation_id or str(uuid4()), frame.session_id,
+			frame.generation, frame.dictionary_revision, frame_id=frame.frame_id,
+		))
+	if hasattr(pipeline, "set_result_callbacks"):
+		pipeline.set_result_callbacks(on_result=publish_result, on_error=publish_error)
+	return pipeline
+
+
+async def _send_stream_events(app: Starlette, websocket: WebSocket, subscription: object) -> None:
+	async def send(message: dict[str, object]) -> None:
+		started = app.state.observer.start("delivery", message.get("correlation_id"))
+		await websocket.send_text(json.dumps(message, ensure_ascii=False, separators=(",", ":")))
+		app.state.observer.finish("delivery", started, correlation_id=message.get("correlation_id"))
+	while not subscription.closed:  # type: ignore[attr-defined]
+		await subscription.send_next(send)  # type: ignore[attr-defined]
+	if subscription.closed:  # type: ignore[attr-defined]
+		await websocket.close(code=1011)
+
+
+async def _send_heartbeats(app: Starlette, session_id: str) -> None:
+	while True:
+		await app.state.heartbeat_sleep(1.0)
+		session = await app.state.sessions.active_snapshot(session_id)
+		if session is None:
+			return
+		app.state.events.publish(session_id, app.state.events.heartbeat_message(
+			session.session_id, session.generation, session.dictionary_revision,
+		))
 
 
 async def _deny_websocket(websocket: WebSocket, status: int, *, retry_after: int | None = None) -> None:

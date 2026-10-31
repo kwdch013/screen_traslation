@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from io import BytesIO
 import time
 from typing import Any, Protocol, cast
+from uuid import uuid4
 
 from PIL import Image
 
@@ -43,12 +44,15 @@ class FrameInput:
 	image: bytes
 	image_width: int
 	image_height: int
+	correlation_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class PipelineResult:
 	result: TranslationResult
 	dictionary_revision: int
+	session_id: str = ""
+	correlation_id: str = ""
 
 
 CurrentCheck = Callable[[str, int], bool | Awaitable[bool]]
@@ -69,6 +73,8 @@ class TranslationPipeline:
 		capture_fps: int = DEFAULT_CAPTURE_FPS,
 		max_image_bytes: int = IMAGE_MAX_BYTES,
 		freshness_seconds: float = FRAME_FRESHNESS_SECONDS,
+		on_result: Callable[[PipelineResult], None] | None = None,
+		observer: Any | None = None,
 	) -> None:
 		if type(capture_fps) is not int or not 1 <= capture_fps <= MAX_CAPTURE_FPS:
 			raise ValueError("capture_fpsは1から5の整数で指定してください。")
@@ -82,6 +88,9 @@ class TranslationPipeline:
 		self._capture_fps = capture_fps
 		self._max_image_bytes = min(max_image_bytes, IMAGE_MAX_BYTES)
 		self._freshness_seconds = freshness_seconds
+		self._on_result = on_result
+		self._on_error: Callable[[FrameInput], None] | None = None
+		self._observer = observer
 		self._pending: tuple[FrameInput, float, int] | None = None
 		self._worker: asyncio.Task[None] | None = None
 		self._lock = asyncio.Lock()
@@ -98,43 +107,46 @@ class TranslationPipeline:
 
 	async def submit(self, frame: FrameInput) -> None:
 		"""入力制限を確認し、処理中なら待機枠を最新画像で置き換える。"""
+		correlation_id = frame.correlation_id or str(uuid4())
+		receive_started = self._clock()
 		self._validate_frame(frame)
 		received_at = self._clock()
+		self._observe("receive", receive_started, received_at, correlation_id)
 		if not await self._current(frame.session_id, frame.generation):
-			self.dropped_frames += 1
+			self._record_drop("stale_generation", correlation_id)
 			return
 		async with self._lifecycle_lock:
 			if not await self._current(frame.session_id, frame.generation):
-				self.dropped_frames += 1
+				self._record_drop("stale_generation", correlation_id)
 				return
 			latest_generation = self._latest_generation.get(frame.session_id)
 			if latest_generation is not None and frame.generation < latest_generation:
-				self.dropped_frames += 1
+				self._record_drop("stale_generation", correlation_id)
 				return
 			previous_generation = self._active_generation.get(frame.session_id)
 			if frame.session_id in self._active_generation and previous_generation != frame.generation:
 				if previous_generation is None:
-					self.dropped_frames += 1
+					self._record_drop("stopped_session", correlation_id)
 					return
 				await self._cancel_locked(frame.session_id, new_generation=frame.generation)
 			self._latest_generation[frame.session_id] = frame.generation
 			async with self._lock:
 				active_generation = self._active_generation.get(frame.session_id)
 				if frame.session_id in self._active_generation and active_generation != frame.generation:
-					self.dropped_frames += 1
+					self._record_drop("stale_generation", correlation_id)
 					return
 				self._active_generation[frame.session_id] = frame.generation
 				key = (frame.session_id, frame.generation)
 				previous_id = self._last_frame.get(key, 0)
 				if frame.frame_id <= previous_id:
-					self.dropped_frames += 1
+					self._record_drop("reverse_frame", correlation_id)
 					return
 				self._last_frame[key] = frame.frame_id
-				self._check_rate(frame.session_id, received_at)
+				self._check_rate(frame.session_id, received_at, correlation_id)
 				epoch = self._epoch.get(frame.session_id, 0)
 				if self._worker is not None and not self._worker.done():
 					if self._pending is not None:
-						self.dropped_frames += 1
+						self._record_drop("replaced_waiting_frame", self._pending[0].correlation_id or correlation_id)
 					self._pending = (frame, received_at, epoch)
 					return
 				self._pending = (frame, received_at, epoch)
@@ -156,8 +168,8 @@ class TranslationPipeline:
 			self._active_generation[session_id] = new_generation  # Noneは停止後の受理を防ぐ。
 			self._results.clear()
 			if self._pending is not None and self._pending[0].session_id == session_id:
+				self._record_drop("cancelled_waiting_frame", self._pending[0].correlation_id or str(uuid4()))
 				self._pending = None
-				self.dropped_frames += 1
 			worker = self._worker
 			if worker is not None and not worker.done():
 				worker.cancel()
@@ -182,6 +194,16 @@ class TranslationPipeline:
 	def published_results(self) -> list[PipelineResult]:
 		return list(self._results)
 
+	def set_result_callbacks(
+		self,
+		*,
+		on_result: Callable[[PipelineResult], None] | None = None,
+		on_error: Callable[[FrameInput], None] | None = None,
+	) -> None:
+		"""配信側が処理完了を同期・非ブロッキングで受け取る。"""
+		self._on_result = on_result
+		self._on_error = on_error
+
 	@property
 	def pending_frame_count(self) -> int:
 		return int(self._pending is not None)
@@ -199,18 +221,27 @@ class TranslationPipeline:
 				if item is None:
 					return
 				frame, received_at, epoch = item
+				wait_started = self._clock()
+				correlation_id = frame.correlation_id or str(uuid4())
+				self._observe("wait", received_at, wait_started, correlation_id)
 				try:
 					result = await self._process(frame, received_at)
 				except asyncio.CancelledError:
 					raise
 				except Exception:
 					self.failed_frames += 1
+					if self._observer is not None:
+						self._observer.dropped("processing_failed", correlation_id=correlation_id)
+					if self._on_error is not None:
+						self._on_error(frame)
 					continue
 				if result is None:
 					continue
 				async with self._lock:
 					if epoch == self._epoch.get(frame.session_id, 0):
 						self._results.append(result)
+						if self._on_result is not None:
+							self._on_result(result)
 		finally:
 			async with self._lock:
 				if self._worker is asyncio.current_task():
@@ -222,7 +253,9 @@ class TranslationPipeline:
 		image = await asyncio.to_thread(_decode_image, frame)
 		app_frame = Frame(image=image, captured_at=received_at, frame_id=frame.frame_id)
 		worker = self._create_task(asyncio.to_thread(
-			_recognize_and_translate, self._ocr, self._translator, app_frame
+			_recognize_and_translate, self._ocr, self._translator, app_frame,
+			self._observer, frame.session_id, frame.generation, frame.frame_id,
+			frame.correlation_id or str(uuid4()), self._clock,
 		))
 		try:
 				regions = cast(list[TranslationRegion], await asyncio.shield(worker))
@@ -237,14 +270,27 @@ class TranslationPipeline:
 		age = processed_at - received_at
 		if age < 0 or age > self._freshness_seconds:
 			self.expired_frames += 1
+			if self._observer is not None:
+				self._observer.dropped("expired_frame", correlation_id=frame.correlation_id or str(uuid4()))
 			return None
 		if not await self._current(frame.session_id, frame.generation):
+			if self._observer is not None:
+				self._observer.dropped("stale_generation", correlation_id=frame.correlation_id or str(uuid4()))
 			return None
 		return PipelineResult(
 			TranslationResult(frame.generation, frame.frame_id, received_at, processed_at,
 				frame.image_width, frame.image_height, tuple(regions)),
-			frame.dictionary_revision,
+			frame.dictionary_revision, frame.session_id, frame.correlation_id,
 		)
+
+	def _observe(self, stage: str, started: float, ended: float, correlation_id: str) -> None:
+		if self._observer is not None:
+			self._observer.finish(stage, started, correlation_id=correlation_id, duration_end=ended)
+
+	def _record_drop(self, stage: str, correlation_id: str) -> None:
+		self.dropped_frames += 1
+		if self._observer is not None:
+			self._observer.dropped(stage, correlation_id=correlation_id)
 
 	async def _current(self, session_id: str, generation: int) -> bool:
 		if self._is_current is None:
@@ -262,12 +308,12 @@ class TranslationPipeline:
 		if frame.generation < 1 or frame.frame_id < 1 or frame.dictionary_revision < 1:
 			raise PipelineLimitError("フレーム相関値が不正です。")
 
-	def _check_rate(self, session_id: str, now: float) -> None:
+	def _check_rate(self, session_id: str, now: float, correlation_id: str) -> None:
 		times = self._rate_times.setdefault(session_id, deque())
 		while times and now - times[0] >= MAX_FRAME_RATE_WINDOW_SECONDS:
 			times.popleft()
 		if len(times) >= self._capture_fps * int(MAX_FRAME_RATE_WINDOW_SECONDS):
-			self.dropped_frames += 1
+			self._record_drop("rate_limit", correlation_id)
 			raise PipelineLimitError("10秒あたりのフレーム数が設定上限を超えています。")
 		times.append(now)
 
@@ -292,15 +338,29 @@ def _recognize_and_translate(
 	ocr: Ocr | Callable[[Frame], Sequence[TextRegion]],
 	translator: Translator | Callable[[str], str],
 	frame: Frame,
+	observer: Any | None = None,
+	session_id: str = "",
+	generation: int = 0,
+	frame_id: int = 0,
+	correlation_id: str = "",
+	clock: Callable[[], float] = time.monotonic,
 ) -> list[TranslationRegion]:
 	recognize = ocr.recognize if hasattr(ocr, "recognize") else ocr
 	translate = translator.translate if hasattr(translator, "translate") else translator
-	return [
-		TranslationRegion(region.text, translate(region.text), region.bounds,
-			region.confidence, region.positioning)
-		for region in recognize(frame)
-		if region.text.strip()
-	]
+	started = clock()
+	regions = recognize(frame)
+	ocr_ended = clock()
+	translated: list[TranslationRegion] = []
+	for region in regions:
+		if region.text.strip():
+			translated.append(TranslationRegion(region.text, translate(region.text), region.bounds,
+				region.confidence, region.positioning))
+	ended = clock()
+	if observer is not None:
+		correlation = correlation_id or str(uuid4())
+		observer.finish("ocr", started, correlation_id=correlation, duration_end=ocr_ended)
+		observer.finish("translation", ocr_ended, correlation_id=correlation, duration_end=ended)
+	return translated
 
 
 __all__ = [

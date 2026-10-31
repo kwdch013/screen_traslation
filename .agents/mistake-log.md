@@ -1,5 +1,12 @@
 # ミス記録
 
+## 2026-10-31 Event同期テストの解除Eventを再利用可能にした
+- 何が起きたか: heartbeatテストで解除Eventを一度setした後にresetしなかったため、周期タスクが無待機ループし、キュー破棄とログを大量発生させた。
+- 根本原因: 周期処理の同期にEventを使ったが、1回分の信号として消費されることをテストダブルで表現しなかった。
+- 正しいやり方: injected sleepはEventを待った直後にclearして次周期を再停止し、テスト側は受信したmessageを確認後にtaskをcancelする。
+- 発生回数: 1
+- guard: なし
+
 ## 2026-10-31 パッチ適用後のPythonインデントを確認せず実行した
 - 何が起きたか: `pipeline/__init__.py` に例外callbackとrate-limit処理を追加した際、Tabインデントが1段深くなり、対象テストがimport時に2回失敗した。また`app.py`の認証監視taskをsession分岐内に置き、session未開始WebSocketでfinallyが失敗した。該当ブロックを修正した。
 - 根本原因: patch適用時の周辺コンテキストを読み戻さず、タブ数が期待どおり変わったと思い込んだ。

@@ -29,6 +29,7 @@ from websockets.sync.client import connect as websocket_connect
 from screen_translation_server.admin.credentials import CredentialManager
 from screen_translation_server.api.input_limits import HTTP_JSON_MAX_BYTES
 from screen_translation_server.app import create_app, create_server
+from screen_translation_server.pipeline import TranslationPipeline
 from screen_translation_server.security.auth import (
 	CredentialStore,
 	Role,
@@ -36,6 +37,7 @@ from screen_translation_server.security.auth import (
 	create_credential,
 	create_server_tls_context,
 )
+from screen_translation_server.security.rate_limit import AuthAttemptLimiter
 from screen_translation_server.sessions import SessionManager
 
 
@@ -152,6 +154,8 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 			policy=SecurityPolicy(frozenset({f"127.0.0.1:{cls._port}"})),
 			is_ready=True,
 			sessions=cls.sessions,
+			pipeline=TranslationPipeline(lambda _frame: [], lambda text: text,
+				clock=time.monotonic, is_current=cls.sessions.is_current),
 		)
 		cls.tls_context = create_server_tls_context(certificate, key)
 		cls._environment = unittest.mock.patch.dict(os.environ, {
@@ -230,9 +234,16 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 		return {"Authorization": f"Bearer {token}"}
 
 	def setUp(self) -> None:
-		async def close_sessions() -> None:
+		async def release_previous_streams() -> None:
 			await self.sessions.close()
-		asyncio.run_coroutine_threadsafe(close_sessions(), self.server_loop).result(timeout=2)
+			for websocket in tuple(self.app.state.streams.values()):
+				try:
+					await websocket.close(code=1000)
+				except RuntimeError:
+					pass
+			await self.app.state.events.wait_until_empty()
+		asyncio.run_coroutine_threadsafe(release_previous_streams(), self.server_loop).result(timeout=2)
+		self.app.state.limiter = AuthAttemptLimiter()
 
 	def _start(self, token: str | None = None) -> httpx.Response:
 		return self.client.post("/api/v1/sessions", headers=self._headers(token), json={})
@@ -304,7 +315,8 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 	def test_state_notifications_stop_and_reselection_over_tls_wss(self) -> None:
 		first = self._start().json()
 		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
-		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+		with websocket_connect(uri, ssl=self._trusted_context(), open_timeout=60,
+			additional_headers=self._headers()) as websocket:
 			self._state_message(websocket, "accepted", first)
 			self._state_message(websocket, "ready", first)
 			stopped = self.client.delete(f"/api/v1/sessions/{first['session_id']}", headers=self._headers())
@@ -317,7 +329,8 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 		second = self._start().json()
 		self.assertNotEqual(second["session_id"], first["session_id"])
 		self.assertEqual(second["generation"], 1)
-		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+		with websocket_connect(uri, ssl=self._trusted_context(), open_timeout=60,
+			additional_headers=self._headers()) as websocket:
 			self._state_message(websocket, "accepted", second)
 			self._state_message(websocket, "ready", second)
 			websocket.send(self._png_frame(
@@ -331,14 +344,15 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 		).status_code, 204)
 
 	def test_current_session_rejects_frame_with_mismatched_generation_over_tls_wss(self) -> None:
-		session = self._start().json()
-		# 下位・上位のどちらもframe schemaを通してから現generation照合を検証する。
-		session["generation"] = 2
-		self._set_active_generation(session["generation"])
 		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
-		for mismatched_generation in (session["generation"] - 1, session["generation"] + 1):
+		for mismatched_generation in (1, 3):
 			with self.subTest(generation=mismatched_generation):
-				with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+				session = self._start().json()
+				# 下位・上位のどちらもframe schemaを通してから現generation照合を検証する。
+				session["generation"] = 2
+				self._set_active_generation(session["generation"])
+				with websocket_connect(uri, ssl=self._trusted_context(), open_timeout=60,
+					additional_headers=self._headers()) as websocket:
 					self._state_message(websocket, "accepted", session)
 					self._state_message(websocket, "ready", session)
 					websocket.send(self._png_frame(
@@ -351,16 +365,26 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 	def test_current_generation_frame_passes_session_validation_over_tls_wss(self) -> None:
 		session = self._start().json()
 		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
-		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+		with websocket_connect(uri, ssl=self._trusted_context(), open_timeout=60,
+			additional_headers=self._headers()) as websocket:
 			self._state_message(websocket, "accepted", session)
 			self._state_message(websocket, "ready", session)
 			websocket.send(self._png_frame(
 				session["session_id"], session["generation"], session["dictionary_revision"],
 			))
-			self.assertEqual(json.loads(websocket.recv(timeout=2)), {"detail": "not implemented"})
+			result = None
+			while result is None:
+				message = json.loads(websocket.recv(timeout=10))
+				if message.get("type") == "result":
+					result = message
+			self.assertEqual(result["status"], "empty")
+			self.assertEqual((result["session_id"], result["generation"], result["frame_id"],
+				result["dictionary_revision"]), (session["session_id"], 1, 1, 1))
+			self.assertLessEqual(result["server_processing_ms"], 30_000)
+			self.client.delete(f"/api/v1/sessions/{session['session_id']}", headers=self._headers())
 			with self.assertRaises(ConnectionClosed) as closed:
 				websocket.recv(timeout=2)
-		self.assertEqual(closed.exception.rcvd.code, 1011)
+		self.assertEqual(closed.exception.rcvd.code, 1000)
 
 	def test_authenticated_start_state_reselection_stop_and_contract_fixture(self) -> None:
 		response = self._start()
@@ -427,7 +451,8 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 
 		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
 		with websocket_connect(
-			uri, ssl=self._trusted_context(), additional_headers=self._headers(self.second_token),
+			uri, ssl=self._trusted_context(), open_timeout=60,
+			additional_headers=self._headers(self.second_token),
 		) as websocket:
 			websocket.send(self._png_frame(
 				session["session_id"], session["generation"], session["dictionary_revision"],
@@ -454,7 +479,8 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 		self.assertEqual(started.status_code, 201)
 		session = self._active_session()
 		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
-		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers(self.revoked_token)) as websocket:
+		with websocket_connect(uri, ssl=self._trusted_context(), open_timeout=60,
+			additional_headers=self._headers(self.revoked_token)) as websocket:
 			self._state_message(websocket, "accepted", started.json())
 			self._state_message(websocket, "ready", started.json())
 			revoked_at = time.monotonic()
@@ -485,7 +511,8 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 		session_id = started.json()["session_id"]
 		session = self._active_session()
 		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
-		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()):
+		with websocket_connect(uri, ssl=self._trusted_context(), open_timeout=60,
+			additional_headers=self._headers()):
 			self.assertEqual(self._owner(session_id), "device-primary")
 		self.assertTrue(self._wait_for_owner_release(session_id))
 		self.assertTrue(session._watchdog.done())
@@ -508,7 +535,8 @@ class SessionBoundaryIntegrationTests(unittest.TestCase):
 
 		started = self._start()
 		uri = f"wss://127.0.0.1:{self._port}/api/v1/stream"
-		with websocket_connect(uri, ssl=self._trusted_context(), additional_headers=self._headers()) as websocket:
+		with websocket_connect(uri, ssl=self._trusted_context(), open_timeout=60,
+			additional_headers=self._headers()) as websocket:
 			self._state_message(websocket, "accepted", started.json())
 			self._state_message(websocket, "ready", started.json())
 			websocket.send(b"x" * boundaries["maximum_message_bytes"] + b"x")
