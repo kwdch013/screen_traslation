@@ -16,6 +16,9 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\Shared\CaptureTestSupport.cs" Link="Shared\CaptureTestSupport.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\ScreenTranslation.Client\ScreenTranslation.Client.csproj" />
   </ItemGroup>
 </Project>

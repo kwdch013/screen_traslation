@@ -20,6 +20,36 @@ WPF画面での設定変更中の接続取消、ウィンドウ終了後の遅�
 
 2026-10-31にLinux .NET SDKコンテナでCore 1件・Client 70件・接続結合12件・Contracts 4件を実行し、すべて成功しました。CPU負荷をかけた同一試験の3反復も成功しました。WPF実機確認とWindows hosted runnerの結果は別扱いにし、手動項目を合格に含めません。実行詳細とmutation確認は[Issue #90作業記録](../../tasks/2026-10-31_issue-90_connection-windows-tests.md)を参照してください。
 
+## 実キャプチャから送信までの結合試験 (Issue #95)
+
+`CaptureSendPipeline`(`client/src/ScreenTranslation.Client/Capture/`)が、取得フレーム→ROI切り出し→変化判定→PNG符号化→最新優先送信を接続します。世代切替・停止・送信失敗では変化判定の基準(`FrameProcessor.ResetBaseline`)を捨て、送られなかった画素が「無変化」と判定されて二度と送られない状態を防ぎます。取得時の世代が現在と異なるフレームは処理せず、sessionが無い間も何も送りません。
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| OS非依存の連鎖 | `client/tests/ScreenTranslation.Client.IntegrationTests/CaptureTests.cs` (`Category=CaptureSendIntegration`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 負座標を含む96/144/192 DPIの仮想デスクトップで、論理座標から変換した物理ROIの画素が受信PNGと1対1で一致(契約の許容誤差2 physical px以内かつ実際は0)。再選択で待機中の旧領域画像が送られず、旧世代フレームは拒否され、通信中の送信が取り消される。対象終了/最小化/取得拒否/DPI変更で送信が止まり取得sessionが破棄される。送信失敗後に同一画素が再送対象になる。20回の再選択でsessionが全て1回だけ停止・破棄される |
+| 配線の単体 | `client/tests/ScreenTranslation.Client.Tests/CaptureSendPipelineTests.cs` | 同上 | 基準リセット、旧世代拒否、session無し拒否、送信失敗と呼び出し側取消の区別 |
+| Win32実取得 | `client/tests/ScreenTranslation.Windows.Tests/CaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 座標を画素値にした試験ウィンドウをWin32 `PrintWindow`で実際に取得し、ROIと受信画像が1対1で一致すること、取得対象の終了後は取得不可で旧画像が送られないこと、再選択後は新領域だけが送られることを確認 |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=CaptureIntegration
+```
+
+CaptureIntegrationはWindows専用で、Linuxでは対象プロジェクトがビルドされません。Linuxでのskipをこの試験の合格として扱いません。この試験はWin32 `PrintWindow`で取得した画素を使い、**Windows Graphics Capture(WGC)の画素読み出しは検証しません**。現状の本番コードはWGCの`FrameArrived`で画素を読み出して`CapturedFrame`へ変換する処理を持たない(対象の有効性確認のみ)ため、WGC取得から送信までの結合は未実装・未検証です。追跡は #135/#148系の実機Taskに委ねます。
+
+### Owner実機手順 (混在DPI・複数モニター・画面表示)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、モニター構成(解像度・DPI・配置)、合否をIssueへ記録し、この欄を更新してください。
+
+1. 倍率が異なる2台以上のモニター(例: 100%と150%)、および主モニターより左/上に置いた(負座標の)モニターを用意する。
+2. 各モニターの既知の目盛り/文字を持つウィンドウでROIを選択し、取得開始する。受信側(またはサーバーログの画像寸法)でROI寸法が選択した物理pxと一致し、目盛り位置のずれが2 physical px以下であることを確認する。
+3. 取得中に対象ウィンドウを閉じる/最小化する/別モニターへ移動してDPIを変える/取得権限を拒否する。送信が止まり、旧領域の画像がそれ以降送られず、取得sessionが解放される(再開始まで送信されない)ことを確認する。
+4. 負荷(別プロセスでCPUを飽和)をかけた状態でROIを再選択し、再選択前の領域の画像が受信されないことを確認する。
+5. 取得除外(自己キャプチャ除外/WDA)が失敗した場合に送信が停止することを確認する(#135/#136系)。
+
 ## Pythonサーバーの単体試験
 
 リポジトリルートでPython 3.14の専用コンテナからサーバーの単体・契約試験を実行します。
