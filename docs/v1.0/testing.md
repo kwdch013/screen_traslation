@@ -180,6 +180,8 @@ docker compose --profile integration -f server/compose.test.yml run --build --rm
 
 WSSクライアントは、`server/tests/integration/ws_client.py`の`SyncWebSocket`（`websockets.asyncio`を専用イベントループで動かす同期API）を使います。websocketsの同期クライアントは、1つのTLS接続を受信threadとメインthreadが同時に読み書きし、稀にHTTP Upgrade要求がTCPへ送出されず60秒のhandshakeタイムアウトになったためです（Issue #174、[作業記録](../../tasks/2026-10-31_issue-174_integration-flake.md)）。`open_timeout`の延長やリトライでは対処していません。
 
+単体試験の実Uvicorn試験（`server/tests/test_app.py`の`test_real_uvicorn_transport_enforces_http_and_websocket_boundaries`）にも同じ同期クライアントが残っており、CIで同じ`handshake response`タイムアウトが出たため、同じ`SyncWebSocket`へ置き換えました（Issue #203、[作業記録](../../tasks/2026-10-31_issue-203_unit-ws-client.md)）。`integration/`は`__init__.py`を持たない名前空間パッケージなので、単体試験は`from integration.ws_client import SyncWebSocket`で共有します。`server/tests/test_no_sync_ws_client.py`が、`server/tests/`配下にwebsocketsの同期クライアント（`websockets.sync`）の利用が戻らないことを検査します。1009/1008のclose codeと`ConnectionClosed`の検証、`open_timeout=5`は変えていません。
+
 再実行は上記コマンドをそのまま使います。実行記録には実行日、コマンド、`docker compose`/Python/OpenSSL版、`server/requirements-dev.txt`のhttpx・websockets・jsonschema版、テスト件数、成功/失敗を残します。実行時のOpenSSL版は`docker compose --profile integration -f server/compose.test.yml run --rm integration openssl version`で確認できます。
 
 `GET /api/v1/ready`はモデル準備状態の確認であり、session状態取得には使いません。session状態はWSS text state通知（`accepted` / `processing` / `ready` / `stopped`）で受け取り、各通知のsession_id・generation・dictionary_revisionを`contracts/schemas/stream-message.schema.json`で検証します。独立したsession状態取得・再選択APIはありません。再選択時はClientが送信停止・旧generation無効化・表示消去を先に行い、DELETEで旧sessionを解放後、新ROIで利用者が明示的にPOSTして新sessionを作ります。結合試験では現session IDの上下generation不一致frame拒否、現generation frameのsession検証通過、停止後のWSS close、所有権・taskの解放を確認します。Windows実機との通信、画面取得・表示、およびWindows/Linux間E2Eはこのコンテナ試験の対象外で、#108等で実施します。
