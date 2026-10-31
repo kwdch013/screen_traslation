@@ -47,6 +47,10 @@
 - 発生回数: 3
 - 2026-10-30の差分: Issue #83でComposeをbuild無しで起動し、追加テストが0件となった。`--build`を付け、対象件数を確認してから結果を扱った。
 - 2026-10-30の差分: 別worktreeとComposeの既定project/image tagが共有され、他の実行のイメージで0件となった。issue固有project名と`--build`を指定して再実行する。
+- 2026-10-31の差分: Issue #93の追加ClientテストをComposeの既存イメージへ`--no-restore`で実行し、新規テストを含まない古い36件の結果を一度表示した。DockerfileはテストソースをimageへCOPYし、volume mountもないため、`--build`で再実行して新規50件を含む結果を確認した。
+- 再発原因: テストソース変更後にComposeのbuild/mount構成を確かめず、既存imageが作業ツリーを反映していると思い込んだ。
+- 正しいやり方: sourceをimageへCOPYするComposeテストは必ず`--build`で実行し、追加したテスト名と件数を確認する。`--no-restore`は新しいソースをimageへ反映する代わりにならない。
+- 発生回数: 4
 - guard: guard-fresh-container-tests
 
 ## 2026-10-30 unittestテスト名を未探索のモジュールとして直接指定した
