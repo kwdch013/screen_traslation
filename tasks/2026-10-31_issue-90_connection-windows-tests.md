@@ -30,6 +30,14 @@
 | Ruff server対象 (`ruff check --no-cache server/src server/tests`) | 成功 |
 | `docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src -v "$PWD:/workspace:ro" -w /workspace app:ci python -B -m unittest src.tests.test_v1_documentation` | 29件成功。#90の対応要件ID実在チェックを含む |
 
+## PR #167 Windows CIハング調査
+
+- 対象: run `41175728378` / job `124462773265` / head `277a9b6b2e19f7add3781ba27bd9473ecd30c5a2`
+- Windows Solution buildは06:14:49 UTCに完了。テスト工程はCore (1件)、Contracts (4件)、Windows.Tests (8件中1 skip)、Client (70件) の成功を06:14:59 UTCまでに出力した。
+- IntegrationTests DLLの実行開始は06:14:55 UTC。元の `dotnet test` は既定loggerのため個々のテスト名を出さず、その後のケース開始/完了はキャンセル済みログに存在しない。ジョブは06:46:21 UTCにキャンセルされた。
+- したがって、取得できた元ログだけでは停止したConnectionTestsのケース名や根本原因を断定できない。後続実行に詳細console loggerとhang dump timeoutを加えて特定する。
+- Windows実行環境はこのworktreeから利用できず、既存ログにはテストケース単位の情報もないため、Windows固有の原因を推測で事実扱いしない。
+
 ## Mutation確認
 
 | 変異 | 検出結果 |
