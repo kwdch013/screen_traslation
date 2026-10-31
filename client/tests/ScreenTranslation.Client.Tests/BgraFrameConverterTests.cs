@@ -177,4 +177,16 @@ public sealed class BgraFrameConverterTests
 
 		Assert.Equal("owned", error.ParamName);
 	}
+
+	[Fact]
+	public void Owned_PaddedRowsFromOffsetZero_AreRepackedNotShared()
+	{
+		var source = new byte[12 * 2];
+		for (var i = 0; i < source.Length; i++) source[i] = (byte)i;
+
+		var frame = BgraFrameConverter.ToCapturedFrameOwned(source, 0, 12, 2, 2, 1);
+
+		Assert.Equal(8, frame.Stride);
+		Assert.Equal(source[0..8].Concat(source[12..20]), frame.Pixels.ToArray());
+	}
 }
