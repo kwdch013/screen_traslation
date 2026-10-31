@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import socket
 import ssl
@@ -63,7 +64,11 @@ class ServerBootstrapTest(unittest.TestCase):
 			self.client.get("/api/v1/admin/status", headers={"Authorization": f"Bearer {self.DEVICE_TOKEN}"}),
 		]
 		self.assertEqual({response.status_code for response in responses}, {401})
-		self.assertEqual({response.content for response in responses}, {b'{"detail":"Authentication failed"}'})
+		bodies = [response.json() for response in responses]
+		self.assertEqual({(body["code"], body["message"], body["retryable"]) for body in bodies}, {
+			("UNAUTHENTICATED", "認証が必要です。", False),
+		})
+		self.assertEqual(len({body["correlation_id"] for body in bodies}), len(bodies))
 		self.engine.assert_not_called()
 
 	def test_tls_host_and_origin_are_checked_on_routes(self) -> None:
@@ -101,7 +106,8 @@ class ServerBootstrapTest(unittest.TestCase):
 		with self.assertRaises(WebSocketDenialResponse) as denied:
 			with self.client.websocket_connect("wss://server.example/api/v1/stream"):
 				self.fail("未認証WebSocketをacceptしてはいけません")
-		self.assertEqual((denied.exception.status_code, denied.exception.content), (401, b'{"detail":"Authentication failed"}'))
+		self.assertEqual(denied.exception.status_code, 401)
+		self.assertEqual(json.loads(denied.exception.content)["code"], "UNAUTHENTICATED")
 		with self.client.websocket_connect(
 			"wss://server.example/api/v1/stream",
 			headers={"Host": "server.example", "Authorization": f"Bearer {self.DEVICE_TOKEN}"},

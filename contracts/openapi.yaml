@@ -98,6 +98,7 @@ paths:
           content:
             application/json:
               schema: {$ref: './schemas/error.schema.json'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
         '503':
           description: readyでないため開始できない
           content:

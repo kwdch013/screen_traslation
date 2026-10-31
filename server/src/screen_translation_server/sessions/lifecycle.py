@@ -68,11 +68,13 @@ class SessionManager:
 			session._watchdog = asyncio.create_task(self._watch(session))
 			return session
 
-	async def heartbeat(self, session_id: str, owner_id: str) -> None:
-		"""所有者の生存通知を記録し、切断タイマーを更新する。"""
+	async def heartbeat(self, session_id: str, owner_id: str, *, generation: int | None = None) -> None:
+		"""所有者の生存通知を記録し、指定時はframe世代も検証する。"""
 		async with self._lock:
 			session = self._require_active(session_id)
 			self._require_owner(session, owner_id)
+			if generation is not None and session.generation != generation:
+				raise SessionConflict
 			session.last_heartbeat = self._clock()
 
 	async def stop(self, session_id: str, owner_id: str) -> None:
@@ -92,6 +94,14 @@ class SessionManager:
 			session = self._active
 			if session is not None and session.session_id == session_id and session.active:
 				return session.owner_id
+			return None
+
+	async def active_for_owner(self, owner_id: str) -> Session | None:
+		"""所有者に対応する稼働中sessionを返す。"""
+		async with self._lock:
+			session = self._active
+			if session is not None and session.active and session.owner_id == owner_id:
+				return session
 			return None
 
 	async def is_current(self, session_id: str, generation: int) -> bool:

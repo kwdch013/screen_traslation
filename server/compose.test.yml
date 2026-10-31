@@ -18,3 +18,23 @@ services:
       - -s
       - tests
       - -v
+  integration:
+    profiles: [integration]
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    init: true
+    cpus: 2
+    mem_limit: 4g
+    network_mode: none
+    command:
+      - python
+      - -B
+      - -m
+      - unittest
+      - discover
+      - -s
+      - tests/integration
+      - -p
+      - test_sessions.py
+      - -v
