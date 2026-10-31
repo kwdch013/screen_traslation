@@ -92,15 +92,23 @@ class SessionLifecycleTest(unittest.IsolatedAsyncioTestCase):
 		self.assertNotEqual(restarted.session_id, session.session_id)
 		self.assertEqual(restarted.generation, 1)
 
+	async def test_old_generation_result_is_not_current_while_session_remains_active(self) -> None:
+		session = await self.manager.start("device-a")
+		old_generation = session.generation
+		session.generation += 1
+		self.assertFalse(await self.manager.is_current(session.session_id, old_generation))
+		self.assertTrue(await self.manager.is_current(session.session_id, session.generation))
+
 	async def test_reselection_cancels_and_drains_ocr_and_rejects_its_late_result(self) -> None:
 		session = await self.manager.start("device-a")
 		started = asyncio.Event()
+		finish_ocr = asyncio.Event()
 		cancel_received = asyncio.Event()
 		finish_drain = asyncio.Event()
 		async def ocr_operation() -> tuple[str, int, str]:
 			started.set()
 			try:
-				await asyncio.Event().wait()
+				await finish_ocr.wait()
 			except asyncio.CancelledError:
 				cancel_received.set()
 				await finish_drain.wait()
@@ -109,8 +117,10 @@ class SessionLifecycleTest(unittest.IsolatedAsyncioTestCase):
 		await started.wait()
 
 		reselection = asyncio.create_task(self.manager.reselect(session.session_id, "device-a"))
-		await asyncio.sleep(0)
+		for _ in range(3):
+			await asyncio.sleep(0)
 		cancellation_was_requested = cancel_received.is_set()
+		finish_ocr.set()
 		finish_drain.set()
 		await reselection
 		self.assertTrue(cancellation_was_requested)
