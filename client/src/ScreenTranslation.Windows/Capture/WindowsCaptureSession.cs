@@ -179,7 +179,8 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 		if (pool is not null)
 		{
 			pool.FrameArrived -= OnFrameArrived;
-			Free(CaptureResourceKind.FramePool, pool);
+			// MUTATION: 毎周フレームプールを解放しない
+			_ = pool;
 		}
 		if (captureItem is not null)
 		{
