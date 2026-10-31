@@ -3,6 +3,7 @@ using System.Net.Security;
 using System.Net.WebSockets;
 using System.Security.Authentication;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using ScreenTranslation.Client.Security;
@@ -22,6 +23,8 @@ public interface IStreamSocketFactory
 	IStreamSocket Create(ConnectionSettings settings);
 }
 
+internal delegate bool TestCertificateValidationCallback(string hostName, X509Certificate2? certificate, SslPolicyErrors errors);
+
 public sealed class TransportProtocolException(string message, Exception? innerException = null) : Exception(message, innerException);
 
 public enum TransportConnectionStatus
@@ -37,7 +40,16 @@ public sealed class ReconnectLimitException(string message) : IOException(messag
 
 public sealed class ClientWebSocketStreamFactory : IStreamSocketFactory
 {
-	public IStreamSocket Create(ConnectionSettings settings) => new ClientWebSocketStream(settings.ServerCertificateSha256);
+	private readonly TestCertificateValidationCallback? testCertificateValidationCallback;
+
+	public ClientWebSocketStreamFactory() { }
+
+	internal ClientWebSocketStreamFactory(TestCertificateValidationCallback testCertificateValidationCallback)
+	{
+		this.testCertificateValidationCallback = testCertificateValidationCallback;
+	}
+
+	public IStreamSocket Create(ConnectionSettings settings) => new ClientWebSocketStream(settings.ServerCertificateSha256, testCertificateValidationCallback);
 }
 
 public sealed class StreamTransportClient(
@@ -280,7 +292,7 @@ public sealed class StreamTransportClient(
 	}
 }
 
-internal sealed class ClientWebSocketStream(string? certificateSha256) : IStreamSocket
+internal sealed class ClientWebSocketStream(string? certificateSha256, TestCertificateValidationCallback? testCertificateValidationCallback = null) : IStreamSocket
 {
 	private const int MaximumTextMessageBytes = 1_048_576;
 	private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
@@ -293,7 +305,12 @@ internal sealed class ClientWebSocketStream(string? certificateSha256) : IStream
 		client.Options.SetRequestHeader("Authorization", $"Bearer {deviceToken}");
 		client.Options.KeepAliveInterval = TimeSpan.FromSeconds(1);
 		client.Options.KeepAliveTimeout = TimeSpan.FromSeconds(4);
-		if (certificateSha256 is not null)
+		if (testCertificateValidationCallback is not null)
+		{
+			client.Options.RemoteCertificateValidationCallback = (_, certificate, _, errors) =>
+				testCertificateValidationCallback(endpoint.Host, certificate as X509Certificate2, errors);
+		}
+		else if (certificateSha256 is not null)
 		{
 			var expected = Convert.FromHexString(certificateSha256);
 			client.Options.RemoteCertificateValidationCallback = (_, certificate, _, errors) =>

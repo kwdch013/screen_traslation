@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Security;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -30,9 +31,9 @@ public sealed class ConnectionTests
 	[Fact]
 	public async Task ConnectAndSendFrameOverTrustedLoopbackTlsUsesContractWireFormat()
 	{
+		using var testLog = new TestRunLog(nameof(ConnectAndSendFrameOverTrustedLoopbackTlsUsesContractWireFormat));
 		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates();
-		using var trustedRoot = certificates.TrustRoot();
 		var frameReceived = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var fixture = ReadFixture("stream-text.json");
 		var response = fixture.RootElement[0].GetRawText();
@@ -44,7 +45,7 @@ public sealed class ConnectionTests
 			await socket.SendAsync(Encoding.UTF8.GetBytes(response), WebSocketMessageType.Text, true, token);
 			await Task.Delay(Timeout.InfiniteTimeSpan, token);
 		});
-		await using var transportHandle = await CreateTransport(server, 0);
+		await using var transportHandle = await CreateTransport(server, certificates, 0);
 		var transport = transportHandle.Client;
 		try
 		{
@@ -72,14 +73,14 @@ public sealed class ConnectionTests
 	[InlineData(426, "PROTOCOL_MISMATCH", false)]
 	public async Task HandshakeFailuresAreNotRetried(int status, string errorCode, bool authenticationFailure)
 	{
+		using var testLog = new TestRunLog($"{nameof(HandshakeFailuresAreNotRetried)}({status}, {errorCode})");
 		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates();
-		using var trustedRoot = certificates.TrustRoot();
 		var responseBody = status == 426
 			? "{\"code\":\"PROTOCOL_MISMATCH\"}"
 			: FindErrorFixture(status, errorCode).GetRawText();
 		await using var server = await MockStreamServer.StartAsync(certificates.ServerCertificate, (_, _) => Task.CompletedTask, status, responseBody);
-		await using var transportHandle = await CreateTransport(server, retries: 4);
+		await using var transportHandle = await CreateTransport(server, certificates, retries: 4);
 		var transport = transportHandle.Client;
 	
 		if (authenticationFailure)
@@ -94,9 +95,9 @@ public sealed class ConnectionTests
 	[Fact]
 	public async Task DisconnectReconnectsOnceAndCancellationLeavesNoLiveSocket()
 	{
+		using var testLog = new TestRunLog(nameof(DisconnectReconnectsOnceAndCancellationLeavesNoLiveSocket));
 		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates();
-		using var trustedRoot = certificates.TrustRoot();
 		var secondConnection = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var stateReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var fixture = ReadFixture("stream-text.json");
@@ -114,7 +115,7 @@ public sealed class ConnectionTests
 			await socket.SendAsync(Encoding.UTF8.GetBytes(stateMessage), WebSocketMessageType.Text, true, token);
 			await Task.Delay(Timeout.InfiniteTimeSpan, token);
 		});
-		await using var transportHandle = await CreateTransport(server, retries: 2);
+		await using var transportHandle = await CreateTransport(server, certificates, retries: 2);
 		var transport = transportHandle.Client;
 		using var cancellation = new CancellationTokenSource();
 		using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, cancellation.Token);
@@ -139,9 +140,9 @@ public sealed class ConnectionTests
 	[Fact]
 	public async Task CancelledHandshakeIgnoresALaterServerResponse()
 	{
+		using var testLog = new TestRunLog(nameof(CancelledHandshakeIgnoresALaterServerResponse));
 		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates();
-		using var trustedRoot = certificates.TrustRoot();
 		var requestObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		await using var server = await MockStreamServer.StartAsync(certificates.ServerCertificate, (_, _) => Task.CompletedTask,
@@ -150,7 +151,7 @@ public sealed class ConnectionTests
 				requestObserved.TrySetResult();
 				await releaseResponse.Task.WaitAsync(token);
 			});
-		await using var transportHandle = await CreateTransport(server, retries: 3);
+		await using var transportHandle = await CreateTransport(server, certificates, retries: 3);
 		var transport = transportHandle.Client;
 		using var cancellation = new CancellationTokenSource();
 		var connectionStatusChanges = new List<TransportConnectionStatus>();
@@ -170,16 +171,16 @@ public sealed class ConnectionTests
 	[Fact]
 	public async Task ShutdownDuringReceiveStopsReconnectAndReleasesSocket()
 	{
+		using var testLog = new TestRunLog(nameof(ShutdownDuringReceiveStopsReconnectAndReleasesSocket));
 		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates();
-		using var trustedRoot = certificates.TrustRoot();
 		var accepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		await using var server = await MockStreamServer.StartAsync(certificates.ServerCertificate, async (_, token) =>
 		{
 			accepted.TrySetResult();
 			await Task.Delay(Timeout.InfiniteTimeSpan, token);
 		});
-		await using var transportHandle = await CreateTransport(server, retries: 3);
+		await using var transportHandle = await CreateTransport(server, certificates, retries: 3);
 		var transport = transportHandle.Client;
 		await transport.ConnectAsync(timeout.Token);
 		var receiveLoop = transport.RunReceiveLoopAsync(_ => Task.CompletedTask, timeout.Token);
@@ -198,11 +199,11 @@ public sealed class ConnectionTests
 	[InlineData(CertificateKind.UntrustedAuthority)]
 	public async Task InvalidServerCertificatesAreRejected(CertificateKind kind)
 	{
+		using var testLog = new TestRunLog($"{nameof(InvalidServerCertificatesAreRejected)}({kind})");
 		using var timeout = new CancellationTokenSource(IoTimeout);
 		using var certificates = new TestCertificates(kind);
-		using var trustedRoot = kind == CertificateKind.UntrustedAuthority ? null : certificates.TrustRoot();
 		await using var server = await MockStreamServer.StartAsync(certificates.ServerCertificate, (_, _) => Task.CompletedTask);
-		await using var transportHandle = await CreateTransport(server, retries: 3);
+		await using var transportHandle = await CreateTransport(server, certificates, retries: 3);
 		var transport = transportHandle.Client;
 
 		await Assert.ThrowsAsync<TransportSecurityException>(() => transport.ConnectAsync(timeout.Token));
@@ -210,12 +211,12 @@ public sealed class ConnectionTests
 		Assert.False(transport.IsConnected);
 	}
 
-	private static async Task<TransportHandle> CreateTransport(MockStreamServer server, int retries)
+	private static async Task<TransportHandle> CreateTransport(MockStreamServer server, TestCertificates certificates, int retries)
 	{
 		var credentialFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
 		var credentials = new ProtectedCredentialStore(credentialFile, new PlaintextTestProtector());
 		await credentials.SaveAsync(DeviceToken);
-		var client = new StreamTransportClient(new ConnectionSettings(server.BaseUri), credentials, new ClientWebSocketStreamFactory(),
+		var client = new StreamTransportClient(new ConnectionSettings(server.BaseUri), credentials, new ClientWebSocketStreamFactory(certificates.ValidateServerCertificate),
 			new ReconnectPolicy(retries, TimeSpan.Zero, TimeSpan.Zero), (_, _) => Task.CompletedTask);
 		return new TransportHandle(client, credentialFile);
 	}
@@ -244,6 +245,24 @@ public sealed class ConnectionTests
 	{
 		public byte[] Protect(ReadOnlySpan<byte> plaintext) => plaintext.ToArray();
 		public byte[] Unprotect(ReadOnlySpan<byte> protectedData) => protectedData.ToArray();
+	}
+
+	private sealed class TestRunLog : IDisposable
+	{
+		private readonly string name;
+
+		public TestRunLog(string name)
+		{
+			this.name = name;
+			Console.WriteLine($"[TEST START] {name}");
+			Console.Out.Flush();
+		}
+
+		public void Dispose()
+		{
+			Console.WriteLine($"[TEST END] {name}");
+			Console.Out.Flush();
+		}
 	}
 
 	private sealed class TransportHandle(StreamTransportClient client, string credentialFile) : IAsyncDisposable
@@ -291,29 +310,23 @@ public sealed class ConnectionTests
 
 		public X509Certificate2 ServerCertificate => server;
 
-		public IDisposable? TrustRoot()
+		public bool ValidateServerCertificate(string hostName, X509Certificate2? leaf, SslPolicyErrors errors)
 		{
-			if (!trustAuthority) return null;
-			using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
-			store.Open(OpenFlags.ReadWrite);
-			store.Add(authority);
-			return new StoreCertificateLease(authority.Thumbprint!);
+			var hasSubjectAlternativeName = leaf?.Extensions.Cast<X509Extension>().Any(extension => extension.Oid?.Value == "2.5.29.17") == true;
+			if (leaf is null || !hasSubjectAlternativeName || (errors & SslPolicyErrors.RemoteCertificateNotAvailable) != 0 || !leaf.MatchesHostname(hostName, allowWildcards: true, allowCommonName: false))
+				return false;
+
+			using var chain = new X509Chain();
+			chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+			chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+			chain.ChainPolicy.ApplicationPolicy.Add(new Oid("1.3.6.1.5.5.7.3.1"));
+			if (trustAuthority) chain.ChainPolicy.CustomTrustStore.Add(authority);
+			return chain.Build(leaf);
 		}
 
 		public void Dispose()
 		{
 			server.Dispose(); serverKey.Dispose(); authority.Dispose(); authorityKey.Dispose();
-		}
-
-		private sealed class StoreCertificateLease(string thumbprint) : IDisposable
-		{
-			public void Dispose()
-			{
-				using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
-				store.Open(OpenFlags.ReadWrite);
-				foreach (var certificate in store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, false))
-					store.Remove(certificate);
-			}
 		}
 	}
 
