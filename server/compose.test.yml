@@ -36,5 +36,5 @@ services:
       - -s
       - tests/integration
       - -p
-      - test_sessions.py
+      - "test_*.py"
       - -v

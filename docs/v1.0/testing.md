@@ -38,6 +38,8 @@ docker compose --profile integration -f server/compose.test.yml run --build --rm
 
 接続するたびにOpenSSLで一時CA・証明書・秘密鍵を生成し、テスト内で資格情報も生成します。期限切れ・SANなし・未信頼証明書、鍵不一致、不正/期限切れ/失効token、2台目開始、停止後の再開始、無通信WSS切断、HTTP 413、WSS 1009を検証します。通信期限を0.5秒に短縮して切断検知と所有権解放を測り、watchdogと登録処理taskの残留も確認します。HTTP応答は`contracts/schemas/`と`contracts/fixtures/errors.json`、WSS上限は`contracts/fixtures/binary-message-boundaries.json`に照合します。別資格情報のTLS実接続については、所有者以外のDELETEが403 `FORBIDDEN`、2台目POSTが409 `SESSION_IN_USE`となることをHTTP error fixture/schemaに照合し、別資格情報WSSから既存sessionのsession_id/generationを持つ有効frameを送った場合にclose 1008で拒否されることを確認します。各拒否の後もsession状態・owner_id・generationが不変で、所有者本人が停止できることを検証します。
 
+WSSクライアントは、`server/tests/integration/ws_client.py`の`SyncWebSocket`（`websockets.asyncio`を専用イベントループで動かす同期API）を使います。websocketsの同期クライアントは、1つのTLS接続を受信threadとメインthreadが同時に読み書きし、稀にHTTP Upgrade要求がTCPへ送出されず60秒のhandshakeタイムアウトになったためです（Issue #174、[作業記録](../../tasks/2026-10-31_issue-174_integration-flake.md)）。`open_timeout`の延長やリトライでは対処していません。
+
 再実行は上記コマンドをそのまま使います。実行記録には実行日、コマンド、`docker compose`/Python/OpenSSL版、`server/requirements-dev.txt`のhttpx・websockets・jsonschema版、テスト件数、成功/失敗を残します。実行時のOpenSSL版は`docker compose --profile integration -f server/compose.test.yml run --rm integration openssl version`で確認できます。
 
 `GET /api/v1/ready`はモデル準備状態の確認であり、session状態取得には使いません。session状態はWSS text state通知（`accepted` / `processing` / `ready` / `stopped`）で受け取り、各通知のsession_id・generation・dictionary_revisionを`contracts/schemas/stream-message.schema.json`で検証します。独立したsession状態取得・再選択APIはありません。再選択時はClientが送信停止・旧generation無効化・表示消去を先に行い、DELETEで旧sessionを解放後、新ROIで利用者が明示的にPOSTして新sessionを作ります。結合試験では現session IDの上下generation不一致frame拒否、現generation frameのsession検証通過、停止後のWSS close、所有権・taskの解放を確認します。Windows実機との通信、画面取得・表示、およびWindows/Linux間E2Eはこのコンテナ試験の対象外で、#108等で実施します。
@@ -62,7 +64,7 @@ docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -v "
 | 試験 | 結果 |
 | --- | --- |
 | server Compose unit | Python 3.14.7、125件成功、3件skip |
-| server integration profile | 9件成功 |
+| server integration profile | 13件成功（#174で同期クライアント包みの4件を追加） |
 | client Compose tests | Client 68件、Contracts 4件成功 |
 | app:ci 全体試験 | 309件成功、75件skip |
 | read-only mount server回帰 | 118件成功、3件skip |
@@ -78,7 +80,7 @@ read-only mount回帰でschemaの探索先が配置依存になっていたた�
 | 試験 | 実行環境・版 | 結果 |
 | --- | --- | --- |
 | server単体・契約 | Python 3.14.7 | 101件成功、3件skip |
-| TLS/接続境界integration | Python 3.14.7、OpenSSL 3.5.7、httpx 0.28.1、websockets 15.0.1、jsonschema 4.26.0 | 9件成功（Issue #165の所有権ケースを含む） |
+| TLS/接続境界integration | Python 3.14.7、OpenSSL 3.5.7、httpx 0.28.1、websockets 15.0.1、jsonschema 4.26.0 | 13件成功（Issue #165の所有権ケースと、#174の`SyncWebSocket`試験4件を含む） |
 | app:ci全体試験 | Python 3.14 | 308件成功、74件skip |
 | read-only mount server回帰 | Python 3.14.7 | 94件成功、3件skip |
 | mypy `server/src` | app:ci / mypy 1.18.2 | 19 source files、問題なし |

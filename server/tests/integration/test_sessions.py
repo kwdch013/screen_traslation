@@ -24,7 +24,6 @@ import zlib
 import httpx
 import jsonschema
 from websockets.exceptions import ConnectionClosed
-from websockets.sync.client import connect as websocket_connect
 
 from screen_translation_server.admin.credentials import CredentialManager
 from screen_translation_server.api.input_limits import HTTP_JSON_MAX_BYTES
@@ -39,6 +38,7 @@ from screen_translation_server.security.auth import (
 )
 from screen_translation_server.security.rate_limit import AuthAttemptLimiter
 from screen_translation_server.sessions import SessionManager
+from ws_client import SyncWebSocket as websocket_connect
 
 
 ROOT = Path(__file__).resolve().parents[2]
