@@ -16,7 +16,6 @@ COPY src/ ./src/
 COPY server/src/ ./server/src/
 COPY server/tests/ ./tests/
 COPY contracts/ ./contracts/
-RUN PYTHONPATH=/workspace/src python -c "from app.model_setup import install_argos_package; install_argos_package()"
 
 ENV PYTHONPATH=/workspace/server/src:/workspace/src
 

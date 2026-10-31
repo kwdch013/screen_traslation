@@ -20,3 +20,4 @@
 - `mypy src` / `mypy --platform win32 src` — 各79 source files、問題なし。
 - `ruff check --no-cache` — 全check成功。
 - Windows実機のTLS/実サーバー結合試験 — 未実施（Windows実機が必要、skip）。実サーバー接続は後続Task #90。
+- develop取り込みで競合解消
