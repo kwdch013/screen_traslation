@@ -19,12 +19,18 @@ _LOGGER = logging.getLogger(__name__)
 _Engines = tuple[object, object]
 
 DEFAULT_RETRY_INTERVAL_SECONDS = 5.0
+# 準備失敗のログは初回と、以後この回数ごとだけ出す(既定間隔なら約60秒に1回)。長期失敗でログを埋めない。
+FAILURE_LOG_EVERY_ATTEMPTS = 12
 # 契約(error.schema)のmessage上限。
 _MAX_REASON_LENGTH = 256
 _PREPARING_REASON = "モデルと翻訳エンジンを準備中です。しばらくしてから再試行してください。"
 _NOT_STARTED_REASON = "モデルと翻訳エンジンの準備を開始していません。"
 _STOPPING_REASON = "サーバーを停止しています。"
 _FAILED_REASON = "モデルと翻訳エンジンの準備に失敗しました。"
+
+
+class PipelineNotReady(Exception):
+	"""エンジンが準備済みでないため、pipelineを作れない・使えない。"""
 
 
 @dataclass(frozen=True)
@@ -67,9 +73,15 @@ class LifecycleReadiness:
 		self._run_blocking = run_blocking or asyncio.to_thread
 		self._task: asyncio.Task[None] | None = None
 		self._stopping = False
+		self._started = False
 		self._engines: tuple[object, object] | None = None
 		# 別スレッドの同期試験が「準備完了」を条件待ちできるようにする(固定sleepでの待機を避ける)。
 		self.ready_event = threading.Event()
+
+	@property
+	def started(self) -> bool:
+		"""準備ループを開始済みか。試験が「startされていない」ことを無限待ちでなくassertで検出するために公開する。"""
+		return self._started
 
 	@property
 	def engines(self) -> tuple[object, object] | None:
@@ -92,6 +104,7 @@ class LifecycleReadiness:
 	async def start(self) -> None:
 		"""準備ループを開始する。二重開始や停止後の再開始は行わない。"""
 		if self._task is None and not self._stopping:
+			self._started = True
 			self._task = asyncio.create_task(self._prepare_until_ready())
 
 	async def stop(self) -> None:
@@ -109,16 +122,21 @@ class LifecycleReadiness:
 			await asyncio.shield(self._task)
 
 	async def _prepare_until_ready(self) -> None:
+		attempts = 0
 		while True:
 			try:
 				self._engines = await self._run_blocking(self._prepare)
 			except asyncio.CancelledError:
 				raise
 			except Exception as error:
-				# 例外文には秘匿情報が混じり得るため、ログには型名だけを出す。
-				_LOGGER.warning("model_preparation_failed type=%s", type(error).__name__)
+				attempts += 1
+				if attempts == 1 or attempts % FAILURE_LOG_EVERY_ATTEMPTS == 0:
+					# 例外文には秘匿情報が混じり得るため、ログには型名と通算回数だけを出す。
+					_LOGGER.warning("model_preparation_failed type=%s attempts=%d", type(error).__name__, attempts)
 				await self._sleep(self._retry_interval)
 				continue
+			if attempts:
+				_LOGGER.info("model_preparation_recovered attempts=%d", attempts)
 			self.ready_event.set()
 			return
 

@@ -192,6 +192,7 @@ OCRの評価は[受入計画](acceptance.md)と同じ正規化・総編集距離
 - 多フレーム: 実OCRを`Event`で保留して後続3枚を待機枠へ入れ、置換された枚が実OCRに渡らず1枚目と最新(4枚目)だけが結果になることを確認します。同期は`Event`と破棄通知の`Condition`だけで、固定sleepは使いません。
 - 準備失敗→復旧: 未導入→`MODEL_NOT_READY`(503)、破損モデル→失敗理由に内容を含めず503のまま、正しいモデル配置後に実エンジンのロードとwarmupでreadyとなり、実画像の翻訳が通ることを確認します。
 - 製品起動経路のready反映(#194): `create_app(readiness=LifecycleReadiness(...))`で、準備中は`/api/v1/ready`・セッション開始が理由付き`MODEL_NOT_READY`(503)、`/api/v1/health`は200、準備完了で自動的に200/201、未導入・破損では理由(パス・内容を含まない)付き503のまま再試行で復旧、停止時は準備ループを取り消してreadyを落とすことを`server/tests/test_lifecycle_readiness.py`で確認します。待機は`threading.Event`・注入sleep・Queueで同期し、固定sleepを条件にしません。実エンジンでは`server/tests/integration/test_startup_ready.py`が、試験側のready補完なしに`LifecycleReadiness`だけで200になり翻訳できることを確認します。
+- readiness指定時のpipeline生成フォールバック禁止(#199): `server/tests/test_pipeline_not_ready.py`が、準備前・準備失敗中・停止開始後・供給元の矛盾(readyなのにエンジンなし)で`_ensure_pipeline`が`PipelineNotReady`となり、`create_default_pipeline`と`build_engines`が呼ばれないこと、WSSのフレームが`MODEL_NOT_READY`のエラーで拒否され処理中として通知されないこと、readyを失った後は既存pipelineも使わないこと、`readiness`未指定の互換経路は従来どおり既定構成を作ることを確認します。lifespanのstart/stopは呼び出し回数のassertで即座に検出し、`test_lifecycle_readiness.py`の待機は全てdeadline付きで、start未実行は無限待ちではなくassert失敗(「準備ループが開始されていない」)になります。準備失敗ログは初回と12回ごとに限られ、パス・内容を含まないことも同ファイルで確認します。
 - 負荷中の停止・再選択・切断: 実OCR保留中に停止/切断/再選択し、旧sessionの結果が配信されず、再選択後の新sessionに旧結果が混ざらないことを確認します。
 - 遅い購読者: 読み出さない購読者を足しても購読キューが上限(8)で止まり、古いイベントの破棄が数えられ、正常な接続は全結果を受け取ります。
 - 後始末: 各試験の終了時に、購読0、worker 0、待機画像0、保持結果0、stream 0、sessionなしを確認します。
