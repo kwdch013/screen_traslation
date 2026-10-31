@@ -7,12 +7,15 @@ namespace ScreenTranslation.Windows.Tests;
 /// <summary>
 /// クライアント領域の各画素が座標そのものを表す試験用ウィンドウ。
 /// Win32のPrintWindowで実際に画素を取得し、BGRA32のCapturedFrameへ変換する。
-/// WGC(Windows Graphics Capture)の画素読み出しは本番コードに未実装のため、ここでは対象外。
+/// pumpOnOwnThread=trueでは専用スレッドでメッセージループを回し、WGC(Windows Graphics Capture)が
+/// 合成した画面を取得できるよう実際に描画する。
 /// </summary>
 internal sealed class KnownPatternWindow : IDisposable
 {
 	private const uint WsPopup = 0x80000000;
 	private const uint WmPaint = 0x000F;
+	private const uint WmClose = 0x0010;
+	private const uint WmDestroy = 0x0002;
 	private const uint WmEraseBkgnd = 0x0014;
 	private const uint WmPrintClient = 0x0318;
 	private const uint PwClientOnly = 1;
@@ -24,19 +27,64 @@ internal sealed class KnownPatternWindow : IDisposable
 	private readonly int width;
 	private readonly int height;
 	private IntPtr handle;
+	private Thread? pumpThread;
 
-	public KnownPatternWindow(int width, int height)
+	public KnownPatternWindow(int width, int height, bool pumpOnOwnThread = false)
 	{
 		this.width = width;
 		this.height = height;
 		Register();
-		handle = CreateWindowEx(0x08000000 /* WS_EX_NOACTIVATE */, ClassName, "pattern", WsPopup, 0, 0, width, height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-		if (handle == IntPtr.Zero)
+		if (!pumpOnOwnThread)
+		{
+			handle = CreateAndShow();
+			return;
+		}
+
+		// ウィンドウは作成したスレッドでしかメッセージを処理できないため、作成とループを同じスレッドで行う
+		using var ready = new ManualResetEventSlim();
+		Exception? failure = null;
+		pumpThread = new Thread(() =>
+		{
+			try
+			{
+				handle = CreateAndShow();
+			}
+			catch (Exception error)
+			{
+				failure = error;
+			}
+			finally
+			{
+				ready.Set();
+			}
+			if (handle != IntPtr.Zero)
+			{
+				while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
+				{
+					TranslateMessage(ref message);
+					DispatchMessage(ref message);
+				}
+			}
+		}) { IsBackground = true };
+		pumpThread.SetApartmentState(ApartmentState.STA);
+		pumpThread.Start();
+		ready.Wait();
+		if (failure is not null)
+		{
+			throw new InvalidOperationException("試験用ウィンドウを作成できませんでした。", failure);
+		}
+	}
+
+	private IntPtr CreateAndShow()
+	{
+		var created = CreateWindowEx(0x08000000 /* WS_EX_NOACTIVATE */, ClassName, "pattern", WsPopup, 0, 0, width, height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+		if (created == IntPtr.Zero)
 		{
 			throw new InvalidOperationException("試験用ウィンドウを作成できませんでした。");
 		}
 		// 非表示ウィンドウはPrintWindowが空になりうるため、非アクティブで表示する(5 = SW_SHOWNA)
-		ShowWindow(handle, 5);
+		ShowWindow(created, 5);
+		return created;
 	}
 
 	public IntPtr Handle => handle;
@@ -45,11 +93,21 @@ internal sealed class KnownPatternWindow : IDisposable
 	/// <summary>ウィンドウを破棄する(取得対象の終了を再現)。</summary>
 	public void Close()
 	{
-		if (handle != IntPtr.Zero)
+		var window = handle;
+		if (window == IntPtr.Zero)
 		{
-			DestroyWindow(handle);
-			handle = IntPtr.Zero;
+			return;
 		}
+		handle = IntPtr.Zero;
+		if (pumpThread is null)
+		{
+			DestroyWindow(window);
+			return;
+		}
+		// 別スレッドのウィンドウは、そのスレッドへWM_CLOSEを送って破棄させる(WM_DESTROYでループを終える)
+		PostMessage(window, WmClose, IntPtr.Zero, IntPtr.Zero);
+		pumpThread.Join(TimeSpan.FromSeconds(10));
+		pumpThread = null;
 	}
 
 	public void Dispose() => Close();
@@ -115,6 +173,11 @@ internal sealed class KnownPatternWindow : IDisposable
 		{
 			return 1;
 		}
+		if (message == WmDestroy)
+		{
+			PostQuitMessage(0);
+			return IntPtr.Zero;
+		}
 		if (message == WmPrintClient || message == WmPaint)
 		{
 			var dc = wParam;
@@ -160,6 +223,12 @@ internal sealed class KnownPatternWindow : IDisposable
 
 	[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern ushort RegisterClassEx(ref WindowClass windowClass);
 	[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr CreateWindowEx(uint exStyle, string className, string title, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
+	[StructLayout(LayoutKind.Sequential)] private struct Message { public IntPtr Window; public uint Id; public IntPtr WParam, LParam; public uint Time; public int X, Y; }
+	[DllImport("user32.dll")] private static extern int GetMessage(out Message message, IntPtr window, uint min, uint max);
+	[DllImport("user32.dll")] private static extern bool TranslateMessage(ref Message message);
+	[DllImport("user32.dll")] private static extern IntPtr DispatchMessage(ref Message message);
+	[DllImport("user32.dll")] private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+	[DllImport("user32.dll")] private static extern void PostQuitMessage(int exitCode);
 	[DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr window);
 	[DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
 	[DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);

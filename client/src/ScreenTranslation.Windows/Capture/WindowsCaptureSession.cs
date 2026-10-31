@@ -7,13 +7,15 @@ using Windows.Graphics;
 
 namespace ScreenTranslation.Windows.Capture;
 
-internal sealed class WindowsCaptureSession(CaptureTarget target) : ICaptureSession
+internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrameSink? sink = null) : ICaptureSession
 {
 	private readonly object sync = new();
 	private GraphicsCaptureItem? item;
 	private Direct3D11CaptureFramePool? framePool;
 	private GraphicsCaptureSession? captureSession;
 	private IDisposable? targetWatcher;
+	private IDirect3DDevice? device;
+	private SizeInt32 poolSize;
 	private bool stopped;
 	private int invalidated;
 
@@ -30,22 +32,18 @@ internal sealed class WindowsCaptureSession(CaptureTarget target) : ICaptureSess
 		try
 		{
 			item = WindowsGraphicsCaptureInterop.CreateItem(target);
-			var device = Direct3DDeviceFactory.Create();
-			try
-			{
-				framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
-					device,
-					DirectXPixelFormat.B8G8R8A8UIntNormalized,
-					2,
-					item.Size);
-			}
-			finally
-			{
-				((IDisposable)device).Dispose();
-			}
+			device = Direct3DDeviceFactory.Create();
+			poolSize = item.Size;
+			framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
+				device,
+				DirectXPixelFormat.B8G8R8A8UIntNormalized,
+				2,
+				poolSize);
 			framePool.FrameArrived += OnFrameArrived;
 			item.Closed += OnItemClosed;
 			captureSession = framePool.CreateCaptureSession(item);
+			// 利用者のマウスカーソルを翻訳対象の画像へ含めない
+			captureSession.IsCursorCaptureEnabled = false;
 			captureSession.StartCapture();
 			targetWatcher = WindowsCaptureTargetWatcher.Start(target, Invalidate);
 		}
@@ -64,6 +62,8 @@ internal sealed class WindowsCaptureSession(CaptureTarget target) : ICaptureSess
 		{
 			stopped = true;
 		}
+		// 停止の時点でGPU面・ハンドルを解放する(開始停止の反復でリークさせない)
+		DisposeResources();
 		return ValueTask.CompletedTask;
 	}
 
@@ -82,14 +82,52 @@ internal sealed class WindowsCaptureSession(CaptureTarget target) : ICaptureSess
 		try
 		{
 			using var frame = sender.TryGetNextFrame();
+			if (frame is null || IsStopped())
+			{
+				return;
+			}
 			if (frame.ContentSize.Width <= 0 || frame.ContentSize.Height <= 0)
 			{
 				Invalidate(CaptureInvalidationReason.TargetUnavailable);
+				return;
 			}
+			RecreatePoolIfResized(sender, frame.ContentSize);
+
+			// ROIと世代は画素の読み出し前に採取する。ROI未選択ならGPU面を読み出さない
+			var route = sink?.TryBeginFrame();
+			if (route is null)
+			{
+				return;
+			}
+			var captured = WgcFrameReader.Read(frame);
+			sink!.Deliver(captured, route.Value);
 		}
 		catch
 		{
+			// 例外の内容(画素を含みうる)は伝播させず、取得不可として停止する。別方式へのフォールバックはしない
 			Invalidate(CaptureInvalidationReason.CaptureDenied);
+		}
+	}
+
+	private bool IsStopped()
+	{
+		lock (sync)
+		{
+			return stopped;
+		}
+	}
+
+	/// <summary>対象のサイズが変わったら、以降のフレームが新しいサイズで届くようプールを作り直す。</summary>
+	private void RecreatePoolIfResized(Direct3D11CaptureFramePool sender, SizeInt32 contentSize)
+	{
+		lock (sync)
+		{
+			if (stopped || device is null || (contentSize.Width == poolSize.Width && contentSize.Height == poolSize.Height))
+			{
+				return;
+			}
+			poolSize = contentSize;
+			sender.Recreate(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, contentSize);
 		}
 	}
 
@@ -109,22 +147,34 @@ internal sealed class WindowsCaptureSession(CaptureTarget target) : ICaptureSess
 
 	private void DisposeResources()
 	{
-		targetWatcher?.Dispose();
-		targetWatcher = null;
-		captureSession?.Dispose();
-		captureSession = null;
-		if (framePool is not null)
+		// StopAsyncとDisposeAsyncの両方から呼ばれても二重解放しないよう、保持分を取り出してからlock外で解放する
+		IDisposable? watcher;
+		GraphicsCaptureSession? session;
+		Direct3D11CaptureFramePool? pool;
+		GraphicsCaptureItem? captureItem;
+		IDirect3DDevice? d3dDevice;
+		lock (sync)
 		{
-			framePool.FrameArrived -= OnFrameArrived;
-			framePool.Dispose();
-			framePool = null;
+			(watcher, targetWatcher) = (targetWatcher, null);
+			(session, captureSession) = (captureSession, null);
+			(pool, framePool) = (framePool, null);
+			(captureItem, item) = (item, null);
+			(d3dDevice, device) = (device, null);
 		}
-		if (item is not null)
+
+		watcher?.Dispose();
+		session?.Dispose();
+		if (pool is not null)
 		{
-			item.Closed -= OnItemClosed;
-			Marshal.ReleaseComObject(item);
-			item = null;
+			pool.FrameArrived -= OnFrameArrived;
+			pool.Dispose();
 		}
+		if (captureItem is not null)
+		{
+			captureItem.Closed -= OnItemClosed;
+			Marshal.ReleaseComObject(captureItem);
+		}
+		(d3dDevice as IDisposable)?.Dispose();
 	}
 }
 
@@ -198,6 +248,11 @@ internal static class Direct3DDeviceFactory
 	public static IDirect3DDevice Create()
 	{
 		var result = D3D11CreateDevice(IntPtr.Zero, 1, IntPtr.Zero, 0x20, IntPtr.Zero, 0, 7, out var device, out _, out var context);
+		if (result < 0)
+		{
+			// GPUが無い環境ではソフトウェア描画(WARP)のD3Dデバイスを使う。これは画面取得方式の切替ではなく、取得はWGCのまま
+			result = D3D11CreateDevice(IntPtr.Zero, 5, IntPtr.Zero, 0x20, IntPtr.Zero, 0, 7, out device, out _, out context);
+		}
 		Marshal.ThrowExceptionForHR(result);
 		try
 		{
