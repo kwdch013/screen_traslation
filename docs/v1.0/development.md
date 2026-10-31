@@ -6,16 +6,22 @@ v1.0のソースは `client/`・`server/`・`contracts/` に分け、既存Web�
 
 | 領域 | 技術・配置 | 現在の検証範囲 |
 | --- | --- | --- |
-| Windowsクライアント | C# / .NET 10、基準SDK 10.0.402、WPF | CoreはLinuxコンテナでbuild/test。Windows UIを含むSolutionはWindows runnerでbuild/test |
+| Windowsクライアント | C# / .NET 10、基準SDK 10.0.402、WPF | Core・ClientのOS非依存通信試験はLinuxコンテナでbuild/test。Windows UIを含むSolutionはWindows runnerでbuild/test |
 | Linuxサーバー | Python 3.14、`server/src/`・`server/tests/` | 専用コンテナでunittest |
 | 共通契約 | `contracts/README.md`・`contracts/fixtures/` | Linux serverとclientの両fixture試験をCIで実行 |
 | 既存Web版 | `src/`・`frontend/` | 既存CI・利用手順を継続 |
 
-リポジトリルートから次を実行します。Client共通の設定保存・接続先検証テストもテストイメージのビルド時に実行し、compose commandで契約fixtureを実行します。
+リポジトリルートから次を実行します。Clientの設定・通信試験はイメージのビルド時に実行され、契約fixture試験はcompose commandで実行します。通信試験は `contracts/fixtures/compatibility.json`・`binary-message-boundaries.json`・`session-state-cases.json` を読み、フレーム受理/拒否、結果の採用、再接続をテスト用socketで確認します。
 
 ```bash
 docker compose -f client/compose.test.yml run --rm test
 docker compose -f server/compose.test.yml run --rm test
+```
+
+Client通信試験だけを再実行する場合:
+
+```bash
+docker compose -f client/compose.test.yml run --rm test dotnet test client/tests/ScreenTranslation.Client.Tests/ScreenTranslation.Client.Tests.csproj --configuration Release
 ```
 
 ### サーバーのモデル準備とreadiness
@@ -28,9 +34,10 @@ installerは同期処理で、実行中の強制中断やArgos側の部分導入
 
 アプリケーションの上限は2 CPU / 4 GiB、同時処理1件、待機画像は最新1件です（REQ-NF-005）。サーバーの実行コンテナにも同じCPU/メモリ制限を設定し、Composeテストサービスはその上限を使用します。導入済みモデルの検証・ロード・warmupが120秒を超える場合もreadyにはなりません。
 
-通常設定はユーザーのLocal Application Data配下のJSONに保存し、端末tokenは別ファイルへ分離してWindows DPAPI CurrentUserで保護します。Linux clientコンテナでは設定モデル・入力検証・保存境界を試験し、DPAPI試験はWindows runnerのみで実行します。LinuxではWindows実機が必要なDPAPI試験を未実施とし、合格へ数えません。Windows専用UI/APIの実機試験もLinux Core/Clientテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。
+`.NET SDK 10.0.402` とRuntime 10.0.14は設計基準のstable版です。`client/global.json` がSDKを固定し、テストイメージは同SDKタグにRuntime 10.0.14を加えます。通常設定はユーザーのLocal Application Data配下のJSONに保存し、端末tokenは別ファイルへ分離してWindows DPAPI CurrentUserで保護します。Linux clientコンテナでは設定モデル・入力検証・保存境界を試験し、DPAPI試験はWindows runnerのみで実行します。LinuxではWindows実機が必要なDPAPI試験を未実施とし、合格へ数えません。Windows専用UI/APIの実機試験もLinux Core/Clientテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。
 
 Windows固有の資格情報保護テストはWindows runnerまたは対応Windows実機で実行します。
+通信のTLS証明書拒否・実サーバー切断後の表示消去と再開始はWindows実機での結合確認が必要です。skip表示は未実施として扱い、合格に数えません（通信層の試験用doubleによるLinux確認はこの結合確認を代替しません）。
 
 ```powershell
 dotnet test tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release
@@ -138,6 +145,7 @@ requiredにするcontextは、[公式のrequired status checkの条件](https://
 | #73 セッション開始・停止・再選択・切断解放 | `server/src/screen_translation_server/sessions/`・`server/tests/test_session_lifecycle.py`・`contracts/session-state.md` | REQ-F-006 / REQ-F-010 / REQ-NF-004。単一所有、generation無効化、切断watchdog、処理taskのcancel/drainを単体・routeテストで確認。サーバーコンテナ結合は #74、Windows/Linux実機E2Eは #108 |
 | #77 OCR・翻訳コア共有 | `server/src/screen_translation_server/engines/`から`src/app`のOCR/翻訳実装を利用し、同一fixtureと旧Web回帰を検証 | コアは旧Web側を正本として段階抽出。Tesseract/Argosモデルを含むserverコンテナで実エンジンも確認 |
 | #81 モデル準備・readiness・資源上限 | `server/src/screen_translation_server/engines/lifecycle.py`（モデル準備・engine lifecycle）・`server/src/screen_translation_server/readiness.py`（readiness）・CPU/メモリ/処理枠の制限・`server/tests/test_engine_lifecycle.py`。REQ-F-004/011、REQ-NF-002/005 | lifecycle/readiness・上限動作を単体テスト済み。初回準備1800秒・導入済み起動120秒・資源上限の実測は #60/#109 等で実施し、実エンジンの性能実測と受入は未実施 |
+| #89 フレーム通信・再接続 | `client/src/ScreenTranslation.Client/Transport/` のWSS送受信・binary frame検証・結果採否・上限付き再接続。REQ-F-003、REQ-F-006、REQ-F-008、REQ-F-009、REQ-F-010、REQ-NF-001、REQ-NF-004、REQ-NF-006、REQ-NF-009 | 契約fixture・偽socketによる境界/状態/再接続試験を実施。切断後の表示消去・明示再開始と実サーバー接続はWindows実機/後続Task #90で確認 |
 | #118 有効化・GitHub実証 | default branch反映、検証PR、実在contextのrequired化、統合可否の再検証・証跡 | #67完了待ち。Phase #65の必須Taskとして追跡 |
 | #55 要件定義 / #57 基本・詳細設計 | [要件書](../../requirements/version_1/requirements.md) / [基本・詳細設計](design/architecture.md) / [ADR索引](design/adr/README.md) | 全22要件IDと採用方式・下流Issue反映表を管理。実機・製品試験は未実施 |
 

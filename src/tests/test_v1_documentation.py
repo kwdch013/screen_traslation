@@ -153,6 +153,24 @@ class V1DocumentationTest(unittest.TestCase):
 			with self.subTest(expected=expected):
 				self.assertIn(expected, guide)
 
+	def test_development_issue_traceability_ids_exist_and_issue_89_is_complete(self) -> None:
+		requirements = self.requirement_ids()
+		guide = self.read("docs/v1.0/development.md")
+		issue_rows = [line for line in guide.splitlines() if re.match(r"\| #\d+", line)]
+		listed_ids = {
+			f"{prefix}{number}"
+			for row in issue_rows
+			for prefix, numbers in re.findall(r"(REQ-(?:F|NF)-)(\d{3}(?:/\d{3})*)", row)
+			for number in numbers.split("/")
+		}
+		self.assertLessEqual(listed_ids, requirements, "対応表の要件IDは要件書に定義されている")
+
+		issue_89_rows = [row for row in issue_rows if row.startswith("| #89 ")]
+		self.assertEqual(len(issue_89_rows), 1, "#89の対応表行を1行記載する")
+		for requirement_id in ("REQ-F-008", "REQ-NF-009"):
+			with self.subTest(requirement=requirement_id):
+				self.assertIn(requirement_id, issue_89_rows[0])
+
 	def test_issue_73_traceability_records_requirements_deliverables_and_open_scope(self) -> None:
 		guide = self.read("docs/v1.0/development.md")
 		row = next(line for line in guide.splitlines() if line.startswith("| #73 "))

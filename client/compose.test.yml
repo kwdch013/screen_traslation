@@ -1,8 +1,8 @@
 services:
   test:
     build:
-      context: .
-      dockerfile: Dockerfile.test
+      context: ..
+      dockerfile: client/Dockerfile.test
     init: true
     network_mode: none
     volumes:
@@ -10,7 +10,7 @@ services:
     command:
       - dotnet
       - test
-      - tests/ScreenTranslation.Contracts.Tests/ScreenTranslation.Contracts.Tests.csproj
+      - client/tests/ScreenTranslation.Contracts.Tests/ScreenTranslation.Contracts.Tests.csproj
       - --configuration
       - Release
       - --filter
