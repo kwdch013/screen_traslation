@@ -11,7 +11,7 @@
 
 - 先に資格情報ライフサイクル試験を追加し、管理moduleが未実装の段階で失敗することを確認。
 - `docker compose -f server/compose.test.yml run --build --rm test`: 85件成功、3件skip。
-- `server/deploy/tls` 読取専用mount付き回帰: SANなし、SAN不一致、残存期間不足、未信頼CA、鍵不一致の拒否と正常系を一時証明書で確認。
+- `server/deploy/tls` 読取専用mount付き回帰: SANなし、SAN不一致、期限切れ、残存期間不足、未信頼CA、鍵不一致の拒否と正常系を一時証明書で確認。
 - SANなし・CN一致の回帰試験は修正前に成功してしまうことを確認し、DNS SAN必須化後に拒否されることを確認。
 - `docker build -t app:ci .` と指定unittest: 306件成功、72件skip。
 - mypy `src` / `--platform win32 src`、ruff: 成功。
