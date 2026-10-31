@@ -8,6 +8,8 @@
 - WindowsにPer-Monitor V2 manifest、物理モニター/DPIカタログ、モニター単位のドラッグ選択オーバーレイ、Esc取消、DPI通知時の選択中断を追加。
 - `ScreenTranslation.Windows.Tests`へ専用の新規テストファイルだけを追加。共有 `.csproj` は変更していない。
 - 開発対応表へIssue成果物・要件ID・未実施の実機確認範囲を追記。
+- PR #164 の変更要求に対応し、`GetDpiForMonitor`を除去。Microsoft Learnは同APIをper-monitor DPI-aware threadで使用しないよう明記し、デスクトップアプリには`GetDpiForWindow`を推奨しているため、各モニター矩形の中央にPMv2一時HWNDを作成してDPIを取得する注入可能な`IMonitorDpiProvider`を追加。
+- 選択sessionを純粋なClient状態機械へ分離。各overlayは物理配置完了前の`WM_DPICHANGED`を無視し、ユーザー選択開始後の`WM_DPICHANGED`/`WM_DISPLAYCHANGE`は`OperationCanceledException`で通知する。Escは従来どおり`null`結果。
 
 ## 設計・契約
 
@@ -25,6 +27,7 @@
 - 開発文書検査: `test_v1_documentation` / `test_web_documentation` 39件成功。development.md対応表の要件IDがrequirementsに定義されていることを含む。
 - `mypy src` と `mypy --platform win32 src`: 各79 source files成功。`ruff check --no-cache src scripts tests/ai_gate`: 成功。
 - Mutation: 丸めを一時的にToEvenへ変更したテストで正負の半端値2件が失敗することを確認し、コードを元に戻した。
+- Microsoft Learn API根拠: [GetDpiForMonitor](https://learn.microsoft.com/en-us/windows/win32/api/shellscalingapi/nf-shellscalingapi-getdpiformonitor) はPMv2呼び出しスレッドでは使わないよう明記し、[GetDpiForWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getdpiforwindow) はPM-aware windowに対し配置先モニターDPIを返す。デスクトップアプリでの推奨は[DPI and device-independent pixels](https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels)に記載。
 - 実機での混在DPI誤差2 px以下と実際のROI選択操作: **未実施(Windows実機が必要、後続 #136/#148系)**。
 
 ## 変更範囲
@@ -37,3 +40,13 @@
 - `client/tests/ScreenTranslation.Windows.Tests/WindowsMonitorCatalogTests.cs`
 - `docs/v1.0/development.md`
 - `tasks/2026-10-31_issue-93_roi-dpi.md`
+
+## PR #164 変更要求への対応と再確認
+
+- Microsoft Learn: [GetDpiForMonitor](https://learn.microsoft.com/en-us/windows/win32/api/shellscalingapi/nf-shellscalingapi-getdpiformonitor) はper-monitor DPI-aware threadで使用しないよう明記。[GetDpiForWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getdpiforwindow) はPM-aware windowの配置先モニターDPIを返し、[デスクトップアプリ向けDPI資料](https://learn.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels)もこのAPIを推奨するため採用。
+- `docker compose -p issue-93 -f client/compose.test.yml run --build --rm test`: Core 1件、Client 57件、Contracts 4件成功。Clientには初回配置/通知時の状態遷移、Escと無効化の区別、fake `IMonitorDpiProvider`を使った96/120/144/192 DPIの物理ROI確認を含む。
+- Mutation: 初回配置通知を無効化、Esc結果を無効化へ統合、表示DPI providerを96固定、の各変更で対象Clientテストが失敗。mutationは戻し、最終の同コマンドは57件成功。
+- `docker build -t app:ci .`後の通常回帰と`src/` read-only mount回帰: 各308件成功（74 skip）。mount付き`test_v1_documentation`/`test_web_documentation`: 39件成功、対応表の要件ID検査を含む。
+- `mypy src` / `mypy --platform win32 src`: 各79ファイル成功。`ruff check --no-cache src scripts tests/ai_gate`: 成功。
+- Linux SDK containerで`dotnet build ScreenTranslation.sln --configuration Release -p:EnableWindowsTargeting=true`: 0 error。既存`TransportPlatformTests.cs`のxUnit analyzer warning 1件。Windows.Testsの実行はWindows runtimeが必要なためWindows CIで確認する。
+- 混在DPI実機でのROI選択操作と物理誤差2 px以下の実測: **未実施（Windows実機が必要、#136/#148系）**。
