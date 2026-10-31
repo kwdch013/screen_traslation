@@ -21,13 +21,14 @@
 | --- | --- |
 | `docker compose -f client/compose.test.yml run --build --rm test` | Core 1、Client 70、loopback Integration 12、Contracts 4件成功 |
 | 同Compose試験をCPU負荷下で3回反復 | 全3回成功。Core 1 / Client 70 / Integration 12 / Contracts 4件ずつ |
-| `docker build -t app:ci . && docker run --rm -e PYTHONPATH=/app/src app:ci python -B -m unittest discover -s src/tests` | 308件成功、74件skip |
-| `docker compose -f server/compose.test.yml run --build --rm test` | 111件成功、3件skip |
-| server全試験 read-only mount回帰 (docs/v1.0/testing.md記載コマンド) | 1回目は既存のuvicorn WSS handshake timeoutで失敗。直ちに同じコマンドを再実行し104件成功、3件skip |
+| `docker build -t app:ci . && docker run --rm -e PYTHONPATH=/app/src app:ci python -B -m unittest discover -s src/tests` (origin/develop最新統合後) | 309件成功、75件skip |
+| `docker compose -f server/compose.test.yml run --build --rm test` (origin/develop最新統合後) | 112件成功、3件skip |
+| server全試験 read-only mount回帰 (docs/v1.0/testing.md記載コマンド) | 最新統合後105件成功、3件skip。先行実行は既存uvicorn WSS handshake timeoutで1回失敗したが、再実行と統合後の最終実行は成功 |
 | `docker run --rm -e PYTHONPATH=/app/src app:ci mypy src` | 79 source files、問題なし |
 | `docker run --rm -e PYTHONPATH=/app/src app:ci mypy --platform win32 src` | 79 source files、問題なし |
 | Ruff CI対象 (`ruff check --no-cache src scripts tests/ai_gate`) | 成功 |
 | Ruff server対象 (`ruff check --no-cache server/src server/tests`) | 成功 |
+| `docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src -v "$PWD:/workspace:ro" -w /workspace app:ci python -B -m unittest src.tests.test_v1_documentation` | 29件成功。#90の対応要件ID実在チェックを含む |
 
 ## Mutation確認
 
@@ -45,3 +46,4 @@
 - WPF画面の設定変更・終了時UI競合、実画面の見た目、混在DPI/複数モニターは未実施 (OwnerのWindows実機が必要)。`docs/v1.0/testing.md`に担当・手順・未実施結果を記載し、合格とは扱わない。
 - 混在DPI/負座標は#136系、キャプチャ除外/実画面取得は#135/#148系、Windows/Linux実サーバー間E2Eは#108等で検証する。
 - Windows hosted runnerの`windows-client`を含むCI結果はPR作成後に確認する。
+- `origin/develop`の最新commit `b231da4` (#165) を実装後にmergeし、最終回帰を再実行した。#165由来のサーバー変更と文書テストを含む全体が成功した。
