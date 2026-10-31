@@ -323,7 +323,8 @@ class ResultDeliveryTests(unittest.IsolatedAsyncioTestCase):
 
 	@staticmethod
 	def validate(message: dict[str, object]) -> None:
-		root = Path(__file__).resolve().parents[1]
+		root = next(parent for parent in Path(__file__).resolve().parents
+			if (parent / "contracts/schemas/stream-message.schema.json").is_file())
 		schema = json.loads((root / "contracts/schemas/stream-message.schema.json").read_text(encoding="utf-8"))
 		Draft202012Validator(schema, format_checker=FormatChecker()).validate(message)
 

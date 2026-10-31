@@ -102,6 +102,7 @@ class SessionManager:
 			session = self._active
 			if session is not None and session.active and session.owner_id == owner_id:
 				return session
+			return None
 
 	async def active_snapshot(self, session_id: str) -> Session | None:
 		"""session識別子と現在値を同じlock区間で取得する。"""

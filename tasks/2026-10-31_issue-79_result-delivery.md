@@ -62,8 +62,13 @@
 | --- | --- |
 | 破棄・送信timeout診断 | `session_id` を除去し、`correlation_id`・event type・件数を維持 |
 | ログ秘匿回帰 | `test_drop_and_timeout_logs_exclude_session_and_content` を追加。対象ファイル13件成功 |
-| session_id mutation | 2診断ログへ `session_id` を一時的に戻すと回帰test失敗。変更は復元し、回帰test成功を確認 |
+| session_id mutation | 2診断ログへ `session_id` を一時的に戻すと回帰test失敗。変更は復元し、回帰test13件成功を確認 |
 | ログ全件検索 | `observability.py`、`app.py`、`pipeline/`、`sessions/`、`events/`、`security/`、`admin/` のログ呼出箇所を確認。session IDや機微情報をログ/例外へ渡す他の箇所は見つからず |
-| 型検査指摘 | `active_for_owner()` に明示 `return None` を追加。全体検証結果は後段に記録 |
+| 型検査指摘 | `active_for_owner()` に明示 `return None` を追加。`mypy server/src` 22 files成功 |
+| server Compose unit / integration | 125件成功・3件skip / 9件成功 |
+| client Compose tests | Client 68件、Contracts 4件成功 |
+| app:ci全体試験 | 309件成功・75件skip |
+| read-only mount server回帰 | 118件成功・3件skip。初回はtest helperのschema探索先が `/workspace/server/contracts` に固定されていて失敗したため、親ディレクトリからschemaを探すよう変更し再実行成功 |
+| mypy / Ruff | `src` / `--platform win32 src` 各79 files成功、Ruff成功 |
 
-診断ログに`session_id`を出さない運用条件を `docs/v1.0/design/security.md` に追加しました。PR bodyの検証表は全体検証終了後に更新します。
+診断ログに`session_id`を出さない運用条件を `docs/v1.0/design/security.md` に追加しました。検証結果は `docs/v1.0/testing.md` にも記録しました。PR bodyはGitHub上のcheck結果を確認後に更新します。
