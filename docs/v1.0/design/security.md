@@ -68,7 +68,7 @@ THは本書の脅威ID、Qは[検証課題表](adr/README.md)のID。担当欄�
 
 `DELETE /api/v1/sessions/{session_id}` は、所有者履歴にある他端末のIDへ403、未知のIDへ404を返します。この区別で履歴内のIDかは分かりますが、session IDは明示開始ごとに新規発行するUUID v4（122ビットの乱数部）であり、有効なdevice tokenも必要なため、他端末のIDを推測して列挙することは現実的でないと判断し、OpenAPI/API-004の契約どおり応答を維持します。また、単一アクティブsession設計は別端末の開始時に409 `SESSION_IN_USE`を返す契約です。
 
-session IDを推測可能な形式へ変える場合、または複数のアクティブsessionを許す場合は、この前提を再評価し、403/404の応答統一を検討します。
+session IDを推測可能な形式へ変える場合、複数のアクティブsessionを許す場合、session IDが診断・ログ・エラー応答・WSS・heartbeat・状態通知・管理APIなどから所有者以外に開示される経路を追加する場合、またはdevice tokenの認証・発行・共有範囲や、有効なdevice tokenを持つ主体の範囲・端末間分離の前提を変える場合は、ID既知の問い合わせ可能性と403/404の応答統一を再評価します。統一する場合は、OpenAPI、[API-004](api.md#api-004-セッション停止)、error fixture、関連テストを合わせて更新します。
 
 Issue #72の入口では送信元ごとに60秒間の失敗を5回までとし、超過時は認証情報照合より前に同一の拒否本文と`Retry-After`を返す。認証処理は送信元あたり4件、全体32件、追跡送信元は最大1,024件に制限し、Uvicornの接続/要求同時数も128件に制限する。送信元はASGIの直接peer addressから取得し、`Forwarded`と`X-Forwarded-*`は参照しない。信頼proxyの導入はこのIssueの対象外とし、proxyを許可する場合はADRで信頼元と内部通信保護を別途定義する。
 
