@@ -59,9 +59,14 @@ public sealed class ResultAcceptanceTracker
 		}
 	}
 
-	public bool TryAccept(JsonElement result, long nowMonotonicNanoseconds, out JsonElement acceptedResult)
+	public bool TryAccept(JsonElement result, long nowMonotonicNanoseconds, out JsonElement acceptedResult) =>
+		TryAccept(result, nowMonotonicNanoseconds, out acceptedResult, out _);
+
+	/// <summary>採用したresultに対応する取得時刻(クライアント単調時計)も返す。表示期限の起点に使う。</summary>
+	public bool TryAccept(JsonElement result, long nowMonotonicNanoseconds, out JsonElement acceptedResult, out long capturedAtNanoseconds)
 	{
 		acceptedResult = default;
+		capturedAtNanoseconds = 0;
 		lock (sync)
 		{
 			if (sessionId is null || !TransportProtocol.IsValidTextMessage(result.GetRawText())) return false;
@@ -77,6 +82,7 @@ public sealed class ResultAcceptanceTracker
 			lastAppliedFrameId = frameId;
 			foreach (var expiredFrame in sentFrameCaptureTimes.Keys.Where(id => id <= frameId).ToArray()) sentFrameCaptureTimes.Remove(expiredFrame);
 			acceptedResult = result.Clone();
+			capturedAtNanoseconds = capturedAt;
 			return true;
 		}
 	}
