@@ -18,6 +18,24 @@ services:
       - -s
       - tests
       - -v
+  # 実エンジン結合試験用のArgosモデルを取得する。外向き通信が必要なため、通常試験とは別に実行する。
+  # 取得済み(サイズ・SHA-256検証済み)ならダウンロードを省略する。所要はdocs/v1.0/testing.mdを参照。
+  prepare-model:
+    profiles: [model]
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    init: true
+    cpus: 2
+    mem_limit: 4g
+    # プロジェクト専用ネットワークを作らず既定bridgeで外向き通信だけを行う
+    network_mode: bridge
+    environment:
+      XDG_DATA_HOME: /models/xdg-data
+      XDG_CACHE_HOME: /models/xdg-cache
+    volumes:
+      - argos-models:/models
+    command: [python, -B, tests/integration/prepare_model.py, /models]
   integration:
     profiles: [integration]
     build:
@@ -27,6 +45,12 @@ services:
     cpus: 2
     mem_limit: 4g
     network_mode: none
+    environment:
+      SCREEN_TRANSLATION_TEST_MODEL_DIR: /models
+      XDG_DATA_HOME: /models/xdg-data
+      XDG_CACHE_HOME: /models/xdg-cache
+    volumes:
+      - argos-models:/models:ro
     command:
       - python
       - -B
@@ -38,3 +62,6 @@ services:
       - -p
       - "test_*.py"
       - -v
+
+volumes:
+  argos-models:

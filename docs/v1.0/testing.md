@@ -70,6 +70,35 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 4. 画面取得から除外されたウィンドウ(WDA_EXCLUDEFROMCAPTURE)や保護コンテンツ(DRM動画等)を対象にして、別方式へ切り替わらず、取得できない/黒画像を送らない動作になるか確認し、結果を#135の記録へ追記する(黒画像の検出は現状未実装のため、結果によりTaskを追加する)。
 5. ウィンドウをリサイズしたとき、フレームが新しいサイズで届きROIの範囲外判定が再選択案内になることを確認する。
 
+## 翻訳オーバーレイと自己キャプチャ防止 (Issue #97)
+
+訳文は対象アプリとは別のトップレベルWPF窓に描きます。窓はフォーカスもクリックも受け取らず、`SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`の設定と読み戻しの一致を確認できた場合だけ描画します。確認できなければ描かず、`FailedClosed`で理由を通知し、`CanStream`がfalseのままになります(呼び出し側は画像送信を始めない)。
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| OS非依存の状態・変換 | `client/tests/ScreenTranslation.Client.Tests/Overlay*Tests.cs` | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 注入クロックで、取得から5秒ちょうどまで表示し超過で失効、より古い取得・旧generation・非アクティブ・未来の取得時刻の拒否、停止/再選択/対象消失/切断/除外失敗での同期消去と以後の遅延結果の拒否、空結果での消去、画像寸法がROIと異なる結果と画像外領域の破棄、負座標ROIでの物理座標復元、96/144/192 DPIでの窓ローカルDIP変換、除外失敗時の描画禁止、訳文本文を`ToString`へ出さないこと |
+| 実HWNDの検査 | `client/tests/ScreenTranslation.Windows.Tests/OverlayWindowsTests.cs` (`Category=Overlay`) | Windowsのみ(`windows-client` CI) | 拡張スタイル(NOACTIVATE/TRANSPARENT/TOOLWINDOW/LAYERED)、`WM_NCHITTEST`=HTTRANSPARENTと`WM_MOUSEACTIVATE`=MA_NOACTIVATE、表示してもフォアグラウンドにならないこと、除外設定失敗・読み戻し不一致では描画されないこと、実APIの結果が「除外を確認できて表示」または「失敗して非表示」のどちらかに一致すること |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=Overlay
+```
+
+`Category=Overlay`はWindows専用で、Linuxでのskipを合格として扱いません。この試験は実際のWGC/DXGI/GDIから窓が写らないことを検証しません(WDAの設定成功は各取得経路からの除外を保証しない。[調査](research/capture-exclusion.md))。
+
+### Owner実機手順 (オーバーレイ)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要。実測は #135 / #136)**。実施した場合は日付、Windows版、モニター構成、合否をIssueへ記録し、この欄を更新してください。
+
+1. 対象アプリ(テキスト入力できるウィンドウ)を前面にし、取得を開始して訳文を表示する。対象の入力欄でキー入力でき、キャレットとフォーカスが移らず、訳文の上をクリック/ドラッグしても対象が操作できる(クリックが透過する)ことを確認する。
+2. 表示中の訳文が、取得した画像(サーバーログの画像またはデバッグ保存画像)に写っていないことを、WGC・DXGI・GDIそれぞれで3回以上確認する。1回でも写った場合は「除外不成立」とし、送信が止まり理由が表示されることを確認する。
+3. 100% / 150% / 200%のモニターへ対象を移動し、訳文が対応する領域に重なること(四隅の物理px誤差2以下)と、文字の大きさ・折り返し・透明度・「位置不明」行の見た目が読めることを確認する。負座標のモニターでも確認する。
+4. 停止・再選択・対象ウィンドウを閉じる・サーバーを停止して切断、のそれぞれで訳文が1秒以内に消えること、取得から5秒たつと自然に消えること、停止後に遅れて届いた結果で再表示されないことを確認する。
+5. 除外を確認できない状態(別の取得ツールの常駐や古いOSなど)で開始した場合に、開始が止まり理由が通知されることを確認する。
+
 ## Pythonサーバーの単体試験
 
 リポジトリルートでPython 3.14の専用コンテナからサーバーの単体・契約試験を実行します。
@@ -93,6 +122,65 @@ WSSクライアントは、`server/tests/integration/ws_client.py`の`SyncWebSoc
 再実行は上記コマンドをそのまま使います。実行記録には実行日、コマンド、`docker compose`/Python/OpenSSL版、`server/requirements-dev.txt`のhttpx・websockets・jsonschema版、テスト件数、成功/失敗を残します。実行時のOpenSSL版は`docker compose --profile integration -f server/compose.test.yml run --rm integration openssl version`で確認できます。
 
 `GET /api/v1/ready`はモデル準備状態の確認であり、session状態取得には使いません。session状態はWSS text state通知（`accepted` / `processing` / `ready` / `stopped`）で受け取り、各通知のsession_id・generation・dictionary_revisionを`contracts/schemas/stream-message.schema.json`で検証します。独立したsession状態取得・再選択APIはありません。再選択時はClientが送信停止・旧generation無効化・表示消去を先に行い、DELETEで旧sessionを解放後、新ROIで利用者が明示的にPOSTして新sessionを作ります。結合試験では現session IDの上下generation不一致frame拒否、現generation frameのsession検証通過、停止後のWSS close、所有権・taskの解放を確認します。Windows実機との通信、画面取得・表示、およびWindows/Linux間E2Eはこのコンテナ試験の対象外で、#108等で実施します。
+
+## 実エンジンと画像処理・結果配信の結合試験 (Issue #80)
+
+実Tesseract・実Argos Translate・実TLS/WSSの本物のappをコンテナ内で組み合わせ、固定画像から訳文までを検証します。ファイルは`server/tests/integration/test_pipeline.py`(画像→訳文の契約・品質、位置不明、多フレーム)と`test_pipeline_resilience.py`(準備失敗→復旧、負荷中の停止/再選択/切断、遅い購読者、後始末)です。共通部品は`pipeline_case.py`・`pipeline_support.py`・`live_server.py`です。
+
+### 事前準備 (モデル)
+
+`integration`サービスは外向き通信を持たない(`network_mode: none`)ため、Argos英日モデルは事前に別サービスで名前付きボリューム`argos-models`へ導入します。
+
+```bash
+docker compose -f server/compose.test.yml --profile model run --build --rm prepare-model
+docker compose -f server/compose.test.yml --profile integration run --build --rm integration \
+	python -B -m unittest discover -s tests/integration -p "test_pipeline*.py" -v
+```
+
+`prepare-model`は`server/tests/fixtures/pipeline/model-manifest.json`の固定manifest(版1.1、120,470,284 bytes、SHA-256 `16300cc4...f716`)で取得・検証し、Argosへ導入して1度翻訳することでStanza資源も保存します。所要時間は、初回が約20秒(約115 MiBの取得を含む。開発機1台での実測で、回線条件は統制していない)、取得済みの再実行が約5秒です。ボリュームが残る限りキャッシュされ、ボリュームを削除しない限り再取得しません。モデル未準備のまま試験を実行した場合は**skipせず失敗**し、上記の準備コマンドを表示します。なおこのmanifestのライセンス欄は、利用・再配布条件を未確認のまま試験用に取得するという記録です(同梱・再配布しない)。製品の信頼済みdigestとライセンス確認は#81/#109側の課題です。
+
+CIの`server`ジョブは単体試験のみで、この実エンジン結合試験は含みません(約115 MiBの外部取得が必要なため)。ローカルと独立レビューで上記コマンドを実行し、結果を作業記録とPR本文に残します。
+
+### 固定画像
+
+`server/tests/fixtures/pipeline/`の画像はすべて`generate.py`が自前で描画しており、第三者の画像権利を含みません(文字はコンテナ同梱のDejaVu Sans)。`cases.json`が正解文・分類・SHA-256を持ち、試験が画像との一致を検査します。再生成は`generate.py`の先頭に記載のコマンドで行います。
+
+| 群 | 枚数 | 内容 | 期待 |
+| --- | ---: | --- | --- |
+| clear | 6 | 白地黒文字の英文(複数行1枚) | 総CER 5%以下、`status: ok`、訳文が日本語 |
+| complex | 4 | グラデーション・縞・ノイズ・市松の背景 | 契約に合い、信頼度0.45以上の領域だけを返す。CERは**測定のみ** |
+| empty | 2 | 白一色・黒一色 | `status: empty`、領域なし |
+| unreadable | 1 | 乱数ノイズ | `status: empty`、領域なし |
+
+OCRの評価は[受入計画](acceptance.md)と同じ正規化・総編集距離/正解文字数でCERを計算します。
+
+### 検証内容
+
+- 画像→訳文: 11枚を1sessionでWSS送信し、各結果が`stream-message.schema.json`に合い、`processing`→`ready`→`result`の順と同一`correlation_id`、session・generation・dictionary_revision・画像寸法の一致、領域が画像内であることを確認します。
+- 位置不明: 実OCRの文字はそのまま、位置だけを不明/画像外にして返す薄い包み(`UnpositionedOcr`)で、`rect: null`のまま訳文が配信されることを確認します。実Tesseractは常に位置を返すため、位置不明そのものの実エンジン再現はできていません。
+- 多フレーム: 実OCRを`Event`で保留して後続3枚を待機枠へ入れ、置換された枚が実OCRに渡らず1枚目と最新(4枚目)だけが結果になることを確認します。同期は`Event`と破棄通知の`Condition`だけで、固定sleepは使いません。
+- 準備失敗→復旧: 未導入→`MODEL_NOT_READY`(503)、破損モデル→失敗理由に内容を含めず503のまま、正しいモデル配置後に実エンジンのロードとwarmupでreadyとなり、実画像の翻訳が通ることを確認します。
+- 負荷中の停止・再選択・切断: 実OCR保留中に停止/切断/再選択し、旧sessionの結果が配信されず、再選択後の新sessionに旧結果が混ざらないことを確認します。
+- 遅い購読者: 読み出さない購読者を足しても購読キューが上限(8)で止まり、古いイベントの破棄が数えられ、正常な接続は全結果を受け取ります。
+- 後始末: 各試験の終了時に、購読0、worker 0、待機画像0、保持結果0、stream 0、sessionなしを確認します。
+- エンジン/モデル版: Tesseract、pytesseract、argostranslate、ctranslate2、stanza、pillow、モデルmanifest版、導入済みモデル版を試験出力(`engine_versions=`)と作業記録に残します。
+
+### 品質基準に対する結果と未達・未検証
+
+| 項目 | 結果 |
+| --- | --- |
+| 明瞭群CER 5%以下 | 6枚で0.0%。**ただし6枚の小標本**であり、ACC-13の200枚(各100枚)の判定ではない |
+| 複雑背景群CER 15%以下 | 4枚の自作画像で**56.2%(未達)**。2枚は無出力(信頼度不足)、1枚は誤認識を信頼度0.51で返し、1枚は誤りを含んで返した。正解付きの実標本200枚での判定とOCR前処理の改善は#109等で行う |
+| 翻訳品質(主旨・重大逆転・用語100%) | 画像経由の明瞭群で日本語訳が出ることのみ確認。固定100文の判定は未実施 |
+| 性能(p50/p95)・8時間・CPU/メモリ | 未実施(#109)。本試験はコンテナの2 CPU/4 GiB上限下で動作する確認のみ |
+| Windows描画を含むE2E | 未実施(#108等) |
+
+「読めない文字を成功扱いにしない」(REQ-NF-003)については、空・ノイズ画像を`empty`で返すこと、信頼度0.45未満の領域を返さないことは確認できました。一方、複雑背景で誤認識を中程度の信頼度のまま訳文にして返す事例があり、信頼度の下限だけでは防げていません。
+
+### 未解決事項 (製品側)
+
+- Argos Translateの文分割(Stanza)は、既定では翻訳初回に外部(GitHub等)から資源一覧を取得し、外向き通信がないと最初の翻訳が失敗します。本試験は、取得済み資源だけを使う設定(`download_method=reuse_resources`)を試験側でStanzaへ与えて外向き通信なしで実行しています。製品サーバーを外向き通信なしで運用する場合は、同じ設定を製品側へ入れるか、準備段階で資源を取得する必要があります(#81/#109/#173の検討事項)。翻訳対象の文章を外部へ送るものではありません。
+- 停止(DELETE)では待機中のframeに対する`pipeline.cancel`が呼ばれず、停止済みsessionの待機frameにも実OCRが走った後で破棄されます(停止試験で実OCR 2回を観測)。結果は配信されず後始末も完了しますが、無駄なOCRが1回走ります(#173のapp配線で扱う候補。本Taskでは未変更)。
 
 ## 変更後の回帰・静的検査
 
