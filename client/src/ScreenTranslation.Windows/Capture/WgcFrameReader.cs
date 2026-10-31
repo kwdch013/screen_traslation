@@ -1,13 +1,13 @@
 using ScreenTranslation.Client.Capture;
 using Windows.Graphics.Capture;
 using Windows.Graphics.Imaging;
-using Windows.Storage.Streams;
+using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace ScreenTranslation.Windows.Capture;
 
 /// <summary>
 /// WGCのフレーム(GPU面)をCPUへ読み出し、行詰めなしのBGRA32 <see cref="CapturedFrame"/> へ複製する。
-/// GPU面・SoftwareBitmap・読み出しバッファは呼び出しごとに必ず解放する。
+/// GPU面・SoftwareBitmapは呼び出しごとに必ず解放する(WinRTのBufferは作らない)。
 /// 失敗時は画素を含まない例外を投げる(呼び出し側は取得不可として停止する)。別方式へは切り替えない。
 /// </summary>
 internal static class WgcFrameReader
@@ -30,14 +30,10 @@ internal static class WgcFrameReader
 			plane = locked.GetPlaneDescription(0);
 		}
 
-		var capacity = (uint)(plane.StartIndex + (long)plane.Stride * plane.Height);
-		var buffer = new global::Windows.Storage.Streams.Buffer(capacity) { Length = capacity };
-		bitmap.CopyToBuffer(buffer);
-		var bytes = new byte[buffer.Length];
-		using (var reader = DataReader.FromBuffer(buffer))
-		{
-			reader.ReadBytes(bytes);
-		}
-		return BgraFrameConverter.ToCapturedFrame(bytes, plane.StartIndex, plane.Stride, width, height, timestampNanoseconds);
+		// 複製を減らすため、管理配列をそのままWinRTのIBufferとして包み、BitmapからCPUの配列へ直接書き込む
+		// (WinRTのBufferとDataReader経由の2回の複製を避ける)。配列は行詰めなしならそのままフレームの画素になる
+		var bytes = new byte[plane.StartIndex + (long)plane.Stride * plane.Height];
+		bitmap.CopyToBuffer(bytes.AsBuffer());
+		return BgraFrameConverter.ToCapturedFrameOwned(bytes, plane.StartIndex, plane.Stride, width, height, timestampNanoseconds);
 	}
 }

@@ -58,7 +58,7 @@ public sealed class StreamTransportClient(
 	IStreamSocketFactory socketFactory,
 	ReconnectPolicy reconnectPolicy,
 	Func<TimeSpan, CancellationToken, Task>? delay = null,
-	Func<long>? monotonicNanoseconds = null) : IFrameTransport
+	Func<long>? monotonicNanoseconds = null) : ScreenTranslation.Client.App.ITranslationTransport
 {
 	private readonly ResultAcceptanceTracker resultTracker = new();
 	private readonly Func<TimeSpan, CancellationToken, Task> delay = delay ?? Task.Delay;
