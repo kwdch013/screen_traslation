@@ -288,7 +288,7 @@ internal static class Direct3DDeviceFactory
 
 	[DllImport("d3d11.dll", PreserveSig = true)]
 	private static extern int D3D11CreateDevice(IntPtr adapter, int driverType, IntPtr software, uint flags, IntPtr featureLevels, uint featureLevelsCount, uint sdkVersion, out IntPtr device, out int featureLevel, out IntPtr immediateContext);
-	[DllImport("windows.graphics.directx.direct3d11.interop.dll", PreserveSig = true)]
+	[DllImport("d3d11.dll", PreserveSig = true)]
 	private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
 }
 
