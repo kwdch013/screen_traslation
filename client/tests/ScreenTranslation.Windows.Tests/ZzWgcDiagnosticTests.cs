@@ -37,8 +37,10 @@ public sealed class ZzWgcDiagnosticTests
 		{
 			try
 			{
-				var item = WindowsGraphicsCaptureInterop.CreateItem(new CaptureTarget($"hwnd:{handle.ToInt64():X}", CaptureTargetKind.Window, name, new CaptureBounds(0, 0, 10, 10), 96));
-				sb.AppendLine($"{name}: OK size={item.Size.Width}x{item.Size.Height}");
+				var session = new WindowsCaptureSessionFactory().CreateAsync(new CaptureTarget($"hwnd:{handle.ToInt64():X}", CaptureTargetKind.Window, name, new CaptureBounds(0, 0, 10, 10), 96)).AsTask().GetAwaiter().GetResult();
+				session.StartAsync().AsTask().GetAwaiter().GetResult();
+				sb.AppendLine($"{name}: OK");
+				session.DisposeAsync().AsTask().GetAwaiter().GetResult();
 			}
 			catch (Exception e)
 			{
