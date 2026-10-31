@@ -18,4 +18,11 @@
 
 ## 試験結果
 
-(下記に追記)
+- Linux: `docker compose -p t179 -f client/compose.test.yml run --build --rm test` Core 1 / Client 146(追加後は+2) / 結合 24 / Contracts 4 成功。文書整合45件、旧Web版 unittest 310件(skip 76)成功。
+- Windows CI(windows-client): 追加のWGC試験4件(画素一致、ROI未選択で読み出さない、25回反復のハンドル・停止後無配信、対象終了の無効化)を含め成功。hosted runnerでWGCが実際にフレームを届けることを確認。
+- CIで判明した既存不具合の修正: (1) WinRTオブジェクトをMarshal.GetObjectForIUnknownでキャストするとInvalidCastException -> MarshalInspectable.FromAbi、(2) CreateDirect3D11DeviceFromDXGIDeviceはd3d11.dllの取り込みが正しい、(3) WS_EX_NOACTIVATEのウィンドウはWGCがE_INVALIDARG。
+- 対象終了試験のタイムアウト原因: WinEventフックを、メッセージを処理しないスレッドで設定していたため(WGC Closedの不達ではない)。固定待ち時間の延長はせず、メッセージ処理スレッドで開始する構成に変更。
+
+## Mutation(BgraFrameConverter・CaptureFrameRouter)
+
+11変異中9件を検出。生存2件(不足検査の削除、startIndex負の許容)は例外型だけが変わる(Span.Sliceが別の例外を投げる)ため、ParamName検査の試験を追加して検出するようにした。

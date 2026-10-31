@@ -48,6 +48,7 @@ CaptureIntegrationはWindows専用で、Linuxでは対象プロジェクトが�
 - 読み出しは`WgcFrameReader`が`SoftwareBitmap.CreateCopyFromSurfaceAsync`でBGRA8へ複製し、`BgraFrameConverter`が行詰めを除いた`CapturedFrame`(stride=幅×4、内容サイズで切り出し)へ変換します。フレーム・GPU面・SoftwareBitmap・読み出しバッファはフレームごとに解放します。停止(`StopAsync`)と破棄(`DisposeAsync`)の両方でフレームプール・取得session・D3Dデバイス・取得対象を解放します(反復しても二重解放しない)。
 - 読み出しや受け渡しが失敗した場合は、例外の内容を捨てて`CaptureDenied`で無効化し取得を止めます。画像データはログにも例外メッセージにも出しません。取得除外・保護コンテンツなどでWGCが使えない場合に、`PrintWindow`や画面複製などの別方式へ無断でフォールバックしません。D3Dデバイスだけは、GPUが無い環境でソフトウェア描画(WARP)へ切り替えます(取得方式はWGCのまま)。
 - WGCは`WS_EX_NOACTIVATE`のウィンドウを取得対象にできません(CIで`E_INVALIDARG`を確認)。取得対象のWinRTオブジェクトは`MarshalInspectable.FromAbi`で変換します(COMのRCWへ直接キャストすると`InvalidCastException`)。
+- 対象終了などの無効化は`WindowsCaptureTargetWatcher`のWinEventフックで検出します。アウトオブコンテキストのフックは設定したスレッドがメッセージを処理しないとコールバックが届かないため、`StartAsync`はUIスレッド(メッセージループあり)から呼びます。CIの対象終了試験ではメッセージ処理スレッド(`PumpingThread`)で開始し、WGCのClosedイベントの到着には依存しません(最初の30秒タイムアウトの原因は、メッセージを処理しないスレッドで開始していたこと)。
 - マウスカーソルは翻訳対象の画像へ含めません(`IsCursorCaptureEnabled=false`)。対象のサイズが変わったらフレームプールを作り直し、以降のフレームは新しい内容サイズで届きます(ROIが範囲外になれば`Rejected`で再選択を案内)。
 - アプリ全体の配線(`CaptureFrameRouter`と`CaptureLifecycleController`の接続、取得fps上限に合わせた読み出しの間引き)は別Taskです。現状は`WindowsCaptureSessionFactory`の`ICapturedFrameSink`を指定した場合だけ画素を読み出します。
 
