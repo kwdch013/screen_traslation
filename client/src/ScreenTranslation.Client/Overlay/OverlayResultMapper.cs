@@ -26,9 +26,10 @@ public static class OverlayResultMapper
 				return false;
 			}
 
+			var source = item.TryGetProperty("source", out var sourceText) && sourceText.ValueKind == JsonValueKind.String ? sourceText.GetString() : null;
 			if (rect.ValueKind == JsonValueKind.Null)
 			{
-				mapped.Add(new OverlayRegion(null, text.GetString()!));
+				mapped.Add(new OverlayRegion(null, text.GetString()!, source));
 				continue;
 			}
 			if (!TryGetInt(rect, "left", out var left) || !TryGetInt(rect, "top", out var top)
@@ -41,7 +42,8 @@ public static class OverlayResultMapper
 			// 画像座標→物理座標はDPI倍率を使わずROI原点の加算だけ(contracts/coordinates.md)
 			mapped.Add(new OverlayRegion(
 				new Rect2D(checked(roi.Left + left), checked(roi.Top + top), checked(roi.Left + right), checked(roi.Top + bottom)),
-				text.GetString()!));
+				text.GetString()!,
+				source));
 		}
 
 		regions = mapped;

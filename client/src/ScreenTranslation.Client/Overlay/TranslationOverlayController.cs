@@ -27,6 +27,10 @@ public sealed class TranslationOverlayController : IDisposable
 
 	public bool CanStream => canStream;
 	public event Action<OverlayFailure>? FailedClosed;
+	/// <summary>
+	/// 採用して表示した結果(空の結果を含む)の領域。履歴の記録元。表示状態のロックの外で、世代つきで発火する。
+	/// </summary>
+	public event Action<ulong, IReadOnlyList<OverlayRegion>>? Presented;
 
 	/// <summary>オーバーレイを作り、キャプチャ除外を確認する。失敗時は理由を通知してfalse。</summary>
 	public bool Prepare()
@@ -62,7 +66,10 @@ public sealed class TranslationOverlayController : IDisposable
 			FailClosed(exclusion);
 			return false;
 		}
-		return state.Present(accepted.GetProperty("generation").GetUInt64(), capturedAt, regions);
+		var generation = accepted.GetProperty("generation").GetUInt64();
+		if (!state.Present(generation, capturedAt, regions)) return false;
+		Presented?.Invoke(generation, regions);
+		return true;
 	}
 
 	public void Invalidate(OverlayClearReason reason) => state.Clear(reason);

@@ -75,7 +75,7 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 
 ## アプリ構成の配線 (Issue #180)
 
-`TranslationSessionHost`(`client/src/ScreenTranslation.Client/App/`)が、`CaptureLifecycleController`・`CaptureFrameRouter`・`CaptureSendPipeline`(`FrameProcessor`/`FrameSender`)・WSS接続(`StreamTransportClient`、抽象は`ITranslationTransport`)・`TranslationOverlayController`を組み立て、UIから呼ぶ操作(`ConnectAsync`・`SelectTargetAsync`・`SelectRegion`・`StartAsync`・`StopAsync`)を提供します。Windowsでは`WindowsCaptureRuntime.CreateSessionHost`が実WGCの工場を渡して組み立てます。開始/停止ボタン・ホットキー・履歴・設定画面は#98/#99で、これらのAPIを呼びます。
+`TranslationSessionHost`(`client/src/ScreenTranslation.Client/App/`)が、`CaptureLifecycleController`・`CaptureFrameRouter`・`CaptureSendPipeline`(`FrameProcessor`/`FrameSender`)・WSS接続(`StreamTransportClient`、抽象は`ITranslationTransport`)・`TranslationOverlayController`を組み立て、UIから呼ぶ操作(`ConnectAsync`・`SelectTargetAsync`・`SelectRegion`・`StartAsync`・`StopAsync`)を提供します。Windowsでは`WindowsCaptureRuntime.CreateSessionHost`が実WGCの工場を渡して組み立てます。開始/停止ボタン・ホットキー・履歴は#98(下の「操作・ホットキー・字幕履歴」)で、翻訳設定・辞書の画面は#99で、これらのAPIを呼びます。
 
 | 項目 | 振る舞い |
 | --- | --- |
@@ -100,6 +100,50 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 1. 実サーバーへ接続し、ウィンドウまたはモニターとROIを選び、開始する(開始前にオーバーレイのキャプチャ除外が確認できないと開始されないこと)。
 2. 訳文が重畳され、取得から5秒たつと消えることを確認する。
 3. 再選択・停止・対象ウィンドウを閉じる・ネットワークを切断のそれぞれで、訳文が1秒以内に消え、旧領域の画像が送られないこと、切断後は自動で送信が再開されないことを確認する。
+
+## 操作・ホットキー・字幕履歴 (Issue #98)
+
+`OperationsViewModel`(`client/src/ScreenTranslation.Client/ViewModels/`)が、`TranslationSessionHost`(抽象は`ISessionOperations`)・session取得(`ISessionGrantProvider`)・領域選択(`IRegionSelector`)・ホットキー登録(`IHotkeyRegistrar`)・字幕履歴(`TranslationHistory`)をまとめ、接続/準備中/翻訳中/停止中/エラーの表示と操作の可否(`OperationSnapshot`)を状態契約([session-state.md](../../contracts/session-state.md))に合わせて返します。WPFの`OperationPanel`は描画と呼び出しだけを持ち、判断を持ちません。
+
+| 項目 | 振る舞い |
+| --- | --- |
+| 二重実行の抑止 | 接続・開始は処理中の再要求を無視する(開始のsession取得・取得開始は1回)。停止は開始中でも受け付けて開始を取り消し、停止中の再要求は同じ停止の完了を待つ。開始の完了と停止が交差してもホストを止め、動いたままにしない。UIスレッドは待たない |
+| 切断中の停止・再接続 | 切断を検知すると未接続へ移り、停止は何もしない。再接続しても自動では開始せず、利用者の明示操作を待つ。停止中・開始中の切断も最終状態は未接続になる |
+| 再選択 | 実行中・開始中ならいったん停止(送信と表示を止めsessionを解放)してから領域選択を開く。選択画面は翻訳しない。選び直した領域は新しいセッションの対象で、自動では再開しない。取り消し・DPI/画面構成変化による無効化・範囲外は理由を示し、元の領域と履歴を保つ |
+| 履歴 | 採用・表示した結果だけを最新順に最大100件(メモリのみ。永続ログへ保存しない)。停止・切断・対象消失後も閲覧でき、再選択・新セッション・終了で消す。消去後に遅れて届く旧世代の結果は世代で拒否する。直前と同じ行は重ねて記録せず、字幕が消えた(空の結果)後に同じ文が出れば記録する。位置不明(`rect: null`)の訳文も記録し「(位置不明)」と示す |
+| ホットキー | 設定で有効にしたときだけ登録する(既定は無効)。割り当ては「Ctrl+Alt+T」形式で、修飾キーなし・未対応のキー・重複は登録せず理由を示す。競合(他アプリが使用中)・OS拒否は理由とボタンでの代替操作を示し、他のキーの登録は続ける。設定を直して「ホットキーを再登録」で再実行できる。押下はボタンと同じ操作で、押し続けても連続通知しない(`MOD_NOREPEAT`) |
+| 移動追従・リサイズ (#198との整合) | 移動追従は世代が進むが停止せず、翻訳中のまま履歴も保つ(履歴の世代下限は再選択・新セッションでだけ上げる)。リサイズは停止して対象とROIを破棄し、選び直すまで開始させない。履歴は停止と同じく閲覧できる。同じ対象を選び直すと再選択として履歴を消す(`OperationTargetChangeTests`) |
+| 開始完了との交差 | 開始の完了処理では、停止要求・終了通知・切断の判定と「翻訳中」への遷移を同じ排他区間で行う。割り込まれても動いたまま・誤って翻訳中にならない。接続の完了前に切れた場合も接続済みにしない(`OperationInterleavingTests`) |
+| 終了 | ホットキーの解除→履歴の消去→ホストの解放(取得・通信・オーバーレイ)→sessionの解放。何度でも・同時に呼べ、終了後の操作・ホットキー・遅れて届く結果は何も起こさない |
+| 文言・ログ | 利用者向けは日本語で、画像・原文・訳文・session_id・例外本文を含めない。履歴の`ToString`も本文を出さない |
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 操作の状態契約 | `client/tests/ScreenTranslation.Client.Tests/OperationTests.cs`・`OperationReselectTests.cs`・`OperationDisposeTests.cs`(代替は`OperationFakes.cs`/`OperationFixture.cs`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 連打(20回の開始で1回だけ)、開始中・session取得中・取得開始中の停止、取消と完了の交差、停止中の再要求と開始、切断中・開始中・停止中の切断、停止失敗、各理由での停止、処理中の再選択・対象変更、取消/DPI無効化/範囲外、終了。ゲートで処理中の状態を作り、固定sleepを同期条件にしない |
+| 履歴 | `TranslationHistoryTests.cs`・`OperationHistoryTests.cs`・`OverlayPresentedTests.cs` | 同上 | 100件ちょうどと101件目、1結果が100件超、重複抑制と空結果後の再記録、世代による消去と遅延結果の拒否、停止・切断後の保持、新セッション・終了での消去、位置不明の保持、同時追加、本文を`ToString`へ出さないこと、不採用の結果は通知しないこと |
+| ホットキー | `HotkeyGestureTests.cs`・`OperationHotkeyTests.cs` | 同上 | 割り当ての解析/正規化、無効・競合・重複・OS拒否の説明、再登録、連打・停止中・未接続・例外、旧版の設定ファイルの読み込み |
+| 実Windows API | `client/tests/ScreenTranslation.Windows.Tests/OperationsWindowsTests.cs`(`Category=Operations`) | Windowsのみ(`windows-client` CI) | `RegisterHotKey`の登録・押下通知・解除、同じキーの二重登録が競合になること、解放後に再登録できること、例外を窓手続きから出さないこと、実レジストラ経由で競合の説明が出て終了後に登録が残らないこと |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=Operations
+```
+
+`Category=Operations`はWindows専用で、Linuxでのskipを合格として扱いません。この試験は実際のキー入力・他アプリとの実競合・画面の見た目を検証しません。
+
+### Owner実機手順 (操作・ホットキー・履歴)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、モニター構成、合否をIssueへ記録し、この欄を更新してください。session取得のHTTPSクライアントが実装されるまで、アプリの「開始」は理由を示して断ります(手順3以降は実装後)。
+
+1. 設定でホットキーを有効にして保存し接続する。「ホットキーを再登録」で状態欄に各キーの登録結果が出ることを確認する。他のアプリが使うキー(例: 常駐ツールの割り当て)を指定すると、競合の理由とボタンで操作できる旨が出て、もう一方のキーは使えることを確認する。
+2. キーボードだけで、設定欄→接続→対象の選択→領域の再選択→開始/停止ボタンまで操作でき、状態の文言が読み上げ/拡大表示で判別できることを確認する(見た目・フォーカス順)。
+3. 翻訳中に開始/停止のホットキーを連打し、状態が「翻訳中」「停止中」「待機中」のいずれかに収まり、停止から1秒以内に字幕が消え、旧領域の画像が送られないことを確認する。
+4. 翻訳中に領域の再選択(ボタンとホットキー)を行い、選択中は翻訳が止まり、選び直した後は自動で再開せず、履歴が消えていることを確認する。取り消した場合は履歴が残ることを確認する。
+5. 履歴が最新100件で、停止後も閲覧でき、101件目以降で古い順に消え、位置不明の訳文が「(位置不明)」付きで残ることを確認する。再選択・再度の開始・アプリ終了後(再起動して)に履歴が復元されないことを確認する。
+6. サーバーを停止して切断し、状態が「未接続」になり、停止ボタンが誤動作せず、再接続しても自動で翻訳が再開されないことを確認する。
 
 ## ウィンドウ移動・リサイズへの追従 (Issue #198)
 
