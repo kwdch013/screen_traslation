@@ -351,9 +351,12 @@ def create_app(
 				background_tasks.append(sender_task)
 			for task in background_tasks:
 				task.cancel()
-			await asyncio.gather(*background_tasks, return_exceptions=True)
+			# 購読解除は同期処理なので、最初のawaitより前に済ませる。anyioの取消(TestClientの終了や
+			# 親スコープの取消)はレベルトリガで、取消済みスコープ内の以後のawaitも全て中断される。
+			# awaitの後に置くと解除が飛ばされ、購読が残り続けてwait_until_emptyが戻らない(Issue #232)。
 			if subscription is not None:
 				app.state.events.unsubscribe(subscription)
+			await asyncio.gather(*background_tasks, return_exceptions=True)
 			if session is not None and app.state.streams.get(session.session_id) is websocket:
 				app.state.streams.pop(session.session_id, None)
 				if app.state.pipeline is not None:

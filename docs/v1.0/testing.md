@@ -414,6 +414,40 @@ OCRが時間予算で打ち切られたframeを、契約の`error` `code=OCR_TIM
 - (解消済み・#189) Argos Translateの文分割(Stanza)は既定で翻訳初回に外部(GitHub等)へ資源一覧を取りに行きますが、製品側で外部取得を止め、準備段階で資源を取得・検証する方式にしました([Stanza資源の準備と外向き通信なしの翻訳](#stanza資源の準備と外向き通信なしの翻訳-issue-189))。試験側の`reuse_resources`注入は削除しています。翻訳対象の文章を外部へ送るものではありませんでした。
 - (解消済み・#173) 停止(DELETE)で待機中frameへ`pipeline.cancel`が呼ばれず、停止済みsessionの待機frameにも実OCRが走っていた件は、DELETEで`cancel`を別taskとして呼び、待機frameの取り出し時にもsession・世代・revisionを再照合してOCR前に破棄することで解消しました(`server/tests/test_delivery_diagnostics.py`)。
 
+## stream取消時の購読解除と`wait_until_empty`の不定期失敗 (Issue #232)
+
+`test_stream_connects_pipeline_result_to_text_delivery`の購読解除待ち(`EventHub.wait_until_empty`、10秒のハング防止上限)がCIで不定期に`CancelledError`/`TimeoutError`になる件の調査と解消です。本番コードの順序の問題でした。
+
+### 事実
+
+- CIの失敗証跡: run 41244736366(serverジョブ 124665695773)で上記試験が`wait_until_empty`の待機中に10秒のtimeoutで失敗。試験に変更の無いPRで再実行すると成功する。別の失敗run 41242778554(serverジョブ 124659919611)は`test_real_uvicorn_...`のWSSハンドシェイクtimeoutで、#174/#203と同系統の別症状(本件の対象外)。#195/#210で報告された症状は、ログが残っていないため同一原因かは未確認。
+- 修正前、対象試験を同一プロセスで繰り返し実行(新規`TestClient`)した結果: 無負荷で1/20、1/100、CPU負荷下(コンテナ内でbusy loop 4本、CPU上限2)で8/100。失敗時は全て約10秒かかっていた(timeoutまで待った)。
+- Starlette 1.10.0の`TestClient`のWebSocket終了は、`close(1000)`(disconnect送出)の直後に、アプリ実行の取消スコープ(`cs.cancel`)を取り消す。streamハンドラがdisconnectを処理して`finally`に入るより先に取消が届く順序があり得る。
+- anyioの取消はレベルトリガで、取消済みスコープ内では以後の`await`も毎回中断される。修正前の`stream`の`finally`は、`await asyncio.gather(...)`の**後**に`unsubscribe`を呼んでいたため、取消が先に届くと`gather`で中断され、`unsubscribe`が実行されない。購読が残り、`_empty`が立たず`wait_until_empty`が戻らない。
+- この順序を決定的に作る試験(`server/tests/test_stream_cancellation.py`)は、修正前に`1 != 0`(購読が残る)で失敗し、修正後に成功する。
+
+### 推測(未検証)
+
+- 本番のuvicornでは、切断時にハンドラのtaskは取り消されないため、同じ経路で購読が残る可能性は低い。サーバー停止時の取消などで同種の順序になり得るが、本番での発生は確認していない。
+- `finally`の後半(`streams`の除去・`pipeline.cancel`・`sessions.disconnected`)も取消で飛ばされ得るが、今回は変更していない(sessionは既存の監視で解放される)。購読の解除だけを、最初の`await`より前の同期処理へ移した。
+
+### 修正
+
+`server/src/screen_translation_server/app.py`の`stream`の`finally`で、background taskの`cancel()`の直後、最初の`await`の前に`unsubscribe`を呼ぶ。待ち時間(10秒)・assertは変更せず、リトライ・limiterのリセットも使わない。
+
+### 修正前後の測定(同じ対象試験を同一プロセスで繰り返し)
+
+| 条件 | 回数 | 失敗 |
+| --- | --- | --- |
+| 修正前・無負荷 | 100(+別に20) | 1(+1) |
+| 修正前・CPU負荷(busy loop 4本、CPU上限2) | 100 | 8 |
+| 修正後・無負荷 | 200 | 0 |
+| 修正後・CPU負荷(同上) | 200 | 0 |
+
+### mutation確認
+
+`unsubscribe`を`await asyncio.gather(...)`の後へ戻すと、`test_stream_cancellation`が失敗します(`subscriber_count_total`が1のまま)。
+
 ## サーバー全体の設定更新・再起動結合試験 (Issue #85)
 
 R2(#76〜#84)の各Phaseをまたぎ、認証・準備確認・セッション・実エンジン翻訳・辞書/設定の更新と永続化・停止・再起動・再翻訳を、実TLS/WSSの本物のappで通します。ファイルは`server/tests/integration/test_server_scenario.py`(試験)と`scenario_support.py`(再起動・ログ捕捉・同期の部品)です。事前準備は#80と同じ(`prepare-model`済みのボリュームが必要。未準備なら**skipせず失敗**)。
