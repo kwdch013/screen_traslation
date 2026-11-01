@@ -1,6 +1,6 @@
 # 本番(runtime)とテスト(test)で依存の層を共有する。既定(最終ステージ)はtestのまま保ち、
 # 既存のcompose.test.ymlとCIの挙動を変えない。本番は target: runtime で選ぶ。
-FROM python:3.14-slim AS base
+FROM python:3.15-slim AS base
 
 WORKDIR /workspace
 
