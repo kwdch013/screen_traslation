@@ -98,6 +98,8 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 	public event Action<ulong, IReadOnlyList<OverlayRegion>>? TranslationsPresented;
 	/// <summary>result以外のサーバー通知(状態・エラー等)。</summary>
 	public event Action<JsonElement>? MessageReceived;
+	/// <summary>サーバーが文字認識の期限超過(OCR_TIMEOUT)を通知した(現在のsessionのものだけ)。</summary>
+	public event Action? OcrTimedOut;
 
 	/// <summary>WSSへ接続し、受信ループを始める。接続しただけでは画像を送らない。</summary>
 	public async Task ConnectAsync(CancellationToken cancellationToken = default)

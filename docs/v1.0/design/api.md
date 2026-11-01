@@ -152,6 +152,7 @@ JSON errorは`code`, 利用者向け`message`, UUID `correlation_id`, boolean `r
 | stale revision | 409 + ETag | GETし編集を再適用 |
 | image/message over limit | 413 / close 1009 | ROI再選択か画像設定を見直す。無断縮小しない |
 | invalid image/geometry | WSS `INVALID_IMAGE`, close 1008 | format, decoded dimensions, #63 coordinatesを確認 |
+| OCR timeout | WSS `error` `code=OCR_TIMEOUT`(該当frameのみ。streamは閉じない) | 利用者へ領域を狭めて選び直す案内を表示(10秒に1回まで)。次のframeは通常どおり処理 |
 | model not ready | 503 | readinessを表示し、準備後に明示再試行 |
 | processing fault | 500 / close 1011 | correlation_idで運用者が調査。内容をログに保存しない |
 

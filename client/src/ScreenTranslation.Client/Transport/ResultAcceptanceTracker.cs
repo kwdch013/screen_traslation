@@ -87,6 +87,32 @@ public sealed class ResultAcceptanceTracker
 		}
 	}
 
+	/// <summary>
+	/// フレーム単位の回復可能なerror(OCR_TIMEOUT)を採用する。resultと同じく、現在のsession・世代・辞書revisionと
+	/// 送信済みframeに一致し、取得から5秒以内のものだけ。同じframeのerrorは1回だけ採用する(重複通知を出さない)。
+	/// 採用してもresultの適用順(最後に適用したframe)は動かさない。
+	/// </summary>
+	public bool TryAcceptFrameError(JsonElement error, long nowMonotonicNanoseconds, out JsonElement acceptedError)
+	{
+		acceptedError = default;
+		lock (sync)
+		{
+			if (sessionId is null || !TransportProtocol.IsValidTextMessage(error.GetRawText())) return false;
+			if (error.GetProperty("type").GetString() != "error" || error.GetProperty("code").GetString() != "OCR_TIMEOUT") return false;
+			if (!Guid.TryParse(error.GetProperty("session_id").GetString(), out var errorSessionId) || errorSessionId != sessionId
+				|| error.GetProperty("generation").GetUInt64() != generation
+				|| error.GetProperty("dictionary_revision").GetUInt64() != dictionaryRevision) return false;
+
+			var frameId = error.GetProperty("frame_id").GetUInt64();
+			if (frameId <= lastAppliedFrameId || !sentFrameCaptureTimes.TryGetValue(frameId, out var capturedAt)) return false;
+			if (nowMonotonicNanoseconds < capturedAt || nowMonotonicNanoseconds - capturedAt > MaximumResultAgeNanoseconds) return false;
+
+			sentFrameCaptureTimes.Remove(frameId);
+			acceptedError = error.Clone();
+			return true;
+		}
+	}
+
 	public void InvalidateSession()
 	{
 		lock (sync)

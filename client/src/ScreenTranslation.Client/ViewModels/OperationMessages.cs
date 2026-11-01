@@ -35,6 +35,7 @@ internal static class OperationMessages
 	public const string RegionFailed = "領域を選択できませんでした。画面構成を確認してください。";
 	public const string TargetSelected = "対象を選択しました。続けて領域を選んでください。";
 	public const string TargetFailed = "対象を選択できませんでした。別の対象を選ぶか、もう一度試してください。";
+	public const string OcrTimeout = "文字認識に時間がかかりすぎました。領域を狭めて選び直してください。";
 	public const string Busy = "別の操作を処理中です。完了してからもう一度操作してください。";
 
 	public static string Start(StartResult result) => result switch

@@ -21,6 +21,7 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 	private readonly IRegionSelector selector;
 	private readonly IHotkeyRegistrar? hotkeys;
 	private readonly TranslationHistory history;
+	private readonly TimeProvider timeProvider;
 	private readonly CancellationTokenSource lifetime = new();
 	private readonly object sync = new();
 
@@ -48,7 +49,8 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 		this.grants = grants ?? throw new ArgumentNullException(nameof(grants));
 		this.selector = selector ?? throw new ArgumentNullException(nameof(selector));
 		this.hotkeys = hotkeys;
-		history = new TranslationHistory(timeProvider ?? TimeProvider.System);
+		this.timeProvider = timeProvider ?? TimeProvider.System;
+		history = new TranslationHistory(this.timeProvider);
 		connected = host.IsConnected;
 		phase = connected ? OperationPhase.Stopped : OperationPhase.Disconnected;
 		message = connected ? OperationMessages.Connected : string.Empty;
@@ -57,6 +59,7 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 		host.Faulted += OnFaulted;
 		host.OverlayFailed += OnOverlayFailed;
 		host.ConnectionLost += OnConnectionLost;
+		host.OcrTimedOut += OnOcrTimedOut;
 		host.TranslationsPresented += OnTranslationsPresented;
 		history.Changed += Publish;
 	}
@@ -536,6 +539,7 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 		lifetime.Cancel();
 		host.SessionEnded -= OnSessionEnded;
 		host.Faulted -= OnFaulted;
+		host.OcrTimedOut -= OnOcrTimedOut;
 		host.OverlayFailed -= OnOverlayFailed;
 		host.ConnectionLost -= OnConnectionLost;
 		host.TranslationsPresented -= OnTranslationsPresented;
