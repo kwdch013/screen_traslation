@@ -48,7 +48,11 @@ public sealed record OperationSnapshot(
 	bool CanStop,
 	bool CanReselect,
 	int HistoryCount,
-	IReadOnlyList<HotkeyNotice> Hotkeys);
+	IReadOnlyList<HotkeyNotice> Hotkeys)
+{
+	/// <summary>表示中の案内が「領域を狭めて選び直す」ことを求めている。画面は再選択ボタンを強調できる。</summary>
+	public bool ReselectSuggested => Message == OperationMessages.OcrTimeout;
+}
 
 /// <summary>操作要求の結果。無視(別の操作が処理中など)は<see cref="Ignored"/>。</summary>
 public enum OperationOutcome

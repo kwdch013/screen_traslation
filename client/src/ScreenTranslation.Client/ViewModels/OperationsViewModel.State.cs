@@ -169,6 +169,25 @@ public sealed partial class OperationsViewModel
 		Publish();
 	}
 
+	/// <summary>連続した打ち切りの通知を、この間隔につき1回へ抑える。</summary>
+	private static readonly TimeSpan OcrTimeoutNoticeInterval = TimeSpan.FromSeconds(10);
+	private DateTimeOffset? lastOcrTimeoutNotice;
+
+	private void OnOcrTimedOut()
+	{
+		lock (sync)
+		{
+			// 翻訳中だけ案内する(停止後に遅れて届いた通知で、停止の案内を上書きしない)
+			if (IsDisposed || phase != OperationPhase.Streaming) return;
+			var now = timeProvider.GetUtcNow();
+			if (lastOcrTimeoutNotice is { } last && now - last < OcrTimeoutNoticeInterval) return;
+			lastOcrTimeoutNotice = now;
+			// サーバーの文言は使わず、固定の案内にする。再選択はCanReselect(ボタン・ホットキー)で行える
+			SetMessage(OperationMessages.OcrTimeout, NoticeSeverity.Error);
+		}
+		Publish();
+	}
+
 	private void OnOverlayFailed(OverlayFailure failure)
 	{
 		lock (sync)

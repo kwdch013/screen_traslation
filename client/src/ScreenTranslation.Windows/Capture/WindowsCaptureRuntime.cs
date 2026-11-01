@@ -25,7 +25,8 @@ public sealed class WindowsCaptureRuntime : IAsyncDisposable
 	/// </summary>
 	public TranslationSessionHost CreateSessionHost(ITranslationTransport transport, IOverlaySurface overlaySurface, TranslationSessionOptions? options = null)
 	{
-		var host = new TranslationSessionHost(transport, sink => new WindowsCaptureSessionFactory(sink), overlaySurface, options);
+		var host = new TranslationSessionHost(transport, sink => new WindowsCaptureSessionFactory(sink), overlaySurface, options,
+			currentBounds: WindowsCaptureTargetCatalog.TryGetWindowBounds);
 		lock (hosts) hosts.Add(host);
 		return host;
 	}

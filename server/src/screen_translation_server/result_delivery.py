@@ -16,13 +16,13 @@ from screen_translation_server.pipeline import FrameInput, PipelineResult
 def build_result_callbacks(app: Starlette) -> tuple[Callable[[PipelineResult], None], Callable[[FrameInput], None]]:
 	"""結果・errorの配信関数を作る。どちらも配信直前にsession・世代・辞書revisionを再照合する。"""
 
-	def publish_error(frame: FrameInput) -> None:
+	def publish_error(frame: FrameInput, code: str = "PROCESSING_FAILED") -> None:
 		# errorも結果と同じ再照合を通し、旧世代・停止済みsessionの通知が購読者へ混入しないようにする。
 		if not app.state.sessions.is_frame_current(frame.session_id, frame.generation, frame.dictionary_revision):
 			app.state.observer.dropped("stale_frame_context", correlation_id=frame.correlation_id or str(uuid4()))
 			return
 		app.state.events.publish_error(
-			"PROCESSING_FAILED", frame.correlation_id, frame.session_id,
+			code, frame.correlation_id, frame.session_id,
 			frame.generation, frame.dictionary_revision, frame_id=frame.frame_id,
 		)
 

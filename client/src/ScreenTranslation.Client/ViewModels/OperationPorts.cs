@@ -19,6 +19,8 @@ public interface ISessionOperations : IAsyncDisposable
 	event Action<OverlayFailure>? OverlayFailed;
 	/// <summary>接続が切れた(送信中でなくても発火する)。再接続しても自動では送信を再開しない。</summary>
 	event Action? ConnectionLost;
+	/// <summary>文字認識が期限を超えて打ち切られた(現在のsessionのフレーム)。領域を狭めての再選択を案内する契機。</summary>
+	event Action? OcrTimedOut;
 	/// <summary>採用・表示した結果(世代と領域)。履歴の記録元。</summary>
 	event Action<ulong, IReadOnlyList<OverlayRegion>>? TranslationsPresented;
 

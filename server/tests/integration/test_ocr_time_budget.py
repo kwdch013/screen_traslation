@@ -150,7 +150,7 @@ class PipelineAfterTimeoutTests(PipelineCase):
 		case: dict[str, Any] = {"width": 1920, "height": 1080}
 		websocket.send(frame_message(session, 1, case, noise_png))
 		failure = read_until(websocket, lambda m: m["type"] == "error" and m.get("frame_id") == 1, overall_timeout=60)[-1]
-		self.assertEqual(failure["code"], "PROCESSING_FAILED")
+		self.assertEqual(failure["code"], "OCR_TIMEOUT")
 		clear = next(case for case in load_cases() if case["group"] == "clear")
 		websocket.send(frame_message(session, 2, clear))
 		result = read_until(websocket, is_result(2), overall_timeout=60)[-1]

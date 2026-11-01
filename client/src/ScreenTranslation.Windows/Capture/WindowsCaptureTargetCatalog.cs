@@ -75,6 +75,17 @@ public sealed class WindowsCaptureTargetCatalog : ICaptureTargetCatalog
 	private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
 	private delegate bool MonitorEnumCallback(IntPtr monitor, IntPtr deviceContext, IntPtr monitorRect, IntPtr parameter);
 
+	/// <summary>ウィンドウ対象の現在位置(ROI選択時の取り直し用)。ウィンドウが無くなっていればnull。</summary>
+	internal static CaptureBounds? TryGetWindowBounds(CaptureTarget target)
+	{
+		if (target.Kind != CaptureTargetKind.Window || !target.Id.StartsWith("hwnd:", StringComparison.Ordinal)) return null;
+		if (!long.TryParse(target.Id["hwnd:".Length..], System.Globalization.NumberStyles.HexNumber, null, out var handle)) return null;
+		var window = new IntPtr(handle);
+		return IsWindowVisible(window) && !IsIconic(window) && GetWindowRect(window, out var rect)
+			? new CaptureBounds(rect.Left, rect.Top, rect.Right, rect.Bottom)
+			: null;
+	}
+
 	[StructLayout(LayoutKind.Sequential)]
 	private struct NativeRect
 	{

@@ -110,14 +110,14 @@ HTTPSの4xx/5xx本文は[`error.schema.json`](schemas/error.schema.json)の次�
 | 503 | `MODEL_NOT_READY` | readyを再確認し、明示操作で再試行 | true |
 | 500 | `INTERNAL_ERROR` | correlation_idを添えて運用者へ報告 | false |
 
-WSSではUpgrade前は同じJSONエラーをHTTP応答として返し、Upgrade後はRFC 6455 closeを使います。1008は認証/所有権/契約違反、1009は上限超過、1011は内部処理障害です。Close reasonにはtoken・入力値・tracebackを載せず、UTF-8で123 bytes以下にします。Reasonは`AUTHENTICATION_FAILED`, `SESSION_MISMATCH`, `PROTOCOL_VIOLATION`, `MESSAGE_TOO_LARGE`, `PROCESSING_FAILED`に限定します。Upgrade後のserver-to-client textは[`stream-message.schema.json`](schemas/stream-message.schema.json)で検証し、`state`, `heartbeat`, `result`, `error`の各messageにUUID `correlation_id`とsession/generation/frame/revisionを持たせます。frame未割当のstate/heartbeatは`frame_id: null`、frame起因のresult/errorは実frame IDを使います。`error`は`code`を含み、入力本文・例外詳細を返しません。位置を特定できないregionは`rect: null`、文字なしは`status: empty`と空の`regions`で表し、互いに読み替えません。購読者ごとのqueueは最大8件、送信期限は1秒です。上限超過時は最古イベントを破棄し、送信期限超過時は購読を閉じます。破棄/timeout診断には本文を含めません。
+WSSではUpgrade前は同じJSONエラーをHTTP応答として返し、Upgrade後はRFC 6455 closeを使います。1008は認証/所有権/契約違反、1009は上限超過、1011は内部処理障害です。Close reasonにはtoken・入力値・tracebackを載せず、UTF-8で123 bytes以下にします。Reasonは`AUTHENTICATION_FAILED`, `SESSION_MISMATCH`, `PROTOCOL_VIOLATION`, `MESSAGE_TOO_LARGE`, `PROCESSING_FAILED`に限定します。Upgrade後のserver-to-client textは[`stream-message.schema.json`](schemas/stream-message.schema.json)で検証し、`state`, `heartbeat`, `result`, `error`の各messageにUUID `correlation_id`とsession/generation/frame/revisionを持たせます。frame未割当のstate/heartbeatは`frame_id: null`、frame起因のresult/errorは実frame IDを使います。`error`は`code`を含み、入力本文・例外詳細を返しません。`code`は`PROCESSING_FAILED`に加え、OCRが時間予算で打ち切られたframeだけ`OCR_TIMEOUT`を使います(#223)。`OCR_TIMEOUT`はframe単位の通知でstreamを閉じず、`message`などの追加fieldを持ちません。clientは自分が送信済みで現在のsession・generation・revision・失効期限(5秒)内のframeに対するものだけを採用し、同じframeの重複は1回だけ扱います。位置を特定できないregionは`rect: null`、文字なしは`status: empty`と空の`regions`で表し、互いに読み替えません。購読者ごとのqueueは最大8件、送信期限は1秒です。上限超過時は最古イベントを破棄し、送信期限超過時は購読を閉じます。破棄/timeout診断には本文を含めません。
 
 このIssueでは`stream-message`の必須fieldを追加し、`heartbeat` message型を導入します。必須fieldの追加はwire上の破壊的変更です。v1.0は未リリースのため、この変更を含むclient/serverを同時更新してからv1.0として提供します。既に公開済みのv1 client/serverを個別更新する用途には使いません。旧clientは未知の`heartbeat`型を拒否しstreamを閉じるため、新serverとの組み合わせをサポートしません。
 
 ## 互換性と版管理
 
 - REST prefixとWSS subprotocolの`v1` / `screen-translation.v1`はこの契約majorを示します。binary magic `STF1`の末尾`1`とmetadataの`contract_version: 1`も同じmajorです。
-- v1内の任意field追加は`additionalProperties: false`により互換ではありません。新しい必須field、型/意味変更、上限緩和でなく変更、message layout変更、error code/status変更は破壊的変更です。v1.0未リリース中はclient/serverを同時更新する前提で反映できます。リリース後の破壊的変更は`/api/v2`、新subprotocol・magicへ切り替え、両端の対応版を確認します。
+- v1内の任意field追加は`additionalProperties: false`により互換ではありません。新しい必須field、型/意味変更、上限緩和でなく変更、message layout変更、error code/status変更は破壊的変更です。v1.0未リリース中はclient/serverを同時更新する前提で反映できます。#223の`OCR_TIMEOUT`追加はこの例で、旧clientは未知のcodeでstreamを閉じるため新serverと混在させず、majorは1のままです。リリース後の破壊的変更は`/api/v2`、新subprotocol・magicへ切り替え、両端の対応版を確認します。
 - minor/patch番号を独立したruntime negotiationに使いません。両端がmajor 1を実装することを接続要件とし、未知version/magicは拒否します。
 - #63は座標/世代/session状態と意味検証の正本、#62はHTTP/WSS API形状・メタデータschema・サイズ/文字上限・共通エラーの正本、#64は両言語fixture/互換検証の正本です。#63の成果物はコピーせず相対リンクで参照します。
 

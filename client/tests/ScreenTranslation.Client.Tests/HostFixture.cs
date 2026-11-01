@@ -108,6 +108,8 @@ internal sealed class HostFixture : IAsyncDisposable
 	public readonly FakeTransport Transport = new();
 	public readonly FakeOverlaySurface Surface = new();
 	public readonly ManualTicker Ticker = new();
+	/// <summary>設定すると、ROI選択時に取り直す対象の最新位置の供給元になる。未設定なら選択時の位置を返す。</summary>
+	public Func<CaptureTarget, CaptureBounds?>? CurrentBounds;
 	public FakeCaptureSessionFactory Factory = null!;
 	public readonly TranslationSessionHost Host;
 	public readonly List<OverlayClearReason> Ended = [];
@@ -123,7 +125,8 @@ internal sealed class HostFixture : IAsyncDisposable
 			monotonicNanoseconds: () => Interlocked.Read(ref Now),
 			// 送信間隔の待機は実時間を使わず、注入時計を進めるだけにする
 			sendDelay: (wait, _) => { Interlocked.Add(ref Now, wait.Ticks * 100); return Task.CompletedTask; },
-			tickDelay: Ticker.Delay);
+			tickDelay: Ticker.Delay,
+			currentBounds: target => CurrentBounds is null ? target.Bounds : CurrentBounds(target));
 		Host.SessionEnded += Ended.Add;
 		Host.Faulted += Faults.Add;
 	}

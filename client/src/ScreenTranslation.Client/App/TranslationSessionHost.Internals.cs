@@ -59,6 +59,7 @@ public sealed partial class TranslationSessionHost
 		var resized = false;
 		lock (sync)
 		{
+			// 停止処理中(activeを落とした後、取得セッションの購読解除より前)にも通知は届く。ここで経路を開き直さない
 			if (!active || target is not { Kind: CaptureTargetKind.Window } || physicalRoi is not { } roi || moved == windowBounds) return;
 			if (moved.Width != windowBounds.Width || moved.Height != windowBounds.Height)
 			{
@@ -178,7 +179,9 @@ public sealed partial class TranslationSessionHost
 
 	private Task OnMessageAsync(JsonElement message)
 	{
-		if (message.TryGetProperty("type", out var type) && type.GetString() == "result") overlay.HandleResult(message);
+		var kind = message.TryGetProperty("type", out var type) ? type.GetString() : null;
+		if (kind == "result") overlay.HandleResult(message);
+		else if (kind == "error" && message.TryGetProperty("code", out var code) && code.GetString() == "OCR_TIMEOUT") OcrTimedOut?.Invoke();
 		else MessageReceived?.Invoke(message);
 		return Task.CompletedTask;
 	}
