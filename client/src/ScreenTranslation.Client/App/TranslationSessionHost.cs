@@ -23,6 +23,7 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 	private readonly ResultAcceptanceTracker overlayTracker = new();
 	private readonly Func<long> clock;
 	private readonly Func<TimeSpan, CancellationToken, Task> tickDelay;
+	private readonly Func<CaptureTarget, CaptureBounds?>? currentBounds;
 	private readonly CancellationTokenSource lifetime = new();
 	private readonly object sync = new();
 	private CaptureTarget? target;
@@ -46,6 +47,7 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 	/// <param name="createSessionFactory">取得フレームの渡し先を受け取り、取得セッションの工場を返す(Windowsでは実WGC)。</param>
 	/// <param name="sendDelay">送信fps上限の待機。試験では実時間を使わない代替を渡す。</param>
 	/// <param name="tickDelay">表示の失効確認の待機。試験では実時間を使わない代替を渡す。</param>
+	/// <param name="currentBounds">ウィンドウ対象の現在位置の供給元(ROI選択時に取り直す)。対象が消えたらnull。未指定なら選択時・追従済みの位置を使う。</param>
 	public TranslationSessionHost(
 		ITranslationTransport transport,
 		Func<ICapturedFrameSink, ICaptureSessionFactory> createSessionFactory,
@@ -54,8 +56,10 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 		IFrameEncoder? encoder = null,
 		Func<long>? monotonicNanoseconds = null,
 		Func<TimeSpan, CancellationToken, Task>? sendDelay = null,
-		Func<TimeSpan, CancellationToken, Task>? tickDelay = null)
+		Func<TimeSpan, CancellationToken, Task>? tickDelay = null,
+		Func<CaptureTarget, CaptureBounds?>? currentBounds = null)
 	{
+		this.currentBounds = currentBounds;
 		this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
 		ArgumentNullException.ThrowIfNull(createSessionFactory);
 		ArgumentNullException.ThrowIfNull(overlaySurface);
@@ -131,13 +135,49 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 
 	/// <summary>
 	/// 仮想デスクトップ物理座標のROIを選択する。取得対象の範囲外ならfalse。
+	/// ウィンドウ対象では、対象選択後に動いていても正しく変換できるよう、最新の位置を取り直してから変換する
+	/// (取り直せない=対象が消えた場合はfalse。古い位置で変換しない)。
 	/// 実行中なら世代を進め、旧ROIの待機画像・通信中の送信・表示を破棄してから新ROIへ切り替える。
 	/// </summary>
 	public bool SelectRegion(Rect2D physical)
 	{
+		CaptureTarget? selected;
+		lock (sync) selected = target;
+		if (selected is null) return false;
+		CaptureBounds? latest = null;
+		if (selected.Kind == CaptureTargetKind.Window && currentBounds is not null)
+		{
+			// 外部の問い合わせはロックの外で行う
+			try
+			{
+				latest = currentBounds(selected);
+			}
+			catch (Exception)
+			{
+			}
+			if (latest is null)
+			{
+				// 位置を確かめられないROIは受け付けない。停止中なら古い位置で選んだROIも使わせない
+				lock (sync)
+				{
+					if (target == selected && !active) physicalRoi = null;
+				}
+				return false;
+			}
+		}
 		lock (sync)
 		{
-			if (target is null || !TryToLocal(physical, windowBounds, out var local)) return false;
+			// 問い合わせ中に対象が変わっていたら、新しい対象のROIとして扱わない
+			if (target != selected) return false;
+			var bounds = windowBounds;
+			if (latest is { } fresh)
+			{
+				// 実行中の大きさの変化は、移動通知側の停止に任せる(ROIの意味が変わるため切り替えない)
+				if (active && (fresh.Width != windowBounds.Width || fresh.Height != windowBounds.Height)) return false;
+				bounds = fresh;
+			}
+			if (!TryToLocal(physical, bounds, out var local)) return false;
+			windowBounds = bounds;
 			physicalRoi = physical;
 			if (!active) return true;
 			if (SwitchRegionLocked(physical, local, OverlayClearReason.Reselected)) return true;
