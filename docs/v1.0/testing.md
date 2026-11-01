@@ -29,7 +29,7 @@ WPF画面での設定変更中の接続取消、ウィンドウ終了後の遅�
 | OS非依存の連鎖 | `client/tests/ScreenTranslation.Client.IntegrationTests/CaptureTests.cs` (`Category=CaptureSendIntegration`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 負座標を含む96/144/192 DPIの仮想デスクトップで、論理座標から変換した物理ROIの画素が受信PNGと1対1で一致(契約の許容誤差2 physical px以内かつ実際は0)。再選択で待機中の旧領域画像が送られず、旧世代フレームは拒否され、通信中の送信が取り消される。対象終了/最小化/取得拒否/DPI変更で送信が止まり取得sessionが破棄される。送信失敗後に同一画素が再送対象になる。20回の再選択でsessionが全て1回だけ停止・破棄される |
 | 配線の単体 | `client/tests/ScreenTranslation.Client.Tests/CaptureSendPipelineTests.cs` | 同上 | 基準リセット、旧世代拒否、session無し拒否、送信失敗と呼び出し側取消の区別 |
 | Win32実取得 | `client/tests/ScreenTranslation.Windows.Tests/CaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 座標を画素値にした試験ウィンドウをWin32 `PrintWindow`で実際に取得し、ROIと受信画像が1対1で一致すること、取得対象の終了後は取得不可で旧画像が送られないこと、再選択後は新領域だけが送られることを確認 |
-| WGC実取得 (Issue #179) | `client/tests/ScreenTranslation.Windows.Tests/WgcCaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 専用スレッドでメッセージループを回す既知パターンのウィンドウをWindows Graphics Captureで取得し、`FrameArrived`から読み出した画素がROIどおり(0 px誤差)に`CapturedFrame`→PNG→送信まで届くこと、ROI未選択ならGPU面を読み出さないこと、開始/停止を25回反復してもプロセスのハンドル数が増え続けず停止後にフレームが届かないこと、対象ウィンドウを閉じるとTargetUnavailableで無効化されることを確認 |
+| WGC実取得 (Issue #179) | `client/tests/ScreenTranslation.Windows.Tests/WgcCaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 専用スレッドでメッセージループを回す既知パターンのウィンドウをWindows Graphics Captureで取得し、`FrameArrived`から読み出した画素がROIどおり(0 px誤差)に`CapturedFrame`→PNG→送信まで届くこと、ROI未選択ならGPU面を読み出さないこと、開始/停止を25回反復し、毎周「フレームプール・キャプチャセッション・D3Dデバイス・取得項目・対象監視・SoftwareBitmap」の生成数と破棄数が一致すること(Issue #204。`CaptureResourceLedger`の計測フックで直接検証し、1周1個の漏れも検出する。実ハンドル数はGC後の差分で見る補助指標で、揺れを吸収する余裕を持たせた閾値)。限界: 台帳が数えるのはDisposeの呼び出しだけで、破棄後もネイティブ側の参照が残る漏れは数えられず、補助指標のハンドル数(60未満)では25周で1周1ハンドルの漏れは検出できない。またCaptureItemにはDisposeが無いため「イベント購読の解除=破棄」とみなしていると停止後にフレームが届かないこと、対象ウィンドウを閉じるとTargetUnavailableで無効化されることを確認 |
 | WGC画素の変換 (Issue #179) | `client/tests/ScreenTranslation.Client.Tests/BgraFrameConverterTests.cs`・`CaptureFrameRouterTests.cs` | .NET SDKコンテナ | 行詰め(stride)付きBGRAの詰め直し、開始位置、内容サイズでの切り出し、元バッファの複製、不正寸法の拒否と例外メッセージへ画素値を含めないこと。ROI・世代を画素の読み出し前に採取して旧世代フレームを拒否すること |
 
 ```bash
@@ -69,7 +69,7 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 
 1. 実GPUのWindows 10 2004以降/Windows 11で、座標目盛りを持つウィンドウをWGCで取得し、ROI寸法・目盛り位置が選択した物理pxと一致する(ずれ2 physical px以下)ことを確認する。
 2. 4Kや100%/150%など倍率の異なるモニターで、ウィンドウをモニター間で移動したときに送信が止まり(DPI変更)、再選択後は新しい物理pxのROIで送られることを確認する。
-3. 取得開始/停止/対象変更を100回以上反復し、タスクマネージャー(またはPerfMon)でプロセスのハンドル数とGPU専用メモリが増え続けないことを確認する。
+3. 取得開始/停止/対象変更を100回以上反復し、タスクマネージャー(またはPerfMon)でプロセスのハンドル数とGPU専用メモリが増え続けないことを確認する(Issue #204: CIは生成数・破棄数の一致までを見る。100回以上の反復での実GPUメモリ・ハンドルは**未実施**)。
 4. 画面取得から除外されたウィンドウ(WDA_EXCLUDEFROMCAPTURE)や保護コンテンツ(DRM動画等)を対象にして、別方式へ切り替わらず、取得できない/黒画像を送らない動作になるか確認し、結果を#135の記録へ追記する(黒画像の検出は現状未実装のため、結果によりTaskを追加する)。
 5. ウィンドウをリサイズしたとき、新しい大きさのフレームが送られず、取得が停止して対象とROIの選び直しを求められることを確認する(Issue #198。追従しない設計)。同じ大きさの移動は「ウィンドウ移動・リサイズへの追従 (Issue #198)」の手順で確認する。
 

@@ -12,10 +12,31 @@ namespace ScreenTranslation.Windows.Capture;
 /// </summary>
 internal static class WgcFrameReader
 {
-	public static CapturedFrame Read(Direct3D11CaptureFrame frame)
+	/// <param name="ledger">SoftwareBitmapの生成・破棄を数える試験用の計測フック。通常はnull。</param>
+	public static CapturedFrame Read(Direct3D11CaptureFrame frame, CaptureResourceLedger? ledger = null)
 	{
 		var timestampNanoseconds = frame.SystemRelativeTime.Ticks * 100;
-		using var bitmap = SoftwareBitmap.CreateCopyFromSurfaceAsync(frame.Surface).GetAwaiter().GetResult();
+		var bitmap = SoftwareBitmap.CreateCopyFromSurfaceAsync(frame.Surface).GetAwaiter().GetResult();
+		ledger?.RecordCreated(CaptureResourceKind.SoftwareBitmap);
+		try
+		{
+			return ReadBitmap(frame, bitmap, timestampNanoseconds);
+		}
+		finally
+		{
+			if (ledger is not null)
+			{
+				ledger.Release(CaptureResourceKind.SoftwareBitmap, bitmap);
+			}
+			else
+			{
+				bitmap.Dispose();
+			}
+		}
+	}
+
+	private static CapturedFrame ReadBitmap(Direct3D11CaptureFrame frame, SoftwareBitmap bitmap, long timestampNanoseconds)
+	{
 		if (bitmap.BitmapPixelFormat != BitmapPixelFormat.Bgra8)
 		{
 			throw new InvalidOperationException("取得した画像の形式がBGRA32ではありません。");
