@@ -54,7 +54,8 @@ class ComposeStack:
 	def __init__(self, extra_files: list[Path], models_from: str | None, image: str | None) -> None:
 		self._temporary = tempfile.TemporaryDirectory(prefix="server-container-")
 		self.directory = Path(self._temporary.name)
-		self.project = f"stc-{secrets.token_hex(4)}"
+		# 既定は衝突しない乱数名。並行実行や後始末の追跡のため、SERVER_TEST_PROJECTで固定名にもできる。
+		self.project = os.environ.get("SERVER_TEST_PROJECT") or f"stc-{secrets.token_hex(4)}"
 		self.port = free_port()
 		self.models_from = models_from
 		self.tls_directory = self.directory / "tls"

@@ -510,6 +510,34 @@ mutation確認(#195): ①`restrict_dependency_loggers`のfilter付与を外す(�
 
 **未検証**: 将来追加する依存ライブラリのloggerは、接頭辞(`RESTRICTED_LOGGER_PREFIXES`)へ追加するまで対象外です。コンテナのstdout/stderrへ直接`print`するライブラリ出力、OSやリバースプロキシ側のaccessログは対象外です。
 
+## 実コンテナ・実エンジンでの認証から再起動後の再翻訳までの通し (Issue #229)
+
+Roadmap #70(R2)の完了要件として、#196のハーネスを拡張し、**本番`server/compose.yml`の実コンテナ・実Tesseract/Argos**で認証から再起動後の再翻訳までを1本で通します。ファイルは`server/tests/container/test_container_roadmap.py`です。画像は#80の自前生成画像(`server/tests/fixtures/pipeline/clear-01.png`、`generate.py`で再生成可能)を再利用し、frame組み立て・契約照合付き受信は`server/tests/integration/frame_support.py`をプロセス内試験と共有します(重複を作らない)。
+
+**CIでは実行しません**(#196と同じ理由。Docker-in-Dockerを避ける)。実行手順・環境変数は#196の節と共通で、追加の変数は次の1つだけです。
+
+```bash
+SERVER_CONTAINER_TEST=1 SERVER_TEST_IMAGE=<専用のイメージ名> [SERVER_TEST_PROJECT=<専用のプロジェクト名>] \
+	[SERVER_TEST_MODELS_FROM=<準備済みモデルvolume名>] \
+	.venv-container/bin/python -B -m unittest discover -s server/tests/container -p 'test_container_roadmap.py' -v
+```
+
+| 環境変数 | 内容 |
+| --- | --- |
+| `SERVER_TEST_PROJECT` | Composeのプロジェクト名(任意)。未指定は乱数名。固定すると後始末(`down --volumes`)の対象と、イメージ・volumeの所有者を特定しやすい |
+
+所要時間の目安は、イメージのビルド済み・モデルvolume複製ありで約1〜2分(実測: #196の試験と合わせて97秒)、初回ビルドとモデル取得を含むと十数分です。ディスクはイメージ約2.3GBと試験専用volumeを使います。
+
+| 段階 | 確認(実コンテナ・実エンジン) |
+| --- | --- |
+| 1 認証→翻訳 | 未認証の`/ready`・`POST /sessions`は401。端末tokenで`/ready`が200、`POST /sessions`が201(generation 1・辞書revision 1)。WSSで`ready`状態を受け取り、固定画像を送ると原文(正規化して期待文を**含む**)・日本語を含む訳文・画像内に収まる位置(rect)が返る |
+| 2 辞書更新 | 管理token+If-Matchで辞書を更新(200・ETag`"2"`・`X-Effective-From: next-frame`)。更新前revisionのframeは結果を返さず、更新後revisionの新規frameだけが結果を返し、訳文が登録語と**完全一致**する。結果にフレームID・旧revisionの混入がない |
+| 3 停止→再起動 | `DELETE`で停止(204)→`docker compose stop`で稼働中のWSSが切れる→`start`でreadyへ復帰(`StartedAt`が変わる)。旧session_idの`DELETE`は404、旧session_idのframeはWSSで拒否(1008)され、新sessionでも旧session_idのframeは拒否される。再POSTでgeneration 1・保存済み辞書revisionから開始する |
+| 4 再翻訳 | 同じ画像を再送すると、再起動後も辞書が効いた訳文が完全一致で得られ、session_idは旧sessionと異なる |
+| 永続・ログ | `/data`・`/credentials`の全JSONが読め、一時ファイルが残らない。辞書は更新後のrevision・内容のまま。再起動をまたぐ全コンテナログにtoken・session_id・原文・訳文が出ない |
+
+OCRは実エンジンのため揺れ得ます。期待は「原文を含む」「日本語を含む」とし、完全一致で見るのは登録した辞書訳語だけです。待機は期限付きのポーリング(ready・healthy・session開始の409再試行)で、固定sleepを同期条件にしていません。対象外: 8時間連続稼働、性能(p50/p95)、翻訳品質100文(R4 #108/#109)。
+
 ## 変更後の回帰・静的検査
 
 サーバーや共通処理を変更した場合は、通常のサーバー試験に加え、アプリ用イメージとリポジトリをマウントした回帰試験を実行します。
