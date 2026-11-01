@@ -4,7 +4,7 @@
 取得したファイルは`ModelProvisioner`が固定manifestのサイズ・SHA-256で検証する。
 取得済みなら再ダウンロードせず検証と再導入だけを行う。導入先は環境変数XDG_DATA_HOMEで
 ボリューム内へ向ける。Argosの文分割(Stanza)の資源は、製品と同じ準備手順
-(`screen_translation_server.stanza_prepare`)で固定manifestのサイズ・SHA-256を検証して置く。
+(`screen_translation_server.provision`と同じ`StanzaResources.provision`)で固定manifestのサイズ・SHA-256を検証して置く。
 実行時は外部取得を行わないため(#189)、準備後の翻訳を試験側で温める必要はない。
 """
 
@@ -17,7 +17,8 @@ import sys
 from screen_translation_server.engines.lifecycle import ModelManifest, ModelProvisioner
 
 MANIFEST_PATH = Path(__file__).resolve().parents[1] / "fixtures/pipeline/model-manifest.json"
-STANZA_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "fixtures/pipeline/stanza-manifest.json"
+# 本番と同じmanifestを使う(コンテナでは/workspace/deploy、リポジトリではserver/deploy)。
+STANZA_MANIFEST_PATH = Path(__file__).resolve().parents[2] / "deploy/stanza-manifest.json"
 
 
 def load_manifest() -> ModelManifest:
@@ -30,9 +31,11 @@ def main(destination: str) -> int:
 		progress=lambda stage: print(f"モデル準備: {stage}", flush=True),
 	)
 	path = provisioner.provision()
-	from screen_translation_server import stanza_prepare
+	from screen_translation_server.startup import load_stanza_resources
 
-	stanza_prepare.prepare(STANZA_MANIFEST_PATH)
+	resources = load_stanza_resources(STANZA_MANIFEST_PATH)
+	resources.provision()
+	resources.verify()
 	print("Stanza資源の準備完了", flush=True)
 	print(f"モデル準備完了: {path.name}", flush=True)
 	return 0

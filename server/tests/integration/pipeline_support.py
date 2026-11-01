@@ -20,7 +20,8 @@ from jsonschema import Draft202012Validator, FormatChecker
 from app.contracts import Frame, Rect, TextRegion
 from prepare_model import STANZA_MANIFEST_PATH, load_manifest
 from screen_translation_server.engines.lifecycle import ModelManifest
-from screen_translation_server.engines.stanza_resources import StanzaManifest, StanzaResourceError, StanzaResources, argos_stanza_directory
+from screen_translation_server.engines.stanza_resources import StanzaResourceError, StanzaResources
+from screen_translation_server.startup import load_stanza_resources
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/pipeline"
 CONTRACTS = next(
@@ -56,8 +57,7 @@ def require_model(manifest: ModelManifest | None = None) -> ModelManifest:
 
 def stanza_resources() -> StanzaResources:
 	"""製品と同じmanifest検証でStanza資源を確認する。未準備・破損は準備手順付きで失敗させる。"""
-	manifest = StanzaManifest.from_json(json.loads(STANZA_MANIFEST_PATH.read_text(encoding="utf-8")))
-	return StanzaResources(manifest, argos_stanza_directory)
+	return load_stanza_resources(STANZA_MANIFEST_PATH)
 
 
 def engine_versions(manifest: ModelManifest) -> dict[str, str]:

@@ -2,9 +2,75 @@
 
 この文書は、Linuxサーバーの資格情報・TLS証明書・バックアップを運用する手順です。接続先・ホスト名・IP・利用者名・実機固有のsecretは環境変数またはsecret管理から与え、この文書やGitへ記録しません。
 
+## 本番コンテナの構成と導入手順
+
+Linuxサーバーは [`server/compose.yml`](../../server/compose.yml) で常駐させます（Docker Engine / Compose v2、Linux x86_64）。イメージは [`server/Dockerfile`](../../server/Dockerfile) の `runtime` ステージで、翻訳モデルも秘密も同梱しません。テスト用の [`server/compose.test.yml`](../../server/compose.test.yml) とは別物で、既存のテストコマンドは変わりません。
+
+| 項目 | 設定 |
+|---|---|
+| ユーザー | 非root（UID/GID 10001）、`read_only` ルートFS、`cap_drop: ALL`、`no-new-privileges`、`init` |
+| 資源上限 | `cpus: 2`、`mem_limit`/`memswap_limit: 4g`、`pids_limit: 512`（REQ-NF-005）。環境変数 `OMP_THREAD_LIMIT=1`（Tesseract）と `OMP_NUM_THREADS=2`（torch）で並列化もCPU上限に揃える。処理は1件・待機は最新1件でコード側に固定 |
+| 再起動 | `restart: unless-stopped`、`stop_grace_period: 30s` |
+| ログ | `json-file`、`max-size: 10m`、`max-file: 5`。内容は出さない（[運用ログの扱い](#運用ログの扱い)） |
+| 待受 | ホスト側は `.env` の `SERVER_BIND_ADDRESS`（既定 `127.0.0.1`）と `SERVER_API_PORT`（既定 8443）。コンテナ内は 8443 固定。LANへ公開するときだけ公開NICのアドレスを指定する |
+| 永続 | 名前付きvolume `server-data`（設定・辞書、`/data`）、`server-credentials`（資格情報台帳、`/credentials`）、`server-models`（モデル、`/models`）を分離。serverは台帳とモデルを**読み取り専用**で使う |
+| 秘密 | TLS証明書と秘密鍵は、ホストの `SERVER_TLS_DIR` を `/run/secrets/tls` へ**読み取り専用**でマウントして供給する。環境変数にはパスだけを置く。管理トークン・端末トークンはComposeにも `.env` にも置かない |
+| healthcheck | `python -m screen_translation_server.healthcheck`（30秒間隔）。設定済みの証明書を信頼起点に、検証付きTLSで loopback の `/api/v1/health` を確認する |
+
+### 初回導入
+
+以下は、ほかの設定を持たないクリーンなLinuxで上から順に実行する手順です。ホスト名・IP・利用者名は環境に合わせて自分で決め、このリポジトリへは記録しません。
+
+1. `server/.env.example` を `server/.env` にコピーし、次を設定します。`SERVER_ALLOWED_HOSTS` と `SERVER_TLS_DIR` が未設定だと Compose は設定エラーで開始しません。
+   - `SERVER_ALLOWED_HOSTS`: クライアントが使う「名前:ポート」（Hostヘッダーと同じ形式）。先頭の名前は healthcheck の証明書検証にも使うため、証明書のSANに含めます。
+   - `SERVER_TLS_DIR`: `current/fullchain.pem` と `current/private-key.pem` を含むディレクトリ（`current` は相対シンボリックリンクにすると、[証明書の更新](#tls証明書の供給と更新)で原子的に切り替えられます）。コンテナ内のUID 10001が読めるよう、秘密鍵はUID 10001所有・mode `0400` にします。
+   - 必要なら `SERVER_BIND_ADDRESS`（LAN公開）と `SERVER_API_PORT`。
+2. 設定を検証します。ポート・上限・非root・healthcheck・秘密の非埋め込みを確認できます。
+
+   ```sh
+   docker compose -f server/compose.yml config
+   ```
+
+3. イメージをビルドし、モデルを導入します（この段階だけ外向き通信が必要です。実行時のserverは通信不要です）。
+
+   ```sh
+   docker compose -f server/compose.yml build
+   docker compose -f server/compose.yml --profile model run --rm prepare-model
+   ```
+
+   `prepare-model` は [`server/deploy/model-manifest.json`](../../server/deploy/model-manifest.json) の固定manifest（版・HTTPS取得先・サイズ・SHA-256・ライセンス名/URL）で取得・検証し、Argosへ導入します。取得済みなら再取得せず検証と再導入だけを行うため、再実行しても安全です。manifestの `license_accepted` は運用者がライセンスを確認した証跡です。確認前に導入しないでください。続けてStanzaの文分割資源（[`server/deploy/stanza-manifest.json`](../../server/deploy/stanza-manifest.json)のresources.jsonと英語のtokenize/mwtモデル）も同じ手順でサイズ・SHA-256検証つきで取得・配置します（#189）。実行時のサーバーはStanza資源も取得せず、外向き通信のない環境でもreadyに到達して翻訳できます。資源が未準備・破損のときはreadyにならず、`prepare-model`の再実行で復旧します。
+4. 初期管理資格情報を作成します。トークンは一度だけ表示されます。安全なsecret管理へ登録し、履歴・チケットへ貼り付けません。
+
+   ```sh
+   docker compose -f server/compose.yml --profile admin run --rm admin init-admin --expires-at '<期限日時>'
+   ```
+
+   以後の管理コマンド（`issue`・`list`・`revoke`）は、管理トークンを呼び出し側の環境変数 `SCREEN_TRANSLATION_ADMIN_TOKEN` として渡します（`docker compose ... run --rm admin issue ...`。値はコマンド引数へ書かず、プロンプト入力やsecret管理から読み込んだ変数を使います）。
+5. 起動し、readyを待ちます。
+
+   ```sh
+   docker compose -f server/compose.yml up -d
+   server/deploy/wait-ready.sh <端末または管理トークンのファイル>
+   ```
+
+   `up -d` 直後は `/api/v1/ready` が `503 MODEL_NOT_READY` です。導入済みモデルの検証・ロード・warmupが完了すると200になります（目標120秒以内、空のモデル領域からは最大1800秒）。`docker compose ps` の `healthy` は生存（health）であり、readyではありません。
+
+### 再起動・更新・停止
+
+- ホストやDockerデーモンの再起動後も `restart: unless-stopped` で自動起動します。設定・辞書（`server-data`）、台帳（`server-credentials`）、モデル（`server-models`）は名前付きvolumeに残り、再起動で作り直されません。`docker compose down` もvolumeを消しません（`-v` を付けない）。実コンテナで再起動をまたぐ保持を検証する作業は Issue #196 です。
+- 更新は `git pull` 後に `docker compose -f server/compose.yml build` → `up -d` です。モデルを更新するときは manifest を差し替えて `prepare-model` を再実行します。
+- 証明書更新は [TLS証明書の供給と更新](#tls証明書の供給と更新) のとおり `docker compose -f server/compose.yml kill -s SIGHUP server` で再読込します。
+- healthcheck は `.env` 変更後の再作成（`up -d`）で反映されます。複数プロジェクトを同居させるときは `-p <名前>` と別の `SERVER_API_PORT` を使います。
+
+### 資源上限の確認
+
+`docker compose -f server/compose.yml config` で `cpus: 2`・`mem_limit: 4294967296` を確認できます。サーバーは起動時にcgroup上限（CPU 2以下、メモリ4 GiB以下）を読み、上限が確認できない・超過している場合はreadyになりません。GPUは使いません。負荷無制限のモデル推論や画像生成の仕組みは含みません。
+
 ## 資格情報の配置と初期化
 
 資格情報台帳は `SCREEN_TRANSLATION_CREDENTIALS_FILE` で指定する永続領域へ配置します。台帳には資格情報ID・salt付きverifier・role・有効期限・失効状態だけが入り、token平文は保存されません。台帳の所有者をサーバープロセスに限定し、ファイルmode `0600` と、バックアップを読める運用者を制限します。台帳は設定・辞書・モデルとは別の領域に置きます。
+
+Compose構成（[本番コンテナの構成と導入手順](#本番コンテナの構成と導入手順)）では、台帳は `server-credentials` volume 内の `/credentials/credentials.json` で、管理CLIは `admin` サービス（`docker compose -f server/compose.yml --profile admin run --rm admin <command>`）から実行します。以下の `python -m screen_translation_server.admin.credentials --store ...` はこのサービスの入口と同じです。
 
 1. 台帳の保存先を決め、`SCREEN_TRANSLATION_CREDENTIALS_FILE` を設定します。TLSとHost/Originの設定も先に行います。
 2. 空の台帳へ初期管理資格情報を作成します。期限は組織のcredential policyに従い、timezone付きISO 8601形式で指定してください。
@@ -18,13 +84,13 @@
 
 ## モデル準備とready
 
-サーバーは起動直後にlistenし、モデル検証とエンジンのロード・warmupをバックグラウンドで行います。設定は環境変数 `SCREEN_TRANSLATION_MODEL_MANIFEST`（モデルmanifestのJSONファイルパス）と `SCREEN_TRANSLATION_MODEL_DIR`（導入済みモデルの置き場）で与えます。さらにStanza資源のmanifestを `SCREEN_TRANSLATION_STANZA_MANIFEST` で与えます。いずれかが未設定、またはmanifestが不正なら、サーバーは起動せず終了コード2で終わります。起動は `python -m screen_translation_server` です。
+サーバーは起動直後にlistenし、モデル検証とエンジンのロード・warmupをバックグラウンドで行います。設定は環境変数 `SCREEN_TRANSLATION_MODEL_MANIFEST`（モデルmanifestのJSONファイルパス）と `SCREEN_TRANSLATION_MODEL_DIR`（導入済みモデルの置き場）で与えます。さらにStanza資源のmanifest（[`server/deploy/stanza-manifest.json`](../../server/deploy/stanza-manifest.json)）を `SCREEN_TRANSLATION_STANZA_MANIFEST` で与えます（本番イメージでは設定済み）。いずれかが未設定、またはmanifestが不正なら、サーバーは起動せず終了コード2で終わります。起動は `python -m screen_translation_server` です。
 
 - 準備中は `GET /api/v1/ready` とセッション開始が `503 MODEL_NOT_READY`（理由メッセージ付き、`retryable: true`）を返します。`/api/v1/health` は準備状態に関係なく200です。
 - 未導入・破損・資源不足などで準備に失敗しても、プロセスは落ちず、約5秒間隔で再試行します。理由（パスや内容を含まない）はreadyの503本文に出ます。管理者が正しいモデルを `SCREEN_TRANSLATION_MODEL_DIR` へ配置すると、再起動なしで自動的に200へ遷移します。
 - 準備失敗のログは、初回と以後12回ごと（既定間隔で約60秒に1回）だけ出力し、例外の型名と通算回数のみを記録します（パスや内容は含みません）。復旧時に1回だけ回復を記録します。
 - 準備前・準備失敗中・停止開始後にWSSでフレームが届いても、サーバーはエンジンを新たに構築せず（既定構成への退避・`build_engines`の再実行をしない）、そのフレームを破棄してエラーメッセージ `MODEL_NOT_READY`（`retryable`相当）を返します。接続は維持され、準備完了後のフレームから処理を再開します。`readiness`未指定の互換経路（単体試験など）だけが従来どおり既定構成を作ります。
-- **外向き通信なしで動かすための事前準備**: サーバーは実行時に外部へ接続しません（文分割のStanzaが資源を取りに行く既定動作は製品側で止めています）。モデル導入のあと、外向き通信のある準備段階で `python -m screen_translation_server.stanza_prepare <Stanza資源manifest.json>` を実行し、Stanza資源（resources.jsonと使用言語のモデル）をサイズ・SHA-256検証つきで永続領域（Argosのデータ領域）へ置きます。検証済みなら再取得しません。資源が未準備・破損のときはエンジンを読み込まずに準備失敗となり、readyの503本文に理由（パスを含まない）が出ます。準備後は再起動なしで200へ遷移します。manifestの値は取得元から観測した値で、配布元の保証するdigestではありません。
+- **外向き通信なしで動かすための事前準備**: サーバーは実行時に外部へ接続しません（文分割のStanzaが資源を取りに行く既定動作は製品側で止めています）。モデル導入と同じ `prepare-model`（`python -m screen_translation_server.provision`）が、Argosパッケージの導入に続けて、外向き通信のある準備段階でStanza資源（resources.jsonと使用言語のモデル）をサイズ・SHA-256検証つきで永続領域（Argosのデータ領域）へ置きます。検証済みなら再取得しません。資源が未準備・破損のときはエンジンを読み込まずに準備失敗となり、readyの503本文に理由（パスを含まない）が出ます。準備後は再起動なしで200へ遷移します。manifestの値は取得元から観測した値で、配布元の保証するdigestではありません。
 - 停止時は準備ループを取り消してreadyを落とします。ロード中の準備スレッドは次の区切り（最大120秒の期限）で終わるまでプロセス終了が待たされることがあります。
 
 管理CLIの共通入口は次のとおりです。
@@ -87,7 +153,7 @@ secret/certificate providerとの自動連携も対象外です。運用者が�
 
 後続Taskで次を実施します。
 
-- #103: 本番コンテナ、永続化、資源制限を整備し、運用前提を確定する。
+- #103（実装済み）: 本番コンテナ、永続化、資源制限。実コンテナでの再起動をまたぐ永続の検証は #196、Stanza資源の準備は #189 で実装済み（`prepare-model` に統合）。
 - #105: 導入・障害復旧・バックアップの手順とライセンス文書を完成する。
 - #106: 配布物の新規導入・更新・復旧を結合試験する。
 - #108: 実Windows・Linux間の正常系と障害復旧E2Eを確認する。

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using ScreenTranslation.Client.Hotkeys;
 using ScreenTranslation.Client.Security;
 using ScreenTranslation.Client.Settings;
 using ScreenTranslation.Windows.Security;
@@ -23,9 +24,17 @@ public partial class MainWindow : Window
 	{
 		try
 		{
+			var hotkeys = new HotkeySettings(
+				HotkeyEnabledInput.IsChecked == true, StartStopHotkeyInput.Text.Trim(), ReselectHotkeyInput.Text.Trim());
+			if (hotkeys.Enabled && !(HotkeyGesture.TryParse(hotkeys.StartStop, out _) && HotkeyGesture.TryParse(hotkeys.Reselect, out _)))
+			{
+				StatusText.Text = "ホットキーは「Ctrl+Alt+T」のように、Ctrl・Alt・Shift・Winのいずれかと英数字またはF1～F24で指定してください。設定は保存されていません。";
+				return;
+			}
 			var settings = new ClientSettings(
 				new ConnectionSettings(ServerUriInput.Text, EmptyToNull(CertificateFingerprintInput.Text)),
-				OverlayEnabledInput.IsChecked == true);
+				OverlayEnabledInput.IsChecked == true,
+				hotkeys);
 			await _settingsStore.SaveAsync(settings);
 			StatusText.Text = "接続設定を保存しました。";
 		}
@@ -44,25 +53,6 @@ public partial class MainWindow : Window
 		await LoadSettingsAsync();
 		CredentialInput.Clear();
 		StatusText.Text = "未保存の変更を破棄しました。";
-	}
-
-	private async void SelectRegion_Click(object sender, RoutedEventArgs e)
-	{
-		try
-		{
-			var region = await new WindowsRegionSelectionOverlay().SelectAsync();
-			StatusText.Text = region is null
-				? "領域選択を取り消しました。"
-				: $"ROI: [{region.Value.Left}, {region.Value.Top}, {region.Value.Right}, {region.Value.Bottom}) px";
-		}
-		catch (OperationCanceledException)
-		{
-			StatusText.Text = "DPIまたは画面構成が変わったため領域選択を無効化しました。もう一度選択してください。";
-		}
-		catch (Exception)
-		{
-			StatusText.Text = "領域を選択できませんでした。画面構成を確認してください。";
-		}
 	}
 
 	private async void SaveCredential_Click(object sender, RoutedEventArgs e)
@@ -89,12 +79,14 @@ public partial class MainWindow : Window
 		ServerUriInput.Text = string.Empty;
 		CertificateFingerprintInput.Text = string.Empty;
 		OverlayEnabledInput.IsChecked = true;
+		ShowHotkeys(null);
 		try
 		{
 			var settings = await _settingsStore.LoadAsync();
 			ServerUriInput.Text = settings?.Connection.ServerUri ?? string.Empty;
 			CertificateFingerprintInput.Text = settings?.Connection.ServerCertificateSha256 ?? string.Empty;
 			OverlayEnabledInput.IsChecked = settings?.OverlayEnabled ?? true;
+			ShowHotkeys(settings?.Hotkeys);
 			if (settings is null)
 			{
 				StatusText.Text = "サーバー接続先を設定して保存してください。資格情報は別に保管されます。";
@@ -108,6 +100,14 @@ public partial class MainWindow : Window
 		{
 			StatusText.Text = "設定を読み込めません。保存先を確認してください。";
 		}
+	}
+
+	private void ShowHotkeys(HotkeySettings? hotkeys)
+	{
+		hotkeys ??= new HotkeySettings();
+		HotkeyEnabledInput.IsChecked = hotkeys.Enabled;
+		StartStopHotkeyInput.Text = hotkeys.StartStop;
+		ReselectHotkeyInput.Text = hotkeys.Reselect;
 	}
 
 	private static string? EmptyToNull(string value)

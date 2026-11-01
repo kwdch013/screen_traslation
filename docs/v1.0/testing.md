@@ -29,7 +29,7 @@ WPF画面での設定変更中の接続取消、ウィンドウ終了後の遅�
 | OS非依存の連鎖 | `client/tests/ScreenTranslation.Client.IntegrationTests/CaptureTests.cs` (`Category=CaptureSendIntegration`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 負座標を含む96/144/192 DPIの仮想デスクトップで、論理座標から変換した物理ROIの画素が受信PNGと1対1で一致(契約の許容誤差2 physical px以内かつ実際は0)。再選択で待機中の旧領域画像が送られず、旧世代フレームは拒否され、通信中の送信が取り消される。対象終了/最小化/取得拒否/DPI変更で送信が止まり取得sessionが破棄される。送信失敗後に同一画素が再送対象になる。20回の再選択でsessionが全て1回だけ停止・破棄される |
 | 配線の単体 | `client/tests/ScreenTranslation.Client.Tests/CaptureSendPipelineTests.cs` | 同上 | 基準リセット、旧世代拒否、session無し拒否、送信失敗と呼び出し側取消の区別 |
 | Win32実取得 | `client/tests/ScreenTranslation.Windows.Tests/CaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 座標を画素値にした試験ウィンドウをWin32 `PrintWindow`で実際に取得し、ROIと受信画像が1対1で一致すること、取得対象の終了後は取得不可で旧画像が送られないこと、再選択後は新領域だけが送られることを確認 |
-| WGC実取得 (Issue #179) | `client/tests/ScreenTranslation.Windows.Tests/WgcCaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 専用スレッドでメッセージループを回す既知パターンのウィンドウをWindows Graphics Captureで取得し、`FrameArrived`から読み出した画素がROIどおり(0 px誤差)に`CapturedFrame`→PNG→送信まで届くこと、ROI未選択ならGPU面を読み出さないこと、開始/停止を25回反復してもプロセスのハンドル数が増え続けず停止後にフレームが届かないこと、対象ウィンドウを閉じるとTargetUnavailableで無効化されることを確認 |
+| WGC実取得 (Issue #179) | `client/tests/ScreenTranslation.Windows.Tests/WgcCaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 専用スレッドでメッセージループを回す既知パターンのウィンドウをWindows Graphics Captureで取得し、`FrameArrived`から読み出した画素がROIどおり(0 px誤差)に`CapturedFrame`→PNG→送信まで届くこと、ROI未選択ならGPU面を読み出さないこと、開始/停止を25回反復し、毎周「フレームプール・キャプチャセッション・D3Dデバイス・取得項目・対象監視・SoftwareBitmap」の生成数と破棄数が一致すること(Issue #204。`CaptureResourceLedger`の計測フックで直接検証し、1周1個の漏れも検出する。実ハンドル数はGC後の差分で見る補助指標で、揺れを吸収する余裕を持たせた閾値)。限界: 台帳が数えるのはDisposeの呼び出しだけで、破棄後もネイティブ側の参照が残る漏れは数えられず、補助指標のハンドル数(60未満)では25周で1周1ハンドルの漏れは検出できない。またCaptureItemにはDisposeが無いため「イベント購読の解除=破棄」とみなしていると停止後にフレームが届かないこと、対象ウィンドウを閉じるとTargetUnavailableで無効化されることを確認 |
 | WGC画素の変換 (Issue #179) | `client/tests/ScreenTranslation.Client.Tests/BgraFrameConverterTests.cs`・`CaptureFrameRouterTests.cs` | .NET SDKコンテナ | 行詰め(stride)付きBGRAの詰め直し、開始位置、内容サイズでの切り出し、元バッファの複製、不正寸法の拒否と例外メッセージへ画素値を含めないこと。ROI・世代を画素の読み出し前に採取して旧世代フレームを拒否すること |
 
 ```bash
@@ -69,13 +69,13 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 
 1. 実GPUのWindows 10 2004以降/Windows 11で、座標目盛りを持つウィンドウをWGCで取得し、ROI寸法・目盛り位置が選択した物理pxと一致する(ずれ2 physical px以下)ことを確認する。
 2. 4Kや100%/150%など倍率の異なるモニターで、ウィンドウをモニター間で移動したときに送信が止まり(DPI変更)、再選択後は新しい物理pxのROIで送られることを確認する。
-3. 取得開始/停止/対象変更を100回以上反復し、タスクマネージャー(またはPerfMon)でプロセスのハンドル数とGPU専用メモリが増え続けないことを確認する。
+3. 取得開始/停止/対象変更を100回以上反復し、タスクマネージャー(またはPerfMon)でプロセスのハンドル数とGPU専用メモリが増え続けないことを確認する(Issue #204: CIは生成数・破棄数の一致までを見る。100回以上の反復での実GPUメモリ・ハンドルは**未実施**)。
 4. 画面取得から除外されたウィンドウ(WDA_EXCLUDEFROMCAPTURE)や保護コンテンツ(DRM動画等)を対象にして、別方式へ切り替わらず、取得できない/黒画像を送らない動作になるか確認し、結果を#135の記録へ追記する(黒画像の検出は現状未実装のため、結果によりTaskを追加する)。
 5. ウィンドウをリサイズしたとき、新しい大きさのフレームが送られず、取得が停止して対象とROIの選び直しを求められることを確認する(Issue #198。追従しない設計)。同じ大きさの移動は「ウィンドウ移動・リサイズへの追従 (Issue #198)」の手順で確認する。
 
 ## アプリ構成の配線 (Issue #180)
 
-`TranslationSessionHost`(`client/src/ScreenTranslation.Client/App/`)が、`CaptureLifecycleController`・`CaptureFrameRouter`・`CaptureSendPipeline`(`FrameProcessor`/`FrameSender`)・WSS接続(`StreamTransportClient`、抽象は`ITranslationTransport`)・`TranslationOverlayController`を組み立て、UIから呼ぶ操作(`ConnectAsync`・`SelectTargetAsync`・`SelectRegion`・`StartAsync`・`StopAsync`)を提供します。Windowsでは`WindowsCaptureRuntime.CreateSessionHost`が実WGCの工場を渡して組み立てます。開始/停止ボタン・ホットキー・履歴・設定画面は#98/#99で、これらのAPIを呼びます。
+`TranslationSessionHost`(`client/src/ScreenTranslation.Client/App/`)が、`CaptureLifecycleController`・`CaptureFrameRouter`・`CaptureSendPipeline`(`FrameProcessor`/`FrameSender`)・WSS接続(`StreamTransportClient`、抽象は`ITranslationTransport`)・`TranslationOverlayController`を組み立て、UIから呼ぶ操作(`ConnectAsync`・`SelectTargetAsync`・`SelectRegion`・`StartAsync`・`StopAsync`)を提供します。Windowsでは`WindowsCaptureRuntime.CreateSessionHost`が実WGCの工場を渡して組み立てます。開始/停止ボタン・ホットキー・履歴は#98(下の「操作・ホットキー・字幕履歴」)で、翻訳設定・辞書の画面は#99で、これらのAPIを呼びます。
 
 | 項目 | 振る舞い |
 | --- | --- |
@@ -100,6 +100,50 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 1. 実サーバーへ接続し、ウィンドウまたはモニターとROIを選び、開始する(開始前にオーバーレイのキャプチャ除外が確認できないと開始されないこと)。
 2. 訳文が重畳され、取得から5秒たつと消えることを確認する。
 3. 再選択・停止・対象ウィンドウを閉じる・ネットワークを切断のそれぞれで、訳文が1秒以内に消え、旧領域の画像が送られないこと、切断後は自動で送信が再開されないことを確認する。
+
+## 操作・ホットキー・字幕履歴 (Issue #98)
+
+`OperationsViewModel`(`client/src/ScreenTranslation.Client/ViewModels/`)が、`TranslationSessionHost`(抽象は`ISessionOperations`)・session取得(`ISessionGrantProvider`)・領域選択(`IRegionSelector`)・ホットキー登録(`IHotkeyRegistrar`)・字幕履歴(`TranslationHistory`)をまとめ、接続/準備中/翻訳中/停止中/エラーの表示と操作の可否(`OperationSnapshot`)を状態契約([session-state.md](../../contracts/session-state.md))に合わせて返します。WPFの`OperationPanel`は描画と呼び出しだけを持ち、判断を持ちません。
+
+| 項目 | 振る舞い |
+| --- | --- |
+| 二重実行の抑止 | 接続・開始は処理中の再要求を無視する(開始のsession取得・取得開始は1回)。停止は開始中でも受け付けて開始を取り消し、停止中の再要求は同じ停止の完了を待つ。開始の完了と停止が交差してもホストを止め、動いたままにしない。UIスレッドは待たない |
+| 切断中の停止・再接続 | 切断を検知すると未接続へ移り、停止は何もしない。再接続しても自動では開始せず、利用者の明示操作を待つ。停止中・開始中の切断も最終状態は未接続になる |
+| 再選択 | 実行中・開始中ならいったん停止(送信と表示を止めsessionを解放)してから領域選択を開く。選択画面は翻訳しない。選び直した領域は新しいセッションの対象で、自動では再開しない。取り消し・DPI/画面構成変化による無効化・範囲外は理由を示し、元の領域と履歴を保つ |
+| 履歴 | 採用・表示した結果だけを最新順に最大100件(メモリのみ。永続ログへ保存しない)。停止・切断・対象消失後も閲覧でき、再選択・新セッション・終了で消す。消去後に遅れて届く旧世代の結果は世代で拒否する。直前と同じ行は重ねて記録せず、字幕が消えた(空の結果)後に同じ文が出れば記録する。位置不明(`rect: null`)の訳文も記録し「(位置不明)」と示す |
+| ホットキー | 設定で有効にしたときだけ登録する(既定は無効)。割り当ては「Ctrl+Alt+T」形式で、修飾キーなし・未対応のキー・重複は登録せず理由を示す。競合(他アプリが使用中)・OS拒否は理由とボタンでの代替操作を示し、他のキーの登録は続ける。設定を直して「ホットキーを再登録」で再実行できる。押下はボタンと同じ操作で、押し続けても連続通知しない(`MOD_NOREPEAT`) |
+| 移動追従・リサイズ (#198との整合) | 移動追従は世代が進むが停止せず、翻訳中のまま履歴も保つ(履歴の世代下限は再選択・新セッションでだけ上げる)。リサイズは停止して対象とROIを破棄し、選び直すまで開始させない。履歴は停止と同じく閲覧できる。同じ対象を選び直すと再選択として履歴を消す(`OperationTargetChangeTests`) |
+| 開始完了との交差 | 開始の完了処理では、停止要求・終了通知・切断の判定と「翻訳中」への遷移を同じ排他区間で行う。割り込まれても動いたまま・誤って翻訳中にならない。接続の完了前に切れた場合も接続済みにしない(`OperationInterleavingTests`) |
+| 終了 | ホットキーの解除→履歴の消去→ホストの解放(取得・通信・オーバーレイ)→sessionの解放。何度でも・同時に呼べ、終了後の操作・ホットキー・遅れて届く結果は何も起こさない |
+| 文言・ログ | 利用者向けは日本語で、画像・原文・訳文・session_id・例外本文を含めない。履歴の`ToString`も本文を出さない |
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 操作の状態契約 | `client/tests/ScreenTranslation.Client.Tests/OperationTests.cs`・`OperationReselectTests.cs`・`OperationDisposeTests.cs`(代替は`OperationFakes.cs`/`OperationFixture.cs`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 連打(20回の開始で1回だけ)、開始中・session取得中・取得開始中の停止、取消と完了の交差、停止中の再要求と開始、切断中・開始中・停止中の切断、停止失敗、各理由での停止、処理中の再選択・対象変更、取消/DPI無効化/範囲外、終了。ゲートで処理中の状態を作り、固定sleepを同期条件にしない |
+| 履歴 | `TranslationHistoryTests.cs`・`OperationHistoryTests.cs`・`OverlayPresentedTests.cs` | 同上 | 100件ちょうどと101件目、1結果が100件超、重複抑制と空結果後の再記録、世代による消去と遅延結果の拒否、停止・切断後の保持、新セッション・終了での消去、位置不明の保持、同時追加、本文を`ToString`へ出さないこと、不採用の結果は通知しないこと |
+| ホットキー | `HotkeyGestureTests.cs`・`OperationHotkeyTests.cs` | 同上 | 割り当ての解析/正規化、無効・競合・重複・OS拒否の説明、再登録、連打・停止中・未接続・例外、旧版の設定ファイルの読み込み |
+| 実Windows API | `client/tests/ScreenTranslation.Windows.Tests/OperationsWindowsTests.cs`(`Category=Operations`) | Windowsのみ(`windows-client` CI) | `RegisterHotKey`の登録・押下通知・解除、同じキーの二重登録が競合になること、解放後に再登録できること、例外を窓手続きから出さないこと、実レジストラ経由で競合の説明が出て終了後に登録が残らないこと |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=Operations
+```
+
+`Category=Operations`はWindows専用で、Linuxでのskipを合格として扱いません。この試験は実際のキー入力・他アプリとの実競合・画面の見た目を検証しません。
+
+### Owner実機手順 (操作・ホットキー・履歴)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、モニター構成、合否をIssueへ記録し、この欄を更新してください。session取得のHTTPSクライアントが実装されるまで、アプリの「開始」は理由を示して断ります(手順3以降は実装後)。
+
+1. 設定でホットキーを有効にして保存し接続する。「ホットキーを再登録」で状態欄に各キーの登録結果が出ることを確認する。他のアプリが使うキー(例: 常駐ツールの割り当て)を指定すると、競合の理由とボタンで操作できる旨が出て、もう一方のキーは使えることを確認する。
+2. キーボードだけで、設定欄→接続→対象の選択→領域の再選択→開始/停止ボタンまで操作でき、状態の文言が読み上げ/拡大表示で判別できることを確認する(見た目・フォーカス順)。
+3. 翻訳中に開始/停止のホットキーを連打し、状態が「翻訳中」「停止中」「待機中」のいずれかに収まり、停止から1秒以内に字幕が消え、旧領域の画像が送られないことを確認する。
+4. 翻訳中に領域の再選択(ボタンとホットキー)を行い、選択中は翻訳が止まり、選び直した後は自動で再開せず、履歴が消えていることを確認する。取り消した場合は履歴が残ることを確認する。
+5. 履歴が最新100件で、停止後も閲覧でき、101件目以降で古い順に消え、位置不明の訳文が「(位置不明)」付きで残ることを確認する。再選択・再度の開始・アプリ終了後(再起動して)に履歴が復元されないことを確認する。
+6. サーバーを停止して切断し、状態が「未接続」になり、停止ボタンが誤動作せず、再接続しても自動で翻訳が再開されないことを確認する。
 
 ## ウィンドウ移動・リサイズへの追従 (Issue #198)
 
@@ -200,7 +244,7 @@ docker compose -f server/compose.test.yml --profile integration run --build --rm
 	python -B -m unittest discover -s tests/integration -p "test_pipeline*.py" -v
 ```
 
-`prepare-model`は`server/tests/fixtures/pipeline/model-manifest.json`の固定manifest(版1.1、120,470,284 bytes、SHA-256 `16300cc4...f716`)で取得・検証してArgosへ導入し、続けて製品と同じ手順(`python -m screen_translation_server.stanza_prepare`の`prepare`)で`server/tests/fixtures/pipeline/stanza-manifest.json`のStanza資源4件(resources.jsonと英語のtokenize/mwtモデル、合計約2.2 MB)をサイズ・SHA-256検証つきで同じボリュームへ置きます。所要時間は、初回が約20秒(約115 MiBの取得を含む。開発機1台での実測で、回線条件は統制していない)、取得済みの再実行が約5秒です。ボリュームが残る限りキャッシュされ、ボリュームを削除しない限り再取得しません。モデル未準備のまま試験を実行した場合は**skipせず失敗**し、上記の準備コマンドを表示します。なおこのmanifestのライセンス欄は、利用・再配布条件を未確認のまま試験用に取得するという記録です(同梱・再配布しない)。製品の信頼済みdigestとライセンス確認は#81/#109側の課題です。
+`prepare-model`は`server/tests/fixtures/pipeline/model-manifest.json`の固定manifest(版1.1、120,470,284 bytes、SHA-256 `16300cc4...f716`)で取得・検証してArgosへ導入し、続けて製品と同じ`StanzaResources.provision`(本番の`provision`コマンドと同じ実装)で`server/deploy/stanza-manifest.json`(本番と同じmanifest)のStanza資源4件(resources.jsonと英語のtokenize/mwtモデル、合計約2.2 MB)をサイズ・SHA-256検証つきで同じボリュームへ置きます。所要時間は、初回が約20秒(約115 MiBの取得を含む。開発機1台での実測で、回線条件は統制していない)、取得済みの再実行が約5秒です。ボリュームが残る限りキャッシュされ、ボリュームを削除しない限り再取得しません。モデル未準備のまま試験を実行した場合は**skipせず失敗**し、上記の準備コマンドを表示します。なおこのmanifestのライセンス欄は、利用・再配布条件を未確認のまま試験用に取得するという記録です(同梱・再配布しない)。製品の信頼済みdigestとライセンス確認は#81/#109側の課題です。
 
 CIの`server`ジョブは単体試験のみで、この実エンジン結合試験は含みません(約115 MiBの外部取得が必要なため)。ローカルと独立レビューで上記コマンドを実行し、結果を作業記録とPR本文に残します。
 
@@ -382,13 +426,13 @@ Argos Translateの文分割(`argostranslate.sbd.StanzaSentencizer`)は`stanza.Pi
 | 層 | 内容 | 実装 |
 |---|---|---|
 | 実行時 | `argostranslate.sbd`が参照する`stanza`だけを、`download_method=None`(一切取得しない)を強制する代理へ差し替える。呼び出し側の指定は上書き。Stanza本体の`stanza.Pipeline`は変更しない。適用点はこの1か所 | `engines/stanza_offline.py`（`_load_engines`が呼ぶ） |
-| 準備 | 管理者が外向き通信のある準備段階で、manifestのStanza資源を取得し、サイズ・SHA-256を検証して配置する（未準備・破損分だけ取得。検証に通らないものは配置しない） | `engines/stanza_resources.py`・`stanza_prepare.py` |
+| 準備 | 管理者が外向き通信のある準備段階で、manifestのStanza資源を取得し、サイズ・SHA-256を検証して配置する（未準備・破損分だけ取得。検証に通らないものは配置しない） | `engines/stanza_resources.py`・`provision.py`（`prepare-model`が続けて実行） |
 | 起動 | `EngineLifecycle.prepare`がモデル検証の直後に同じmanifestで資源を再検証する。未準備・破損なら**エンジンを読み込まず**準備失敗とし、readinessは`503 MODEL_NOT_READY`（理由にパス・URLを含めない）。復旧後は再起動なしでreadyへ遷移 | `engines/lifecycle.py`・`startup.py`（`SCREEN_TRANSLATION_STANZA_MANIFEST`は必須） |
 
 `argostranslate`の更新で`sbd.stanza.Pipeline`の前提が崩れた場合、`install_offline_stanza()`が例外を出して準備失敗になり、黙って外部取得へ戻ることはありません。固定が効くことと前提の検出は`server/tests/test_stanza_offline.py`（本物の`StanzaSentencizer.lazy_pipeline`が`download_method=None`で`Pipeline`を呼ぶこと、`stanza.Pipeline`の引数と`DownloadMethod.NONE`の存在）で確認します。対象版はargostranslate 1.11.0 / stanza 1.10.1です。
 
 試験:
 
-- 単体: `test_stanza_resources.py`（manifest検証・取得・再取得・ハッシュ不一致・期限・パス秘匿）、`test_stanza_offline.py`、`test_stanza_readiness.py`（未準備で503・翻訳要求拒否、準備後に復旧）、`test_stanza_prepare.py`、`test_lifecycle_readiness.py`（`SCREEN_TRANSLATION_STANZA_MANIFEST`必須）。
+- 単体: `test_stanza_resources.py`（manifest検証・取得・再取得・ハッシュ不一致・期限・パス秘匿）、`test_stanza_offline.py`、`test_stanza_readiness.py`（未準備で503・翻訳要求拒否、準備後に復旧）、`test_provision.py`（Stanza資源の配置・失敗時の終了コードと秘匿）、`test_production_compose.py`（本番イメージにmanifestを同梱し環境変数で指す）、`test_lifecycle_readiness.py`（`SCREEN_TRANSLATION_STANZA_MANIFEST`必須）。
 - 結合（`network_mode: none`、試験側の回避なし）: `test_offline_translation.py`（新しいtranslatorが`socket`の接続・名前解決を禁止した状態で翻訳できる／資源の一部欠落でエンジンを読み込まず準備失敗）に加え、既存の`test_pipeline*.py`・`test_startup_ready.py`が回避なしで通る。
 - manifestの値（URL・サイズ・SHA-256）は、準備段階で取得元から観測した値であり、配布元が保証する信頼済みdigestではありません。`resources.json`はstanza-resourcesの`main`ブランチ上の版付きファイルで、取得元の更新でSHA-256が変わると準備が失敗します（黙って別内容を受け入れない）。ライセンスの確認は対象外です。
