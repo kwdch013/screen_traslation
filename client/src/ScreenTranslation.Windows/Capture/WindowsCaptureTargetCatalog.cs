@@ -75,7 +75,6 @@ public sealed class WindowsCaptureTargetCatalog : ICaptureTargetCatalog
 	private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
 	private delegate bool MonitorEnumCallback(IntPtr monitor, IntPtr deviceContext, IntPtr monitorRect, IntPtr parameter);
 
-	[StructLayout(LayoutKind.Sequential)]
 	/// <summary>ウィンドウ対象の現在位置(ROI選択時の取り直し用)。ウィンドウが無くなっていればnull。</summary>
 	internal static CaptureBounds? TryGetWindowBounds(CaptureTarget target)
 	{
@@ -87,6 +86,7 @@ public sealed class WindowsCaptureTargetCatalog : ICaptureTargetCatalog
 			: null;
 	}
 
+	[StructLayout(LayoutKind.Sequential)]
 	private struct NativeRect
 	{
 		public int Left;
