@@ -16,8 +16,8 @@
   {
    "path": "en/tokenize/ewt.pt",
    "url": "https://huggingface.co/stanfordnlp/stanza-en/resolve/v1.10.0/models/tokenize/ewt.pt",
-   "size_bytes": 630886,
-   "sha256": "7bc5a1523f4e60107640ea44d2cb27c787bc339ba0c93be6c7dbf744d5635cd6"
+   "size_bytes": 634501,
+   "sha256": "fc2fed0cd74dbaef1620bd3e776141ae76c4e28eb5aeff369b2715c31cc73cba"
   },
   {
    "path": "en/mwt/combined.pt",
