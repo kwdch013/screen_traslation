@@ -189,6 +189,32 @@ dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windo
 5. 端末資格情報だけ(管理用を未保存)で保存し、権限不足の案内が出ること。
 6. 文字の見え方(選択状態・エラー色・折り返し)、混在DPI・複数モニター間でのウィンドウ移動後の表示、キー操作(Tab順・Enter)を目視する。
 
+## MainWindowの配線を検証する起動スモーク試験 (Issue #231)
+
+#98では`MainWindow`のコンストラクタが`InitializeOperations()`を呼んでおらず、接続ボタンが動かなかった。Windowsの試験が各パネル(`OperationPanel`・`ServerSettingsPanel`)の単体生成にとどまり、`MainWindow`内のイベント購読(配線)を検証していなかったため、#98の独立レビュー・CI・UI試験が検出できなかった。この試験は、実際に生成した`MainWindow`の配線を検証する。
+
+`MainWindow`は、保存先と通信・OSに触れる部品(操作モデルの組み立て、設定・用語辞書API)を`MainWindowServices`から受け取る。製品は既定(`MainWindowServices.CreateDefault()`、従来と同じ構成)を使い、試験だけがフェイクへ差し替える。
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 配線の列挙・判定ロジック | `client/tests/Shared/EventWiringInspector.cs`、`client/tests/ScreenTranslation.Client.Tests/EventWiringInspectorTests.cs` | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 公開イベントの列挙(同一アセンブリで宣言された型のみ。WPF基盤のイベントは対象外)、購読有無の判定(フィールド型イベントの保持デリゲートがnullか)、購読の忘れの報告、検査不能なイベントと実在しない許可リスト項目の不合格 |
+| 実`MainWindow`の購読 | `client/tests/ScreenTranslation.Windows.Tests/MainWindowWiringTests.cs`(`Category=MainWindowWiring`)`EveryPublicEventOfEveryPanel_IsSubscribedByTheMainWindow` | Windowsのみ(`windows-client` CI) | STAスレッドで`MainWindow`を生成し、論理ツリーのパネルの全公開イベントを列挙して、購読者がいることを検査する。**パネルに公開イベントを足して配線を忘れると、この試験が落ちる**。購読不要のイベントは`NoSubscriptionNeeded`に理由付きで書く(現在は無し) |
+| 主要操作の到達 | 同上 `Connect_Start_Stop_Reselect_AndHotkeyReapply_ReachTheHost` ほか | 同上 | 実ウィンドウのボタンのクリックイベントから、接続・対象選択・開始・停止・領域の再選択・ホットキー再登録がフェイクのホスト/選択器/レジストラへ届くこと、ウィンドウを閉じるとホストを片付けること、接続設定の保存が保存先へ、設定の読み込みと管理用資格情報の保存が(フェイクの)APIと保存先へ届くこと |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=MainWindowWiring
+```
+
+`Category=MainWindowWiring`はWindows専用で、Linuxでのskipを合格として扱いません(`windows-client` CIがPassedになることを確認する)。Linuxコンテナでは配線検査ロジックの単体試験と、Windows試験プロジェクトのビルド(`dotnet build -p:EnableWindowsTargeting=true`)までを確認する。
+
+**意図的に壊したときに試験が落ちること(mutation)**: `MainWindow`から`InitializeOperations()`または`InitializeServerSettings()`の呼び出しを除く、`ConnectRequested`などのパネルのイベント購読を除く、のいずれでも、購読の検査と操作の到達の試験が落ちる。確認方法と結果はPR #231の本文に記録する。
+
+**この試験が検証しないこと(未実施)**: 見た目、実際のマウス・キー入力、混在DPI・複数モニター、実WGC・実サーバーとの通し。これらは上記のOwner実機手順で確認する。フィールド型でないイベント(`add`/`remove`を自前実装したもの)は購読の有無を調べられないため、許可リストに理由を書かない限り不合格にする。
+
 ## セッション取得・解放のHTTPSクライアント (Issue #210)
 
 `client/src/ScreenTranslation.Client/Api/`が、`POST /api/v1/sessions`(取得)と`DELETE /api/v1/sessions/{session_id}`(解放)を呼ぶ。共通の`ControlApiClient`(認証付きHTTPS・TLS検証・エラー分類。設定・辞書の編集 #99 が再利用する)と、`ISessionGrantProvider`の実装`SessionApiClient`から成る。
