@@ -106,13 +106,14 @@ python -m screen_translation_server.admin.credentials --store "$SCREEN_TRANSLATI
 | 対象 | manifest | 取得元の形 |
 | --- | --- | --- |
 | Argos Translateの英日モデル | [`server/deploy/model-manifest.json`](../../server/deploy/model-manifest.json) | HTTPSの単一ファイル（`.argosmodel`） |
-| Stanzaの文分割資源 | [`server/deploy/stanza-manifest.json`](../../server/deploy/stanza-manifest.json) | resources.json（stanza-resourcesの`main`上の版付きファイル）と、英語のtokenize/mwtモデル（Hugging Face） |
+| Stanzaの文分割資源 | [`server/deploy/stanza-manifest.json`](../../server/deploy/stanza-manifest.json) | resources.json（stanza-resourcesリポジトリ）と、英語のtokenize/mwtモデル（Hugging Face）。どちらも**40桁のコミットSHAで固定したURL**で取得する（Issue #218） |
 
 Tesseract本体と英語の学習データ（`tesseract-ocr-eng`）はmanifest対象ではなく、OSパッケージとして`server/Dockerfile`のイメージ再ビルドで更新します。digest固定の対象ではないため、この手順の差分確認コマンドにも含まれません。
 
 ### 前提と性質
 
-- manifestのサイズ・SHA-256は**取得元から観測した値**で、配布元が保証するdigestではありません。取得元でファイルが差し替わると、`prepare-model`はSHA-256不一致で**準備に失敗**します（黙って別内容を受け入れない）。これは意図した動作で、失敗したらこの手順で原因を確認します。特にstanza-resourcesの`main`ブランチや、Hugging Faceのタグ・ブランチ参照は動き得ます。
+- manifestのサイズ・SHA-256は**取得元から観測した値**で、配布元が保証するdigestではありません。取得元でファイルが差し替わると、`prepare-model`はSHA-256不一致で**準備に失敗**します（黙って別内容を受け入れない）。これは意図した動作で、失敗したらこの手順で原因を確認します。Stanza資源のURLは、動き得るタグ・ブランチ（`resolve/v1.10.0`、`main`）ではなく、コミットSHAを含む不変URL（Hugging Faceの`resolve/<40桁sha>/...`、`raw.githubusercontent.com/<owner>/<repo>/<40桁sha>/...`）にしています（#215で`v1.10.0`タグ先のewt.ptが差し替わり、準備が失敗した実例があるため）。タグ参照へ戻すと単体試験（同梱manifestの固定形式検証）が失敗します。
+- **コミット固定の対象外**: Argosモデル（`argos-net.com`の版付き単一ファイル`translate-en_ja-1_1.argosmodel`）は、配布元がコミット参照を持たないHTTPSの単一ファイルで、固定できません。版をファイル名に含むURLとサイズ・SHA-256検証で差し替えを検出します（差し替わるとSHA-256不一致で準備に失敗し、確認コマンドが差分を報告します）。
 - 英語以外の言語の資源は、v1.0の対象外です。v1.0の対象言語は英語→日本語だけで、追加言語は要件書（[対象範囲と対象外](../../requirements/version_1/requirements.md#対象範囲と対象外)の「追加言語」、REQ-F-004）で対象外と定めています。manifestへ他言語のモデルを足さないでください。
 - 外部へ通信するのは、下記の確認コマンドと`prepare-model`の実行時だけです。サーバー実行時とCIでは外部取得をしません。
 
@@ -133,7 +134,7 @@ docker compose -f server/compose.yml --profile model run --rm prepare-model \
 | 0 | 全件がmanifestと一致 |
 | 1 | 差分あり（サイズ・SHA-256の変化、HTTPSからのリダイレクト逸脱）。報告に取得元の観測値を出す |
 | 2 | 設定エラー（manifest未指定・読めない・形式不正）。通信しない |
-| 3 | 取得できず確認不能（差分は見つかっていない）。通信状況を確認して再実行する |
+| 3 | 取得できず確認不能（差分は見つかっていない）。通信状況を確認して再実行する。固定コミットが削除・force pushで消えた場合（404/410）も、差分ではなくこの区分で報告される |
 
 CDNへのHTTPSリダイレクトは通常動作なので差分にしません。報告にはリダイレクト先（署名付きURL）を出しません。
 
@@ -143,8 +144,11 @@ CDNへのHTTPSリダイレクトは通常動作なので差分にしません。
 
 1. 変更の理由を確認する。取得元の更新履歴（stanza-resourcesのコミット履歴、Hugging Faceのリポジトリ履歴、Argos Translateのパッケージ一覧）で、意図した更新かを確かめる。理由が分からない差し替えは採用しない。
 2. 新しい値を二重に確認する。確認コマンドの観測値に加え、取得元が公開する値と照合する。Hugging Faceのファイルは、応答ヘッダ`x-linked-etag`（LFSのSHA-256）と`x-linked-size`、またはファイル一覧API（`/api/models/<repo>/tree/<ref>/<dir>`）の`lfs.oid`・`size`が使えます。公開値と観測値が一致しない場合は採用しない。公開値がない取得元（resources.json、Argosモデル）は、観測値を取り直して再現することだけを確認し、配布元保証の値ではないことを作業記録に残す。
-3. 取得元の参照を可能な限り固定する。ブランチ名・動くタグではなく、コミットSHAを含むURLへ変えると、取得元の更新に影響されません（URLを変えた場合は、新しいURLで1.の確認コマンドを再実行する）。
-4. manifestの`size_bytes`・`sha256`（必要なら`version`・URL）を更新する。ファイルの追加・削除はStanzaの`files`配列で行い、`path`は配置先の相対パスで重複・`..`は不可。
+3. 新しいコミットSHAを特定する（Stanza資源）。次の公開APIで、採用したい版（タグ）が指す**完全な40桁のコミットSHA**を取得する。短縮SHA・タグ名・ブランチ名は使わない。
+   - Hugging Face: `curl -s https://huggingface.co/api/models/stanfordnlp/stanza-en/revision/<タグ>` の`sha`。
+   - stanza-resources（resources.json）: `curl -s "https://api.github.com/repos/stanfordnlp/stanza-resources/commits?path=resources_<版>.json&per_page=5"` の先頭の`sha`（採用したい時点のコミットを選ぶ）。
+4. 固定コミット時点の値と、実ファイルの両方で照合する。Hugging Faceはツリー一覧API（`/api/models/<repo>/tree/<40桁sha>/models/tokenize`など）の`lfs.oid`・`size`、続けて`resolve/<40桁sha>/...`から実ファイルを自分の一時ディレクトリへ取得して`sha256sum`とサイズを確認する。resources.jsonも`raw.githubusercontent.com/.../<40桁sha>/resources_<版>.json`を取得して確認する。取得したファイルはリポジトリに混ぜず、確認後に削除する。
+5. manifestの`url`を`.../resolve/<40桁sha>/...`（resources.jsonは`.../<40桁sha>/resources_<版>.json`）へ、`size_bytes`・`sha256`（必要なら`version`）を更新する。ファイルの追加・削除はStanzaの`files`配列で行い、`path`は配置先の相対パスで重複・`..`は不可。URLはコミット固定形式のままにする（`StanzaManifest.unpinned_files()`を使う単体試験が、固定でないURLを検出して失敗する）。
 
 ### 3. ライセンスの確認観点（Owner判断）
 
@@ -166,7 +170,8 @@ manifest更新のPRでは、少なくとも次を実行し、結果をPR本文�
 ### 5. ロールバック
 
 - 更新PRのコミットを`git revert`で戻し、イメージを再ビルドして`prepare-model`を再実行します。`prepare-model`は、manifestと一致しない既存ファイルを検出して取得し直します。
-- ただし、戻した先の取得元の値が既に変わっていると、戻したmanifestでは準備に失敗します。その場合は旧版を採用できないため、前の版の検証済みファイルをボリュームのバックアップから戻す（[バックアップと復旧](#バックアップと復旧)）か、新しい版へ進めます。
+- 旧コミットSHAのURLは取得元で不変なので、戻した先でも通常は同じ内容を取得でき、準備に成功します。ただし固定コミットが取得元から削除・force pushされた場合（404/410）は取得できません。その場合は前の版の検証済みファイルをボリュームのバックアップから戻す（[バックアップと復旧](#バックアップと復旧)）か、新しいコミットSHAを採用する手順で進めます。
+- Argosモデルはコミット固定の対象外のため、旧版の配布が消えている場合は同様にバックアップから戻すか新しい版へ進めます。
 - 準備に失敗している間、サーバーはreadyにならず翻訳を受け付けません（既存のreadiness 503）。取得元の更新が原因のときは、サーバー実行中の稼働済み環境には影響しません（実行時は取得しないため）。
 
 ### 6. 運用上の注意
@@ -217,6 +222,14 @@ CA自体の更新では、新CAの公開証明書を別経路で全端末へ配�
 
 停止・再選択・切断時はサーバーがsession generationを無効にし、登録済み処理taskをcancel/drainしてから所有権を解放します。遅れて完了した旧sessionの結果は採用しません。これらはIssue #73の単体/routeテストで確認しています。サーバーコンテナ結合は #74、Windows/Linux実機での接続・切断確認は #108 で行います。
 
+## OCRの時間予算と打ち切り
+
+OCRは1フレームあたり最大2.0秒(前処理を含む)で打ち切ります。字幕帯などの標準ROIは約0.2〜0.7秒で終わりますが、全面ノイズや、全画面(1920x1080)で背景に縞・模様があるROIは期限に収まりません。その場合は該当フレームだけが`PROCESSING_FAILED`になり、利用者が次のフレームを送れば通常どおり処理されます(「文字なし」とは別扱い)。期限を超えたTesseractは子プロセスごと強制終了して回収するため、残留しません。
+
+- 運用での確認: コンテナ内に`tesseract`が増え続けていないこと(`docker top`でtesseractが常時残っていない。処理中に1つ見えるのは正常)。zombie(状態`Z`)が増える場合は異常として調査してください。
+- 利用者への案内: `PROCESSING_FAILED`が続くときは、領域を字幕周辺に狭めて選び直してもらいます。ROIの上限(2,073,600画素)を超える領域は、縮小せず再選択を案内します。
+- 期限・倍率・画素数の上限・スレッド数はコード内の定数です(`engines/robust_ocr.py`・`ocr_preprocess.py`)。根拠と実測、Ownerへ提示する事項は[testing.md](testing.md#ocrの処理時間予算と病的入力の打ち切り-190)を参照してください。
+
 ## 運用ログの扱い
 
 サーバーは運用ログ(標準出力/標準エラー)にsession_id・認証情報・原文・訳文・画像を出しません。uvicornのaccessログは無効化しており、有効に戻さないでください(`DELETE /api/v1/sessions/{session_id}`のパスにsession_idが出ます)。翻訳ライブラリ(`argostranslate`・`stanza`)のloggerはWARNING以上に固定しているため、運用側でroot loggerにhandlerを付けても原文・訳文は出ません。ログ集約を追加するときも、uvicornの`log_config`やライブラリのlogger levelを緩めないでください。詳細は[security.md](design/security.md)と[testing.md](testing.md#運用ログの秘匿-issue-195)を参照してください。
@@ -245,6 +258,7 @@ secret/certificate providerとの自動連携も対象外です。運用者が�
 | 要件 | 本手順・実装 |
 |---|---|
 | REQ-NF-006 | TLS 1.2以上、device/admin role分離、無効/失効資格情報の拒否 |
+| REQ-NF-002 / REQ-NF-005 | OCR1回を2.0秒で打ち切り、子プロセスを回収して残さない。単一スレッドで2 CPU予算を守る(#190) |
 | REQ-NF-007 | tokenはsalt付きverifierのみ保存し、秘密はsecret管理/OS保護へ分離。運用ログ(accessログ・依存ライブラリ)にsession_id・内容を出さない(#195) |
 | REQ-NF-009 | HTTPS/WSSの証明書名・期限・信頼を検証し、検証無効化を禁止 |
 | ACC-05 / ACC-12 / ACC-14 | 失効後1秒以内拒否、秘密をログ/API/イメージへ含めない、管理CLIをadmin roleに限定 |

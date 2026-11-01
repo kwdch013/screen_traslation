@@ -26,6 +26,21 @@ class StanzaResourceError(Exception):
 	"""Stanza資源の未準備・破損・取得失敗。メッセージは利用者へ見せてよい固定文だけにする。"""
 
 
+# 取得元の仕組み上、コミットSHAを含む不変URLの形。タグ・ブランチ・短縮SHAは動き得る/曖昧なので固定とみなさない(#218)。
+_PINNED_URL_PATTERNS = (
+	("huggingface.co", re.compile(r"/[^/]+/[^/]+/resolve/[0-9a-f]{40}/[^/].*")),
+	("raw.githubusercontent.com", re.compile(r"/[^/]+/[^/]+/[0-9a-f]{40}/[^/].*")),
+)
+
+
+def is_commit_pinned_url(url: str) -> bool:
+	"""URLが40桁のコミットSHAで固定された取得元の形かを返す。"""
+	parsed = urlsplit(url)
+	if parsed.scheme != "https":
+		return False
+	return any(parsed.hostname == host and pattern.fullmatch(parsed.path) for host, pattern in _PINNED_URL_PATTERNS)
+
+
 @dataclass(frozen=True)
 class StanzaFile:
 	path: str
@@ -59,6 +74,10 @@ class StanzaManifest:
 				raise ValueError("Stanza資源のサイズが範囲外です。")
 			if not re.fullmatch(r"[0-9a-fA-F]{64}", file.sha256):
 				raise ValueError("Stanza資源に信頼済みSHA-256が必要です。")
+
+	def unpinned_files(self) -> tuple[str, ...]:
+		"""取得URLがコミットSHA固定でない資源のpathを返す。同梱manifestは空であること(試験で固定)。"""
+		return tuple(file.path for file in self.files if not is_commit_pinned_url(file.url))
 
 	@classmethod
 	def from_json(cls, data: Mapping[str, Any]) -> StanzaManifest:

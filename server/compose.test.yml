@@ -63,5 +63,17 @@ services:
       - "test_*.py"
       - -v
 
+  # OCR処理時間の測定(2 CPU制限下。外部通信なし)。合否判定ではなく記録用。
+  measure:
+    profiles: [measure]
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    init: true
+    cpus: 2
+    mem_limit: 4g
+    network_mode: none
+    command: [python, -B, tests/tools/measure_ocr_time.py, --pathological]
+
 volumes:
   argos-models:
