@@ -83,9 +83,10 @@ public sealed class ControlApiClient : IDisposable
 
 	/// <summary>
 	/// 認証付きで要求を送る。2xxなら応答を返し、それ以外は<see cref="ControlApiException"/>。
-	/// <paramref name="jsonBody"/>がnullなら本文を送らない。
+	/// <paramref name="jsonBody"/>がnullなら本文を送らない。<paramref name="ifMatchRevision"/>があれば、
+	/// 契約どおり引用符付きの十進数で<c>If-Match</c>に付ける(設定・辞書の条件付き更新)。
 	/// </summary>
-	public async Task<ControlApiResponse> SendAsync(HttpMethod method, string path, string? jsonBody, CancellationToken cancellationToken)
+	public async Task<ControlApiResponse> SendAsync(HttpMethod method, string path, string? jsonBody, CancellationToken cancellationToken, ulong? ifMatchRevision = null)
 	{
 		ArgumentNullException.ThrowIfNull(method);
 		ArgumentException.ThrowIfNullOrEmpty(path);
@@ -99,6 +100,7 @@ public sealed class ControlApiClient : IDisposable
 			using var request = new HttpRequestMessage(method, new UriBuilder(origin) { Path = path, Query = string.Empty, Fragment = string.Empty }.Uri);
 			request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 			request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+			if (ifMatchRevision is { } revision) request.Headers.IfMatch.Add(new EntityTagHeaderValue($"\"{revision}\""));
 			if (jsonBody is not null) request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
 
 			using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);

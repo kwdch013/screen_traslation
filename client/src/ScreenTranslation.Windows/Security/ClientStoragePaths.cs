@@ -10,6 +10,8 @@ public static class ClientStoragePaths
 
 	public static string CredentialFile => Path.Combine(GetDirectory(), "device-credential.bin");
 
+	public static string AdminCredentialFile => Path.Combine(GetDirectory(), "admin-credential.bin");
+
 	private static string GetDirectory()
 	{
 		var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);

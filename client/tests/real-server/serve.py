@@ -6,6 +6,7 @@ OCR・翻訳のエンジンだけを固定の代替にし、HTTPS制御API・WSS
 共有ディレクトリ(引数1。既定 /shared)へ書くもの:
 - ca.pem: 一時CAの証明書(クライアントが信頼する)
 - device-a.token / device-b.token: 端末資格情報(別々の所有者として使う)
+- admin.token: 管理資格情報(設定・用語辞書の更新に使う)
 - ready: すべての待受が始まった合図(最後に作る)
 """
 
@@ -40,6 +41,8 @@ from screen_translation_server.sessions import SessionManager
 HOST_NAME = os.environ.get("REAL_SERVER_HOST_NAME", "localhost")
 READY_PORT = 8443
 NOT_READY_PORT = 8444
+# 設定・用語辞書を書き換える試験専用の待受(他の試験が前提にする辞書のrevisionを動かさないため分ける)
+SETTINGS_PORT = 8445
 # 切断検知を速くして、試験が所有権の解放を待つ時間を短くする(製品の既定は5秒)
 DISCONNECT_TIMEOUT = 1.0
 
@@ -110,23 +113,25 @@ class Instance:
 def main() -> int:
 	shared = Path(sys.argv[1] if len(sys.argv) > 1 else "/shared")
 	# 前回の実行の資格情報・ready合図が残っていても、新しい実行のものと取り違えない
-	for name in ("ready", "ca.pem", "device-a.token", "device-b.token"):
+	for name in ("ready", "ca.pem", "device-a.token", "device-b.token", "admin.token"):
 		(shared / name).unlink(missing_ok=True)
 	with tempfile.TemporaryDirectory(prefix="client-integration-server-") as temporary:
 		directory = Path(temporary)
 		make_certificates(directory)
-		token_a, token_b = secrets.token_hex(32), secrets.token_hex(32)
+		token_a, token_b, token_admin = secrets.token_hex(32), secrets.token_hex(32), secrets.token_hex(32)
 		expires = datetime.now(UTC) + timedelta(hours=2)
 		CredentialManager(directory / "credentials.json")._write([
 			create_credential(token_a, Role.DEVICE, expires, "device-a"),
 			create_credential(token_b, Role.DEVICE, expires, "device-b"),
+			create_credential(token_admin, Role.ADMIN, expires, "admin"),
 		])
-		instances = [Instance(directory, READY_PORT, ready=True), Instance(directory, NOT_READY_PORT, ready=False)]
+		instances = [Instance(directory, READY_PORT, ready=True), Instance(directory, NOT_READY_PORT, ready=False), Instance(directory, SETTINGS_PORT, ready=True)]
 		for instance in instances:
 			instance.start()
 		(shared / "ca.pem").write_text((directory / "ca.pem").read_text(encoding="ascii"), encoding="ascii")
 		(shared / "device-a.token").write_text(token_a, encoding="ascii")
 		(shared / "device-b.token").write_text(token_b, encoding="ascii")
+		(shared / "admin.token").write_text(token_admin, encoding="ascii")
 		(shared / "ready").write_text("ready", encoding="ascii")
 		print("client integration server ready", flush=True)
 

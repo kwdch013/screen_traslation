@@ -13,7 +13,7 @@ namespace ScreenTranslation.Client.IntegrationTests;
 /// 実サーバー結合試験の接続先。client/compose.real-server.ymlが環境変数で渡す(特定の接続先をコードへ書かない)。
 /// 環境変数がなければ試験はスキップする。
 /// </summary>
-internal sealed record RealServerEnvironment(string ReadyUrl, string NotReadyUrl, string SharedDirectory)
+internal sealed record RealServerEnvironment(string ReadyUrl, string NotReadyUrl, string SharedDirectory, string? SettingsUrl = null)
 {
 	public static RealServerEnvironment? FromEnvironment()
 	{
@@ -22,7 +22,7 @@ internal sealed record RealServerEnvironment(string ReadyUrl, string NotReadyUrl
 		var shared = Environment.GetEnvironmentVariable("REAL_SERVER_SHARED_DIR");
 		return string.IsNullOrWhiteSpace(ready) || string.IsNullOrWhiteSpace(notReady) || string.IsNullOrWhiteSpace(shared)
 			? null
-			: new RealServerEnvironment(ready, notReady, shared);
+			: new RealServerEnvironment(ready, notReady, shared, Environment.GetEnvironmentVariable("REAL_SERVER_SETTINGS_URL"));
 	}
 
 	public string Token(string owner) => File.ReadAllText(Path.Combine(SharedDirectory, $"{owner}.token")).Trim();
@@ -102,6 +102,7 @@ internal sealed class RealServerClient : IDisposable
 	private readonly TestCredentials credentials;
 	public ConnectionSettings Settings { get; }
 	public SessionApiClient Sessions { get; }
+	public ServerSettingsApiClient ServerSettings { get; }
 	public StreamTransportClient Transport { get; }
 
 	public RealServerClient(string url, string token, string authorityPem, TimeSpan? requestTimeout = null)
@@ -110,6 +111,7 @@ internal sealed class RealServerClient : IDisposable
 		Settings = new ConnectionSettings(url);
 		var validation = CustomRootTrust.For(authorityPem);
 		Sessions = new SessionApiClient(new ControlApiClient(Settings, credentials.Store, validation, requestTimeout));
+		ServerSettings = new ServerSettingsApiClient(new ControlApiClient(Settings, credentials.Store, validation, requestTimeout));
 		Transport = new StreamTransportClient(Settings, credentials.Store, new ClientWebSocketStreamFactory(validation),
 			new ReconnectPolicy(2, TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1)));
 	}
@@ -117,6 +119,7 @@ internal sealed class RealServerClient : IDisposable
 	public void Dispose()
 	{
 		Sessions.Dispose();
+		ServerSettings.Dispose();
 		credentials.Dispose();
 	}
 }
