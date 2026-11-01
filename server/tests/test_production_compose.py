@@ -193,6 +193,13 @@ class StanzaManifestDeploymentTest(unittest.TestCase):
 		manifest.validate()
 		self.assertIn("resources.json", [file.path for file in manifest.files])
 
+	def test_deployed_stanza_manifest_urls_are_pinned_to_commit_sha(self) -> None:
+		"""タグ・ブランチ参照は取得元の更新で動くため、本番manifestは全URLをコミットSHA固定にする(#218)。"""
+		from screen_translation_server.engines.stanza_resources import StanzaManifest
+
+		manifest = StanzaManifest.from_json(json.loads(STANZA_MANIFEST_PATH.read_text(encoding="utf-8")))
+		self.assertEqual(manifest.unpinned_files(), ())
+
 	def test_runtime_image_ships_manifest_and_points_environment_at_it(self) -> None:
 		text = DOCKERFILE_PATH.read_text(encoding="utf-8")
 		self.assertIn("COPY server/deploy/stanza-manifest.json /opt/screen-translation/stanza-manifest.json", text)

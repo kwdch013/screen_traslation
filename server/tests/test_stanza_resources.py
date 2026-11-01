@@ -14,6 +14,7 @@ from screen_translation_server.engines.stanza_resources import (
 	StanzaResourceError,
 	StanzaResources,
 	argos_stanza_directory,
+	is_commit_pinned_url,
 )
 
 CONTENTS = {
@@ -44,6 +45,41 @@ class FakeDownloader:
 	def __call__(self, url: str, target: Path, timeout_seconds: float) -> None:
 		self.calls.append(url)
 		target.write_bytes(self.by_url[url])
+
+
+SHA = "92f1a846e29acaa866ed76e433ede3589115a2a9"
+
+
+class CommitPinnedUrlTest(unittest.TestCase):
+	"""取得URLがコミットSHA固定であることの判定(#218)。タグ・ブランチ参照は動き得るため固定とみなさない。"""
+
+	def test_固定形式を受け入れる(self) -> None:
+		for url in (
+			f"https://huggingface.co/stanfordnlp/stanza-en/resolve/{SHA}/models/tokenize/ewt.pt",
+			f"https://raw.githubusercontent.com/stanfordnlp/stanza-resources/{SHA}/resources_1.10.0.json",
+		):
+			self.assertTrue(is_commit_pinned_url(url), url)
+
+	def test_タグ_ブランチ_短縮SHA_大文字_別ホストは固定とみなさない(self) -> None:
+		for url in (
+			"https://huggingface.co/stanfordnlp/stanza-en/resolve/v1.10.0/models/tokenize/ewt.pt",
+			"https://huggingface.co/stanfordnlp/stanza-en/resolve/main/models/tokenize/ewt.pt",
+			f"https://huggingface.co/stanfordnlp/stanza-en/resolve/{SHA[:12]}/models/tokenize/ewt.pt",
+			f"https://huggingface.co/stanfordnlp/stanza-en/resolve/{SHA.upper()}/models/tokenize/ewt.pt",
+			f"https://huggingface.co/stanfordnlp/stanza-en/resolve/{SHA}0/models/tokenize/ewt.pt",
+			"https://raw.githubusercontent.com/stanfordnlp/stanza-resources/main/resources_1.10.0.json",
+			f"https://example.invalid/stanfordnlp/stanza-en/resolve/{SHA}/a.pt",
+			f"http://huggingface.co/stanfordnlp/stanza-en/resolve/{SHA}/a.pt",
+			f"https://huggingface.co/stanfordnlp/stanza-en/blob/{SHA}/a.pt",
+			f"https://huggingface.co/stanfordnlp/stanza-en/resolve/main/{SHA}/a.pt",
+		):
+			self.assertFalse(is_commit_pinned_url(url), url)
+
+	def test_unpinned_filesは固定でない項目のpathを返す(self) -> None:
+		pinned = StanzaFile("a.pt", f"https://huggingface.co/o/r/resolve/{SHA}/a.pt", 1, "0" * 64)
+		loose = StanzaFile("b.pt", "https://huggingface.co/o/r/resolve/v1/b.pt", 1, "0" * 64)
+		self.assertEqual(StanzaManifest("1.10.0", (pinned, loose)).unpinned_files(), ("b.pt",))
+		self.assertEqual(StanzaManifest("1.10.0", (pinned,)).unpinned_files(), ())
 
 
 class StanzaManifestTest(unittest.TestCase):
