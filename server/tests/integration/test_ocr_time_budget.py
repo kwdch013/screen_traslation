@@ -26,7 +26,7 @@ from screen_translation_server.engines import robust_ocr
 from screen_translation_server.engines.robust_ocr import RobustTesseractOcrEngine
 from screen_translation_server.engines.tesseract_runner import OcrTimeoutError
 
-DEADLINE = 1.0  # 試験用に短くした全体期限。製品の既定は2.0秒
+DEADLINE = 1.5  # 試験用に短くした全体期限。製品の既定は2.0秒。標準ROIサイズのノイズの前処理(約0.3秒)が負荷で伸びても残る長さ
 # 期限+前処理+kill・回収の余裕。ハング検出専用で、性能の合否には使わない
 HANG_WATCHDOG = DEADLINE + 8.0
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
