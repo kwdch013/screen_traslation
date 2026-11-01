@@ -8,9 +8,11 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from screen_translation_server.engines.lifecycle import EngineLifecycle, ModelManifest
+from screen_translation_server.engines.stanza_resources import StanzaManifest, StanzaResources, argos_stanza_directory
 
 MANIFEST_VARIABLE = "SCREEN_TRANSLATION_MODEL_MANIFEST"
 MODEL_DIR_VARIABLE = "SCREEN_TRANSLATION_MODEL_DIR"
+STANZA_MANIFEST_VARIABLE = "SCREEN_TRANSLATION_STANZA_MANIFEST"
 
 
 class StartupConfigurationError(ValueError):
@@ -33,7 +35,25 @@ def manifest_from_environment(environment: Mapping[str, str] | None = None) -> t
 	return manifest, Path(model_dir)
 
 
+def stanza_resources_from_environment(environment: Mapping[str, str] | None = None) -> StanzaResources:
+	"""Stanza資源のmanifest(JSON)を環境変数から読む。起動(検証)と導入(provision)で共有する。"""
+	env = os.environ if environment is None else environment
+	stanza_path = env.get(STANZA_MANIFEST_VARIABLE)
+	if not stanza_path:
+		raise StartupConfigurationError(f"{STANZA_MANIFEST_VARIABLE} を設定してください。")
+	return load_stanza_resources(stanza_path)
+
+
+def load_stanza_resources(stanza_path: str | Path) -> StanzaResources:
+	try:
+		stanza_manifest = StanzaManifest.from_json(json.loads(Path(stanza_path).read_text(encoding="utf-8")))
+		stanza_manifest.validate()
+	except (OSError, ValueError, TypeError) as error:
+		raise StartupConfigurationError(f"Stanza資源manifestを読み込めません ({type(error).__name__})。") from None
+	return StanzaResources(stanza_manifest, argos_stanza_directory)
+
+
 def lifecycle_from_environment(environment: Mapping[str, str] | None = None) -> EngineLifecycle:
-	"""manifest(JSON)とモデル導入先を環境変数から読み、EngineLifecycleを作る。"""
+	"""モデル・Stanza資源のmanifest(JSON)とモデル導入先を環境変数から読み、EngineLifecycleを作る。"""
 	manifest, model_dir = manifest_from_environment(environment)
-	return EngineLifecycle(manifest, model_dir)
+	return EngineLifecycle(manifest, model_dir, stanza_resources=stanza_resources_from_environment(environment))

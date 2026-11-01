@@ -29,10 +29,12 @@ RUN groupadd --system --gid 10001 translation \
 	&& chown 10001:10001 /data /credentials /models
 
 COPY server/deploy/model-manifest.json /opt/screen-translation/model-manifest.json
+COPY server/deploy/stanza-manifest.json /opt/screen-translation/stanza-manifest.json
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
 	PYTHONUNBUFFERED=1 \
-	SCREEN_TRANSLATION_MODEL_MANIFEST=/opt/screen-translation/model-manifest.json
+	SCREEN_TRANSLATION_MODEL_MANIFEST=/opt/screen-translation/model-manifest.json \
+	SCREEN_TRANSLATION_STANZA_MANIFEST=/opt/screen-translation/stanza-manifest.json
 
 USER 10001:10001
 EXPOSE 8443
