@@ -1,0 +1,108 @@
+# Linuxサーバーの本番構成。使い方は docs/v1.0/operations.md を参照する。
+# 設定は同じディレクトリの .env (雛形は .env.example) から与える。秘密の値はここにも .env にも書かない。
+name: screen-translation-server
+
+x-server-image: &server-image
+  image: ${SERVER_IMAGE:-screen-translation-server:local}
+  build:
+    context: ..
+    dockerfile: server/Dockerfile
+    target: runtime
+
+# 書き込みを許す場所は名前付きvolumeとtmpfsだけにする。
+x-hardening: &hardening
+  init: true
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:size=64m,mode=1777"]
+
+# 実行上限 2 CPU / 4 GiB (REQ-NF-005)。アプリは上限超過のcgroupではreadyにならない。
+x-limits: &limits
+  cpus: 2
+  mem_limit: 4g
+  memswap_limit: 4g
+  pids_limit: 512
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# モデルの導入先はXDG_DATA_HOME配下。Argosのpackageもここへ入り、再起動後も保持される。
+x-model-environment: &model-environment
+  SCREEN_TRANSLATION_MODEL_DIR: /models
+  XDG_DATA_HOME: /models/xdg-data
+  XDG_CACHE_HOME: /models/xdg-cache
+  # 読み取り専用ルートFSでもArgosがimport時に作る設定ディレクトリ(既定は存在しないHOME配下)。tmpfsへ向ける。
+  XDG_CONFIG_HOME: /tmp/xdg-config
+
+services:
+  server:
+    <<: [*server-image, *hardening, *limits]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging: *logging
+    ports:
+      # 公開アドレスの既定はloopback。LANへ公開するときだけ .env の SERVER_BIND_ADDRESS を変える。
+      - "${SERVER_BIND_ADDRESS:-127.0.0.1}:${SERVER_API_PORT:-8443}:8443"
+    environment:
+      <<: *model-environment
+      # コンテナ内の待受。外部への公開範囲はports(公開アドレス)で決まる。
+      SCREEN_TRANSLATION_BIND_HOST: "0.0.0.0"
+      SCREEN_TRANSLATION_PORT: "8443"
+      SCREEN_TRANSLATION_TLS_CERTIFICATE: /run/secrets/tls/current/fullchain.pem
+      SCREEN_TRANSLATION_TLS_PRIVATE_KEY: /run/secrets/tls/current/private-key.pem
+      SCREEN_TRANSLATION_CREDENTIALS_FILE: /credentials/credentials.json
+      SCREEN_TRANSLATION_DATA_DIR: /data
+      SCREEN_TRANSLATION_ALLOWED_HOSTS: ${SERVER_ALLOWED_HOSTS:?SERVER_ALLOWED_HOSTS に、クライアントが使う「名前:ポート」を設定してください}
+      SCREEN_TRANSLATION_ALLOWED_ORIGINS: ${SERVER_ALLOWED_ORIGINS:-}
+      # OCRとtorchが2 CPUを超えて並列化しない。パイプライン自体は処理1件・待機1件で固定(コード側)。
+      OMP_THREAD_LIMIT: "1"
+      OMP_NUM_THREADS: "2"
+    volumes:
+      # TLS証明書と秘密鍵はホストのsecret領域を読み取り専用で供給する(イメージ・環境変数へ入れない)。
+      - type: bind
+        source: ${SERVER_TLS_DIR:?SERVER_TLS_DIR に、current/fullchain.pem と current/private-key.pem を含むディレクトリを設定してください}
+        target: /run/secrets/tls
+        read_only: true
+      - server-data:/data
+      - server-credentials:/credentials:ro
+      - server-models:/models:ro
+    healthcheck:
+      # 認証前でも応答できること(生存)を、設定済み証明書を信頼起点にした検証付きTLSで確認する。
+      test: ["CMD", "python", "-m", "screen_translation_server.healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # モデル導入(準備段階だけ外向き通信を許可)。実行時のserverはモデルを取得しない。
+  prepare-model:
+    <<: [*server-image, *hardening, *limits]
+    profiles: [model]
+    network_mode: bridge
+    logging: *logging
+    environment: *model-environment
+    volumes:
+      - server-models:/models
+    command: ["python", "-m", "screen_translation_server.provision"]
+
+  # 資格情報台帳の管理CLI(ネットワーク不要)。管理トークンは呼び出し側の環境変数から渡す。
+  admin:
+    <<: [*server-image, *hardening, *limits]
+    profiles: [admin]
+    network_mode: none
+    logging: *logging
+    environment:
+      - SCREEN_TRANSLATION_ADMIN_TOKEN
+    volumes:
+      - server-credentials:/credentials
+    entrypoint: ["python", "-m", "screen_translation_server.admin.credentials", "--store", "/credentials/credentials.json"]
+
+volumes:
+  server-data:
+  server-credentials:
+  server-models:

@@ -17,8 +17,8 @@ class StartupConfigurationError(ValueError):
 	"""起動に必要なモデル設定の不足・不正。メッセージにパスや内容は含めない。"""
 
 
-def lifecycle_from_environment(environment: Mapping[str, str] | None = None) -> EngineLifecycle:
-	"""manifest(JSON)とモデル導入先を環境変数から読み、EngineLifecycleを作る。"""
+def manifest_from_environment(environment: Mapping[str, str] | None = None) -> tuple[ModelManifest, Path]:
+	"""manifest(JSON)とモデル導入先を環境変数から読む。起動(lifecycle)と導入(provision)で共有する。"""
 	env = os.environ if environment is None else environment
 	manifest_path = env.get(MANIFEST_VARIABLE)
 	model_dir = env.get(MODEL_DIR_VARIABLE)
@@ -30,4 +30,10 @@ def lifecycle_from_environment(environment: Mapping[str, str] | None = None) -> 
 	except (OSError, ValueError, TypeError) as error:
 		# 原因の詳細(パス・内容)は出さず、型名だけで運用者に気づかせる。
 		raise StartupConfigurationError(f"モデルmanifestを読み込めません ({type(error).__name__})。") from None
+	return manifest, Path(model_dir)
+
+
+def lifecycle_from_environment(environment: Mapping[str, str] | None = None) -> EngineLifecycle:
+	"""manifest(JSON)とモデル導入先を環境変数から読み、EngineLifecycleを作る。"""
+	manifest, model_dir = manifest_from_environment(environment)
 	return EngineLifecycle(manifest, model_dir)

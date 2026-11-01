@@ -2,3 +2,5 @@
 httpx==0.28.1
 httpx2==2.16.0
 # テスト用HTTPクライアント (BSD-3-Clause)。WebSocketは本番固定依存のwebsockets==15.0.1 (BSD-3-Clause)を使用。
+PyYAML==6.0.3
+# 本番Compose構成の静的検証(tests/test_production_compose.py)用 (MIT)。
