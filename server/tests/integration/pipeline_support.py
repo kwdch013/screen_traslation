@@ -18,8 +18,9 @@ from typing import Any
 from jsonschema import Draft202012Validator, FormatChecker
 
 from app.contracts import Frame, Rect, TextRegion
-from prepare_model import load_manifest
+from prepare_model import STANZA_MANIFEST_PATH, load_manifest
 from screen_translation_server.engines.lifecycle import ModelManifest
+from screen_translation_server.engines.stanza_resources import StanzaManifest, StanzaResourceError, StanzaResources, argos_stanza_directory
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/pipeline"
 CONTRACTS = next(
@@ -46,28 +47,17 @@ def require_model(manifest: ModelManifest | None = None) -> ModelManifest:
 	installed = any(settings.package_data_dir.glob("en_ja"))
 	if not model.is_file() or not installed:
 		raise AssertionError(PREPARE_HINT)
+	try:
+		stanza_resources().verify()
+	except StanzaResourceError as error:
+		raise AssertionError(f"{error} {PREPARE_HINT}") from None
 	return manifest
 
 
-def use_installed_stanza_resources() -> None:
-	"""Stanzaの資源一覧取得(既定は毎回外部取得)を止め、導入済み資源だけを使う。
-
-	結合試験コンテナは外向き通信を持たないため。製品側が同じ外部取得を行う点は
-	docs/v1.0/testing.mdの「未解決事項」に記録している。
-	"""
-	import stanza
-
-	if getattr(stanza.Pipeline, "_reuse_installed_resources", False):
-		return
-
-	class ReusePipeline(stanza.Pipeline):  # type: ignore[misc, name-defined]
-		_reuse_installed_resources = True
-
-		def __init__(self, *args: Any, **kwargs: Any) -> None:
-			kwargs.setdefault("download_method", "reuse_resources")
-			super().__init__(*args, **kwargs)
-
-	stanza.Pipeline = ReusePipeline
+def stanza_resources() -> StanzaResources:
+	"""製品と同じmanifest検証でStanza資源を確認する。未準備・破損は準備手順付きで失敗させる。"""
+	manifest = StanzaManifest.from_json(json.loads(STANZA_MANIFEST_PATH.read_text(encoding="utf-8")))
+	return StanzaResources(manifest, argos_stanza_directory)
 
 
 def engine_versions(manifest: ModelManifest) -> dict[str, str]:

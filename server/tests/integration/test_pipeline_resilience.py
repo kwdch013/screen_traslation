@@ -16,6 +16,7 @@ from pipeline_support import (
 	is_result,
 	load_cases,
 	read_until,
+	stanza_resources,
 )
 from readiness_support import RetryGate, install_model, make_directory, make_readiness, model_file_name
 from screen_translation_server.engines.lifecycle import EngineLifecycle, ModelState
@@ -46,7 +47,7 @@ class PreparationRecoveryTests(PipelineCase):
 	def test_missing_and_corrupt_models_keep_the_server_unready_until_recovery(self) -> None:
 		directory = make_directory(self)
 		gate = RetryGate()
-		lifecycle = EngineLifecycle(self.engines.manifest, directory)
+		lifecycle = EngineLifecycle(self.engines.manifest, directory, stanza_resources=stanza_resources())
 		readiness = make_readiness(lifecycle, gate, retry_interval=0.05)
 		server = self.make_server(readiness=readiness)
 		model_name = model_file_name(self.engines.manifest)

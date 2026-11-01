@@ -12,9 +12,11 @@ import zipfile
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 from urllib.parse import urlsplit
 
+if TYPE_CHECKING:
+	from screen_translation_server.engines.stanza_resources import StanzaResources
 
 MAX_MODEL_BYTES = 1024**3
 PREPARATION_TIMEOUT_SECONDS = 1800
@@ -183,10 +185,13 @@ class EngineLifecycle:
 		warmup: Callable[[object], None] | None = None,
 		resource_limits: ResourceLimits | None = None,
 		resource_check: Callable[[], bool] | None = None,
+		stanza_resources: StanzaResources | None = None,
 		monotonic: Callable[[], float] = time.monotonic,
 	) -> None:
 		self.manifest = manifest
 		self.model_directory = Path(model_directory)
+		# 外向き通信なしで翻訳するため、実行時はStanza資源をmanifestで再検証する。未指定は単体試験用。
+		self.stanza_resources = stanza_resources
 		self.engine_loader = engine_loader or _load_engines
 		self.warmup = warmup or _warmup_engines
 		self.resource_limits = resource_limits or ResourceLimits()
@@ -226,6 +231,9 @@ class EngineLifecycle:
 					raise FileNotFoundError(self.failure_reason)
 				ModelProvisioner(self.manifest, self.model_directory)._verify(model_path)
 				_check_deadline(self._monotonic, deadline)
+				if self.stanza_resources is not None:
+					self.stanza_resources.verify()
+					_check_deadline(self._monotonic, deadline)
 				if not self.resource_check():
 					raise RuntimeError("サーバー資源上限を確認できないか、CPU/メモリ上限を超過しています。")
 				_check_deadline(self._monotonic, deadline)
@@ -344,9 +352,11 @@ def _install_argos_model(path: Path) -> None:
 
 
 def _load_engines() -> object:
-	from screen_translation_server.engines import build_engines
+	from screen_translation_server.engines import build_engines, stanza_offline
 	from screen_translation_server.operational_logging import restrict_dependency_loggers
 
+	# 文分割(Stanza)の外部取得を止める。外向き通信のない構成で初回翻訳が失敗しないための固定。
+	stanza_offline.install_offline_stanza()
 	engines = build_engines()
 	# 読込で初めてimportされたライブラリの子loggerも、内容を出さないよう固定する。
 	restrict_dependency_loggers()

@@ -8,9 +8,11 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from screen_translation_server.engines.lifecycle import EngineLifecycle, ModelManifest
+from screen_translation_server.engines.stanza_resources import StanzaManifest, StanzaResources, argos_stanza_directory
 
 MANIFEST_VARIABLE = "SCREEN_TRANSLATION_MODEL_MANIFEST"
 MODEL_DIR_VARIABLE = "SCREEN_TRANSLATION_MODEL_DIR"
+STANZA_MANIFEST_VARIABLE = "SCREEN_TRANSLATION_STANZA_MANIFEST"
 
 
 class StartupConfigurationError(ValueError):
@@ -18,16 +20,25 @@ class StartupConfigurationError(ValueError):
 
 
 def lifecycle_from_environment(environment: Mapping[str, str] | None = None) -> EngineLifecycle:
-	"""manifest(JSON)とモデル導入先を環境変数から読み、EngineLifecycleを作る。"""
+	"""モデル・Stanza資源のmanifest(JSON)とモデル導入先を環境変数から読み、EngineLifecycleを作る。"""
 	env = os.environ if environment is None else environment
 	manifest_path = env.get(MANIFEST_VARIABLE)
 	model_dir = env.get(MODEL_DIR_VARIABLE)
-	if not manifest_path or not model_dir:
-		raise StartupConfigurationError(f"{MANIFEST_VARIABLE} と {MODEL_DIR_VARIABLE} を設定してください。")
+	stanza_path = env.get(STANZA_MANIFEST_VARIABLE)
+	if not manifest_path or not model_dir or not stanza_path:
+		raise StartupConfigurationError(
+			f"{MANIFEST_VARIABLE}・{MODEL_DIR_VARIABLE}・{STANZA_MANIFEST_VARIABLE} を設定してください。"
+		)
 	try:
 		manifest = ModelManifest(**json.loads(Path(manifest_path).read_text(encoding="utf-8")))
 		manifest.validate()
 	except (OSError, ValueError, TypeError) as error:
 		# 原因の詳細(パス・内容)は出さず、型名だけで運用者に気づかせる。
 		raise StartupConfigurationError(f"モデルmanifestを読み込めません ({type(error).__name__})。") from None
-	return EngineLifecycle(manifest, model_dir)
+	try:
+		stanza_manifest = StanzaManifest.from_json(json.loads(Path(stanza_path).read_text(encoding="utf-8")))
+		stanza_manifest.validate()
+	except (OSError, ValueError, TypeError) as error:
+		raise StartupConfigurationError(f"Stanza資源manifestを読み込めません ({type(error).__name__})。") from None
+	stanza = StanzaResources(stanza_manifest, argos_stanza_directory)
+	return EngineLifecycle(manifest, model_dir, stanza_resources=stanza)

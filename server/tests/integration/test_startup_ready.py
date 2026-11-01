@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 from starlette.testclient import TestClient
 
-from prepare_model import MANIFEST_PATH
-from pipeline_support import JAPANESE, frame_message, load_cases, model_directory, require_model, use_installed_stanza_resources
+from prepare_model import MANIFEST_PATH, STANZA_MANIFEST_PATH
+from pipeline_support import JAPANESE, frame_message, load_cases, model_directory, require_model
 from screen_translation_server import app as app_module
 from screen_translation_server.lifecycle_readiness import LifecycleReadiness
 from screen_translation_server.security.auth import CredentialStore, Role, create_credential
@@ -27,7 +27,6 @@ READY_TIMEOUT_SECONDS = 180  # 実エンジンのロードとwarmup。無応答�
 class ProductionStartupTest(unittest.TestCase):
 	def test_main_alone_becomes_ready_and_translates(self) -> None:
 		require_model()
-		use_installed_stanza_resources()
 		captured: dict[str, object] = {}
 
 		def fake_server(app, *, tls_context):
@@ -38,6 +37,7 @@ class ProductionStartupTest(unittest.TestCase):
 		env = {
 			"SCREEN_TRANSLATION_MODEL_MANIFEST": str(MANIFEST_PATH),
 			"SCREEN_TRANSLATION_MODEL_DIR": str(model_directory()),
+			"SCREEN_TRANSLATION_STANZA_MANIFEST": str(STANZA_MANIFEST_PATH),
 			"SCREEN_TRANSLATION_ALLOWED_HOSTS": "server.example",
 		}
 		with patch.dict("os.environ", env), \

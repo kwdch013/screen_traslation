@@ -14,7 +14,7 @@ from pipeline_support import (
 	model_directory,
 	read_until,
 	require_model,
-	use_installed_stanza_resources,
+	stanza_resources,
 )
 from screen_translation_server.engines.lifecycle import EngineLifecycle, ModelManifest
 from screen_translation_server.lifecycle_readiness import ReadinessSource
@@ -40,8 +40,7 @@ def real_engines() -> RealEngines:
 	global _ENGINES
 	if _ENGINES is None:
 		manifest = require_model()
-		use_installed_stanza_resources()
-		lifecycle = EngineLifecycle(manifest, model_directory())
+		lifecycle = EngineLifecycle(manifest, model_directory(), stanza_resources=stanza_resources())
 		ocr, translator = lifecycle.prepare()  # type: ignore[misc]
 		_ENGINES = RealEngines(manifest, ocr, translator, engine_versions(manifest), lifecycle)
 	return _ENGINES
