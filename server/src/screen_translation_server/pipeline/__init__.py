@@ -15,6 +15,7 @@ from PIL import Image
 
 from app.contracts import Frame, TextRegion, TranslationRegion, TranslationResult
 from screen_translation_server.api.input_limits import IMAGE_MAX_BYTES, validate_roi
+from screen_translation_server.engines.tesseract_runner import OcrTimeoutError
 
 
 FRAME_FRESHNESS_SECONDS = 5.0
@@ -92,7 +93,7 @@ class TranslationPipeline:
 		self._max_image_bytes = min(max_image_bytes, IMAGE_MAX_BYTES)
 		self._freshness_seconds = freshness_seconds
 		self._on_result = on_result
-		self._on_error: Callable[[FrameInput], None] | None = None
+		self._on_error: Callable[[FrameInput, str], None] | None = None
 		self._observer = observer
 		self._pending: tuple[FrameInput, float, int] | None = None
 		self._worker: asyncio.Task[None] | None = None
@@ -211,7 +212,7 @@ class TranslationPipeline:
 		self,
 		*,
 		on_result: Callable[[PipelineResult], None] | None = None,
-		on_error: Callable[[FrameInput], None] | None = None,
+		on_error: Callable[[FrameInput, str], None] | None = None,
 	) -> None:
 		"""配信側が処理完了を同期・非ブロッキングで受け取る。"""
 		self._on_result = on_result
@@ -245,12 +246,14 @@ class TranslationPipeline:
 					result = await self._process(frame, received_at)
 				except asyncio.CancelledError:
 					raise
-				except Exception:
+				except Exception as error:
 					self.failed_frames += 1
+					# OCR期限超過は「読めなかった」ことをclientが区別して案内できるよう、専用コードで通知する。
+					code, stage = ("OCR_TIMEOUT", "ocr_timeout") if isinstance(error, OcrTimeoutError) else ("PROCESSING_FAILED", "processing_failed")
 					if self._observer is not None:
-						self._observer.dropped("processing_failed", correlation_id=correlation_id)
+						self._observer.dropped(stage, correlation_id=correlation_id)
 					if self._on_error is not None:
-						self._on_error(frame)
+						self._on_error(frame, code)
 					continue
 				if result is None:
 					continue

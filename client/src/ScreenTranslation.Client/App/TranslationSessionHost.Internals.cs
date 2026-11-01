@@ -178,7 +178,9 @@ public sealed partial class TranslationSessionHost
 
 	private Task OnMessageAsync(JsonElement message)
 	{
-		if (message.TryGetProperty("type", out var type) && type.GetString() == "result") overlay.HandleResult(message);
+		var kind = message.TryGetProperty("type", out var type) ? type.GetString() : null;
+		if (kind == "result") overlay.HandleResult(message);
+		else if (kind == "error" && message.TryGetProperty("code", out var code) && code.GetString() == "OCR_TIMEOUT") OcrTimedOut?.Invoke();
 		else MessageReceived?.Invoke(message);
 		return Task.CompletedTask;
 	}

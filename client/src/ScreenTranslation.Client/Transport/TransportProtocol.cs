@@ -165,7 +165,7 @@ public static class TransportProtocol
 	{
 		if (!HasExactProperties(value, "type", "code", "correlation_id", "session_id", "generation", "frame_id", "dictionary_revision")) return false;
 		if (value.GetProperty("code").ValueKind != JsonValueKind.String
-			|| value.GetProperty("code").GetString() is not ("AUTHENTICATION_FAILED" or "SESSION_MISMATCH" or "PROTOCOL_VIOLATION" or "INVALID_IMAGE" or "MESSAGE_TOO_LARGE" or "PROCESSING_FAILED" or "MODEL_NOT_READY")
+			|| value.GetProperty("code").GetString() is not ("AUTHENTICATION_FAILED" or "SESSION_MISMATCH" or "PROTOCOL_VIOLATION" or "INVALID_IMAGE" or "MESSAGE_TOO_LARGE" or "PROCESSING_FAILED" or "OCR_TIMEOUT" or "MODEL_NOT_READY")
 			|| !IsUuid(value, "correlation_id") || !IsUuid(value, "session_id")
 			|| !IsPositiveUInt64(value, "generation") || !IsPositiveUInt64(value, "frame_id")
 			|| !IsPositiveUInt64(value, "dictionary_revision")) return false;

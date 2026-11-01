@@ -145,7 +145,7 @@ internal static class ContractValidator
 	}
 
 	private static bool StreamError(JsonElement value) => Object(value, ["type", "code", "correlation_id", "session_id", "generation", "frame_id", "dictionary_revision"], ["type", "code", "correlation_id", "session_id", "generation", "frame_id", "dictionary_revision"])
-		&& EnumString(value, "code", ["AUTHENTICATION_FAILED", "SESSION_MISMATCH", "PROTOCOL_VIOLATION", "INVALID_IMAGE", "MESSAGE_TOO_LARGE", "PROCESSING_FAILED", "MODEL_NOT_READY"])
+		&& EnumString(value, "code", ["AUTHENTICATION_FAILED", "SESSION_MISMATCH", "PROTOCOL_VIOLATION", "INVALID_IMAGE", "MESSAGE_TOO_LARGE", "PROCESSING_FAILED", "OCR_TIMEOUT", "MODEL_NOT_READY"])
 		&& Uuid(value, "correlation_id") && Uuid(value, "session_id")
 		&& UInt(value, "generation", 1, MaxUInt64) && UInt(value, "frame_id", 1, MaxUInt64)
 		&& UInt(value, "dictionary_revision", 1, MaxUInt64);

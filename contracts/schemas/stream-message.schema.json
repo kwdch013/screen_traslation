@@ -76,7 +76,7 @@
       "required": ["type", "code", "correlation_id", "session_id", "generation", "frame_id", "dictionary_revision"],
       "properties": {
         "type": {"const": "error"},
-        "code": {"type": "string", "enum": ["AUTHENTICATION_FAILED", "SESSION_MISMATCH", "PROTOCOL_VIOLATION", "INVALID_IMAGE", "MESSAGE_TOO_LARGE", "PROCESSING_FAILED", "MODEL_NOT_READY"]},
+        "code": {"type": "string", "enum": ["AUTHENTICATION_FAILED", "SESSION_MISMATCH", "PROTOCOL_VIOLATION", "INVALID_IMAGE", "MESSAGE_TOO_LARGE", "PROCESSING_FAILED", "OCR_TIMEOUT", "MODEL_NOT_READY"]},
         "correlation_id": {"type": "string", "format": "uuid", "maxLength": 36},
         "session_id": {"type": "string", "format": "uuid", "maxLength": 36},
         "generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
