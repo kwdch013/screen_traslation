@@ -33,9 +33,18 @@ public sealed class FakeCaptureSession(ICapturedFrameSink sink) : ICaptureSessio
 	public int PixelReads;
 	/// <summary>設定すると、StopAsyncがこの完了まで戻らない(停止の完了前に表示が消えることの確認用)。</summary>
 	public TaskCompletionSource? StopGate;
+	/// <summary>設定すると、StartAsyncがこの完了まで戻らない(取得セッションの操作ロックを保持したままにする確認用)。</summary>
+	public TaskCompletionSource? StartGate;
+	/// <summary>StartAsyncに入った(操作ロックを保持している)ことを知らせる。</summary>
+	public readonly TaskCompletionSource StartEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	public Task DisposedTask => disposed.Task;
 
-	public ValueTask StartAsync(CancellationToken cancellationToken = default) { StartCount++; return ValueTask.CompletedTask; }
+	public async ValueTask StartAsync(CancellationToken cancellationToken = default)
+	{
+		StartCount++;
+		StartEntered.TrySetResult();
+		if (StartGate is not null) await StartGate.Task.WaitAsync(cancellationToken);
+	}
 
 	public async ValueTask StopAsync(CancellationToken cancellationToken = default)
 	{
@@ -69,11 +78,18 @@ public sealed class FakeCaptureSessionFactory(ICapturedFrameSink sink) : ICaptur
 	/// <summary>設定すると、取得セッションの生成がこの完了まで戻らない(開始が遅いときの停止の確認用)。</summary>
 	public TaskCompletionSource? CreateGate;
 
+	/// <summary>設定すると、生成する取得セッションのStartAsyncがこの完了まで戻らない。</summary>
+	public TaskCompletionSource? StartGate;
+
+	/// <summary>最初の取得セッションを生成した。</summary>
+	public readonly TaskCompletionSource<FakeCaptureSession> FirstCreated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
 	public async ValueTask<ICaptureSession> CreateAsync(CaptureTarget target, CancellationToken cancellationToken = default)
 	{
 		if (CreateGate is not null) await CreateGate.Task.WaitAsync(cancellationToken);
-		var session = new FakeCaptureSession(sink);
+		var session = new FakeCaptureSession(sink) { StartGate = StartGate };
 		lock (Sessions) Sessions.Add(session);
+		FirstCreated.TrySetResult(session);
 		return session;
 	}
 }
