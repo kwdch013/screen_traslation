@@ -25,8 +25,6 @@ from ws_client import SyncWebSocket
 
 SERVER_DIRECTORY = Path(__file__).resolve().parents[2]
 TOKEN_PATTERN = re.compile(r"\b[0-9a-f]{64}\b")
-# 準備段階が未完了(#189)の間、Stanza資源は起動時に/modelsへ書き込まれるため、試験用の自分専用volumeだけ書込可にする。
-MODELS_WRITABLE = "services:\n  server:\n    volumes:\n      - server-models:/models\n"
 
 
 def wait_until(predicate: Callable[[], bool], timeout: float, description: str, interval: float = 1.0) -> None:
@@ -61,7 +59,6 @@ class ComposeStack:
 		self.models_from = models_from
 		self.tls_directory = self.directory / "tls"
 		self._make_certificates()
-		(self.directory / "models-rw.yml").write_text(MODELS_WRITABLE, encoding="utf-8")
 		env = {
 			"SERVER_API_PORT": str(self.port),
 			"SERVER_ALLOWED_HOSTS": f"localhost:{self.port}",
@@ -70,7 +67,7 @@ class ComposeStack:
 		if image:
 			env["SERVER_IMAGE"] = image
 		(self.directory / "env").write_text("".join(f"{k}={v}\n" for k, v in env.items()), encoding="utf-8")
-		self.files = [SERVER_DIRECTORY / "compose.yml", self.directory / "models-rw.yml", *extra_files]
+		self.files = [SERVER_DIRECTORY / "compose.yml", *extra_files]
 		self.admin_token = ""
 		self.device_token = ""
 
@@ -112,8 +109,8 @@ class ComposeStack:
 			volume = f"{self.project}_server-models"
 			subprocess.run(["docker", "run", "--rm", "--entrypoint", "sh", "-v", f"{self.models_from}:/src:ro",
 				"-v", f"{volume}:/dst", self.image_name(), "-c", "cp -a /src/. /dst/"], check=True, capture_output=True, timeout=600)
-		else:
-			self.compose("--profile", "model", "run", "--rm", "prepare-model", timeout=3600)
+		# 複製の有無によらず準備段階を通す(複製済みなら再取得せず検証し、Stanza資源だけを取得する。外向き通信が必要)。
+		self.compose("--profile", "model", "run", "--rm", "prepare-model", timeout=3600)
 		expires = (datetime.now(UTC) + timedelta(days=1)).isoformat()
 		self.admin_token = self._issue("init-admin", "--expires-at", expires)
 		environment = {"SCREEN_TRANSLATION_ADMIN_TOKEN": self.admin_token}

@@ -38,7 +38,7 @@ Linuxサーバーは [`server/compose.yml`](../../server/compose.yml) で常駐�
    docker compose -f server/compose.yml --profile model run --rm prepare-model
    ```
 
-   `prepare-model` は [`server/deploy/model-manifest.json`](../../server/deploy/model-manifest.json) の固定manifest（版・HTTPS取得先・サイズ・SHA-256・ライセンス名/URL）で取得・検証し、Argosへ導入します。取得済みなら再取得せず検証と再導入だけを行うため、再実行しても安全です。manifestの `license_accepted` は運用者がライセンスを確認した証跡です。確認前に導入しないでください。**Stanzaの文分割資源の取得・オフライン化は Issue #189 で扱い、本手順は触りません。** #189 が未完了の間、実エンジンはStanza資源を実行時に取得しようとするため、外向き通信のない環境ではreadyに到達しない場合があります。
+   `prepare-model` は [`server/deploy/model-manifest.json`](../../server/deploy/model-manifest.json) の固定manifest（版・HTTPS取得先・サイズ・SHA-256・ライセンス名/URL）で取得・検証し、Argosへ導入します。取得済みなら再取得せず検証と再導入だけを行うため、再実行しても安全です。manifestの `license_accepted` は運用者がライセンスを確認した証跡です。確認前に導入しないでください。続けてStanzaの文分割資源（[`server/deploy/stanza-manifest.json`](../../server/deploy/stanza-manifest.json)のresources.jsonと英語のtokenize/mwtモデル）も同じ手順でサイズ・SHA-256検証つきで取得・配置します（#189）。実行時のサーバーはStanza資源も取得せず、外向き通信のない環境でもreadyに到達して翻訳できます。資源が未準備・破損のときはreadyにならず、`prepare-model`の再実行で復旧します。
 4. 初期管理資格情報を作成します。トークンは一度だけ表示されます。安全なsecret管理へ登録し、履歴・チケットへ貼り付けません。
 
    ```sh
@@ -84,12 +84,13 @@ Compose構成（[本番コンテナの構成と導入手順](#本番コンテナ
 
 ## モデル準備とready
 
-サーバーは起動直後にlistenし、モデル検証とエンジンのロード・warmupをバックグラウンドで行います。設定は環境変数 `SCREEN_TRANSLATION_MODEL_MANIFEST`（モデルmanifestのJSONファイルパス）と `SCREEN_TRANSLATION_MODEL_DIR`（導入済みモデルの置き場）で与えます。どちらかが未設定、またはmanifestが不正なら、サーバーは起動せず終了コード2で終わります。起動は `python -m screen_translation_server` です。
+サーバーは起動直後にlistenし、モデル検証とエンジンのロード・warmupをバックグラウンドで行います。設定は環境変数 `SCREEN_TRANSLATION_MODEL_MANIFEST`（モデルmanifestのJSONファイルパス）と `SCREEN_TRANSLATION_MODEL_DIR`（導入済みモデルの置き場）で与えます。さらにStanza資源のmanifest（[`server/deploy/stanza-manifest.json`](../../server/deploy/stanza-manifest.json)）を `SCREEN_TRANSLATION_STANZA_MANIFEST` で与えます（本番イメージでは設定済み）。いずれかが未設定、またはmanifestが不正なら、サーバーは起動せず終了コード2で終わります。起動は `python -m screen_translation_server` です。
 
 - 準備中は `GET /api/v1/ready` とセッション開始が `503 MODEL_NOT_READY`（理由メッセージ付き、`retryable: true`）を返します。`/api/v1/health` は準備状態に関係なく200です。
 - 未導入・破損・資源不足などで準備に失敗しても、プロセスは落ちず、約5秒間隔で再試行します。理由（パスや内容を含まない）はreadyの503本文に出ます。管理者が正しいモデルを `SCREEN_TRANSLATION_MODEL_DIR` へ配置すると、再起動なしで自動的に200へ遷移します。
 - 準備失敗のログは、初回と以後12回ごと（既定間隔で約60秒に1回）だけ出力し、例外の型名と通算回数のみを記録します（パスや内容は含みません）。復旧時に1回だけ回復を記録します。
 - 準備前・準備失敗中・停止開始後にWSSでフレームが届いても、サーバーはエンジンを新たに構築せず（既定構成への退避・`build_engines`の再実行をしない）、そのフレームを破棄してエラーメッセージ `MODEL_NOT_READY`（`retryable`相当）を返します。接続は維持され、準備完了後のフレームから処理を再開します。`readiness`未指定の互換経路（単体試験など）だけが従来どおり既定構成を作ります。
+- **外向き通信なしで動かすための事前準備**: サーバーは実行時に外部へ接続しません（文分割のStanzaが資源を取りに行く既定動作は製品側で止めています）。モデル導入と同じ `prepare-model`（`python -m screen_translation_server.provision`）が、Argosパッケージの導入に続けて、外向き通信のある準備段階でStanza資源（resources.jsonと使用言語のモデル）をサイズ・SHA-256検証つきで永続領域（Argosのデータ領域）へ置きます。検証済みなら再取得しません。資源が未準備・破損のときはエンジンを読み込まずに準備失敗となり、readyの503本文に理由（パスを含まない）が出ます。準備後は再起動なしで200へ遷移します。manifestの値は取得元から観測した値で、配布元の保証するdigestではありません。
 - 停止時は準備ループを取り消してreadyを落とします。ロード中の準備スレッドは次の区切り（最大120秒の期限）で終わるまでプロセス終了が待たされることがあります。
 
 管理CLIの共通入口は次のとおりです。
@@ -152,7 +153,7 @@ secret/certificate providerとの自動連携も対象外です。運用者が�
 
 後続Taskで次を実施します。
 
-- #103（実装済み）: 本番コンテナ、永続化、資源制限。実コンテナでの再起動をまたぐ永続の検証は #196(実施済み、手動実行でCI対象外)、Stanza資源の準備は #189。
+- #103（実装済み）: 本番コンテナ、永続化、資源制限。実コンテナでの再起動をまたぐ永続の検証は #196（実施済み、手動実行でCI対象外）、Stanza資源の準備は #189 で実装済み（`prepare-model` に統合）。
 - #105: 導入・障害復旧・バックアップの手順とライセンス文書を完成する。
 - #106: 配布物の新規導入・更新・復旧を結合試験する。
 - #108: 実Windows・Linux間の正常系と障害復旧E2Eを確認する。

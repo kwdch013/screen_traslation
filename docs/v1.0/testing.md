@@ -244,7 +244,7 @@ docker compose -f server/compose.test.yml --profile integration run --build --rm
 	python -B -m unittest discover -s tests/integration -p "test_pipeline*.py" -v
 ```
 
-`prepare-model`は`server/tests/fixtures/pipeline/model-manifest.json`の固定manifest(版1.1、120,470,284 bytes、SHA-256 `16300cc4...f716`)で取得・検証し、Argosへ導入して1度翻訳することでStanza資源も保存します。所要時間は、初回が約20秒(約115 MiBの取得を含む。開発機1台での実測で、回線条件は統制していない)、取得済みの再実行が約5秒です。ボリュームが残る限りキャッシュされ、ボリュームを削除しない限り再取得しません。モデル未準備のまま試験を実行した場合は**skipせず失敗**し、上記の準備コマンドを表示します。なおこのmanifestのライセンス欄は、利用・再配布条件を未確認のまま試験用に取得するという記録です(同梱・再配布しない)。製品の信頼済みdigestとライセンス確認は#81/#109側の課題です。
+`prepare-model`は`server/tests/fixtures/pipeline/model-manifest.json`の固定manifest(版1.1、120,470,284 bytes、SHA-256 `16300cc4...f716`)で取得・検証してArgosへ導入し、続けて製品と同じ`StanzaResources.provision`(本番の`provision`コマンドと同じ実装)で`server/deploy/stanza-manifest.json`(本番と同じmanifest)のStanza資源4件(resources.jsonと英語のtokenize/mwtモデル、合計約2.2 MB)をサイズ・SHA-256検証つきで同じボリュームへ置きます。所要時間は、初回が約20秒(約115 MiBの取得を含む。開発機1台での実測で、回線条件は統制していない)、取得済みの再実行が約5秒です。ボリュームが残る限りキャッシュされ、ボリュームを削除しない限り再取得しません。モデル未準備のまま試験を実行した場合は**skipせず失敗**し、上記の準備コマンドを表示します。なおこのmanifestのライセンス欄は、利用・再配布条件を未確認のまま試験用に取得するという記録です(同梱・再配布しない)。製品の信頼済みdigestとライセンス確認は#81/#109側の課題です。
 
 CIの`server`ジョブは単体試験のみで、この実エンジン結合試験は含みません(約115 MiBの外部取得が必要なため)。ローカルと独立レビューで上記コマンドを実行し、結果を作業記録とPR本文に残します。
 
@@ -317,7 +317,7 @@ OCRは`server/src/screen_translation_server/engines/robust_ocr.py`(server専用�
 
 ### 未解決事項 (製品側)
 
-- Argos Translateの文分割(Stanza)は、既定では翻訳初回に外部(GitHub等)から資源一覧を取得し、外向き通信がないと最初の翻訳が失敗します。本試験は、取得済み資源だけを使う設定(`download_method=reuse_resources`)を試験側でStanzaへ与えて外向き通信なしで実行しています。製品サーバーを外向き通信なしで運用する場合は、同じ設定を製品側へ入れるか、準備段階で資源を取得する必要があります(#81/#109/#173の検討事項)。翻訳対象の文章を外部へ送るものではありません。
+- (解消済み・#189) Argos Translateの文分割(Stanza)は既定で翻訳初回に外部(GitHub等)へ資源一覧を取りに行きますが、製品側で外部取得を止め、準備段階で資源を取得・検証する方式にしました([Stanza資源の準備と外向き通信なしの翻訳](#stanza資源の準備と外向き通信なしの翻訳-issue-189))。試験側の`reuse_resources`注入は削除しています。翻訳対象の文章を外部へ送るものではありませんでした。
 - (解消済み・#173) 停止(DELETE)で待機中frameへ`pipeline.cancel`が呼ばれず、停止済みsessionの待機frameにも実OCRが走っていた件は、DELETEで`cancel`を別taskとして呼び、待機frameの取り出し時にもsession・世代・revisionを再照合してOCR前に破棄することで解消しました(`server/tests/test_delivery_diagnostics.py`)。
 
 ## サーバー全体の設定更新・再起動結合試験 (Issue #85)
@@ -353,7 +353,7 @@ docker compose -f server/compose.test.yml --profile integration run --build --rm
 - **(解消済み・#196)** コンテナの停止・起動をまたぐ名前付きvolumeの永続は実コンテナで検証しました。**未検証**: 8時間連続稼働、性能(p50/p95)、Windows実機を含むE2E、複数端末の同時利用は#108/#109。
 - **(解消済み・#194/#196)** 製品の起動経路(`main()`)のready反映は#194で製品側に実装されました。本試験が試験側で補っていたready反映・ログ検査の除外は撤去済みで(`start`は製品の`LifecycleReadiness`を使い、`LogCapture`は`uvicorn.access`・`argostranslate`を除外しない)、#196で残存がないことを確認しました。
 - **(解消済み・#195)** uvicornのaccessログに`DELETE /api/v1/sessions/{session_id}`のsession_idが出る件、`argostranslate`がINFOで原文・訳文を出す件は、製品側で固定しました([運用ログの秘匿](#運用ログの秘匿-issue-195))。本試験は`uvicorn.access`・`argostranslate`を検査から除外しません。
-- **Stanza資源の外部取得**: #80と同じく`download_method=reuse_resources`を試験側で与えています(#189)。
+- **(解消済み・#189)** Stanza資源の外部取得は製品側で止め、試験側の回避を削除しました。
 
 ## 実コンテナの停止・起動をまたぐ永続とセッション初期化 (Issue #196)
 
@@ -370,7 +370,7 @@ SERVER_CONTAINER_TEST=1 [SERVER_TEST_MODELS_FROM=<準備済みモデルvolume名
 | 環境変数 | 内容 |
 | --- | --- |
 | `SERVER_CONTAINER_TEST` | `1`のときだけ実行(必須) |
-| `SERVER_TEST_MODELS_FROM` | 準備済みモデルvolumeの名前。**読み取り専用**で借り、試験専用volumeへ複製する。未指定なら`prepare-model`を実行する(外向き通信と約115MiB以上が必要) |
+| `SERVER_TEST_MODELS_FROM` | 準備済みモデルvolumeの名前。**読み取り専用**で借り、試験専用volumeへ複製して取得時間を省く(任意)。複製後も`prepare-model`を通すので外向き通信は必要。未指定ならモデル全体を取得する(約115MiB以上) |
 | `SERVER_TEST_IMAGE` | 使うイメージ名(未指定は`screen-translation-server:local`。他の作業と共有しないよう指定を推奨) |
 | `SERVER_TEST_COMPOSE_FILES` | 追加のcompose(`:`区切り)。ネットワークのアドレスプールが枯渇した環境で、自分専用の外部ネットワークへ向ける等に使う |
 | `SERVER_TEST_KEEP` | `1`で試験後の片付けを省略(失敗調査用。プロジェクト名を出力) |
@@ -393,7 +393,7 @@ SERVER_CONTAINER_TEST=1 [SERVER_TEST_MODELS_FROM=<準備済みモデルvolume名
 
 ### 未解決事項・制約 (#196)
 
-- **Stanza資源(#189)**: 現在の製品は起動のたびにStanzaの資源情報を`/models`へ取得・書込みしようとするため、本番どおり`server-models`を読み取り専用にするとreadyに到達しません。#189が未統合の間、本試験は**試験専用に複製した自分のvolume**だけを書込可で重ねて(`models-rw.yml`)、外向き通信のある環境でreadyへ到達させます。本番構成のままでの実コンテナready到達は#189の統合後に確認が必要で、そのとき`stack.py`の`MODELS_WRITABLE`を外します。
+- **準備段階の通信**: 本番どおり`server-models`は読み取り専用のまま使います。モデルは`prepare-model`で導入するため(`SERVER_TEST_MODELS_FROM`指定時も複製後に再実行し、Stanza資源を取得する。#189)、準備段階だけ外向き通信が必要です。実行時のserverは通信しません。
 - 「restart: unless-stopped」によるホスト/Dockerデーモン再起動後の自動起動、SIGKILL等の異常終了後の保持、実機を含むE2Eは未検証です。
 - セッション初期化の確認はsession_idの無効化とgenerationの再開始までで、mutationによる「セッションが復元されてしまう」場合の検出は未実施です。
 
@@ -460,3 +460,21 @@ read-only mount回帰でschemaの探索先が配置依存になっていたた�
 | ruff `server/src server/tests` (`--no-cache`) | app:ci / ruff 0.16.1 | 成功 |
 
 実行コマンド・Issueへの記録は [Issue #74作業記録](../../tasks/2026-10-31_issue-74_session-integration.md)、[Issue #165作業記録](../../tasks/2026-10-31_issue-165_session-ownership-tests.md)、Issue #74の試験結果Commentを参照してください。
+
+## Stanza資源の準備と外向き通信なしの翻訳 (Issue #189)
+
+Argos Translateの文分割(`argostranslate.sbd.StanzaSentencizer`)は`stanza.Pipeline`へ`download_method`を渡さず、Stanzaの既定(`DOWNLOAD_RESOURCES`)は初期化のたびに外部(GitHub等)へresources.jsonを取りに行きます(#173の調査。`REUSE_RESOURCES`でもresources.jsonが無ければ取得し、不足モデルも取得します)。外向き通信のない製品構成(REQ-F-004)では最初の翻訳が失敗するため、次のとおり固定しました。
+
+| 層 | 内容 | 実装 |
+|---|---|---|
+| 実行時 | `argostranslate.sbd`が参照する`stanza`だけを、`download_method=None`(一切取得しない)を強制する代理へ差し替える。呼び出し側の指定は上書き。Stanza本体の`stanza.Pipeline`は変更しない。適用点はこの1か所 | `engines/stanza_offline.py`（`_load_engines`が呼ぶ） |
+| 準備 | 管理者が外向き通信のある準備段階で、manifestのStanza資源を取得し、サイズ・SHA-256を検証して配置する（未準備・破損分だけ取得。検証に通らないものは配置しない） | `engines/stanza_resources.py`・`provision.py`（`prepare-model`が続けて実行） |
+| 起動 | `EngineLifecycle.prepare`がモデル検証の直後に同じmanifestで資源を再検証する。未準備・破損なら**エンジンを読み込まず**準備失敗とし、readinessは`503 MODEL_NOT_READY`（理由にパス・URLを含めない）。復旧後は再起動なしでreadyへ遷移 | `engines/lifecycle.py`・`startup.py`（`SCREEN_TRANSLATION_STANZA_MANIFEST`は必須） |
+
+`argostranslate`の更新で`sbd.stanza.Pipeline`の前提が崩れた場合、`install_offline_stanza()`が例外を出して準備失敗になり、黙って外部取得へ戻ることはありません。固定が効くことと前提の検出は`server/tests/test_stanza_offline.py`（本物の`StanzaSentencizer.lazy_pipeline`が`download_method=None`で`Pipeline`を呼ぶこと、`stanza.Pipeline`の引数と`DownloadMethod.NONE`の存在）で確認します。対象版はargostranslate 1.11.0 / stanza 1.10.1です。
+
+試験:
+
+- 単体: `test_stanza_resources.py`（manifest検証・取得・再取得・ハッシュ不一致・期限・パス秘匿）、`test_stanza_offline.py`、`test_stanza_readiness.py`（未準備で503・翻訳要求拒否、準備後に復旧）、`test_provision.py`（Stanza資源の配置・失敗時の終了コードと秘匿）、`test_production_compose.py`（本番イメージにmanifestを同梱し環境変数で指す）、`test_lifecycle_readiness.py`（`SCREEN_TRANSLATION_STANZA_MANIFEST`必須）。
+- 結合（`network_mode: none`、試験側の回避なし）: `test_offline_translation.py`（新しいtranslatorが`socket`の接続・名前解決を禁止した状態で翻訳できる／資源の一部欠落でエンジンを読み込まず準備失敗）に加え、既存の`test_pipeline*.py`・`test_startup_ready.py`が回避なしで通る。
+- manifestの値（URL・サイズ・SHA-256）は、準備段階で取得元から観測した値であり、配布元が保証する信頼済みdigestではありません。`resources.json`はstanza-resourcesの`main`ブランチ上の版付きファイルで、取得元の更新でSHA-256が変わると準備が失敗します（黙って別内容を受け入れない）。ライセンスの確認は対象外です。

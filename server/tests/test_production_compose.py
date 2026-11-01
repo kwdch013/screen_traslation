@@ -8,7 +8,7 @@ import unittest
 from typing import Any
 
 from production_config import (
-	COMPOSE_PATH, DOCKERFILE_PATH, ENV_EXAMPLE_PATH, MANIFEST_PATH,
+	COMPOSE_PATH, DOCKERFILE_PATH, ENV_EXAMPLE_PATH, MANIFEST_PATH, STANZA_MANIFEST_PATH,
 	environment_of, load_compose, normalize_ports, normalize_volumes, read_env_example, to_bytes,
 )
 from screen_translation_server.engines.lifecycle import ModelManifest
@@ -181,6 +181,22 @@ class ModelManifestTest(unittest.TestCase):
 		manifest = ModelManifest(**json.loads(MANIFEST_PATH.read_text(encoding="utf-8")))
 		manifest.validate()
 		self.assertTrue(manifest.source_url.startswith("https://"))
+
+
+class StanzaManifestDeploymentTest(unittest.TestCase):
+	"""実行時に外部取得しないため、Stanza資源のmanifestをイメージへ入れて起動時に必須とする(#189)。"""
+
+	def test_deployed_stanza_manifest_is_valid_and_pins_digests(self) -> None:
+		from screen_translation_server.engines.stanza_resources import StanzaManifest
+
+		manifest = StanzaManifest.from_json(json.loads(STANZA_MANIFEST_PATH.read_text(encoding="utf-8")))
+		manifest.validate()
+		self.assertIn("resources.json", [file.path for file in manifest.files])
+
+	def test_runtime_image_ships_manifest_and_points_environment_at_it(self) -> None:
+		text = DOCKERFILE_PATH.read_text(encoding="utf-8")
+		self.assertIn("COPY server/deploy/stanza-manifest.json /opt/screen-translation/stanza-manifest.json", text)
+		self.assertIn("SCREEN_TRANSLATION_STANZA_MANIFEST=/opt/screen-translation/stanza-manifest.json", text)
 
 
 if __name__ == "__main__":

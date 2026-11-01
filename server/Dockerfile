@@ -31,10 +31,12 @@ RUN groupadd --system --gid 10001 translation \
 # サーバーがWSS配信メッセージを検証するスキーマ。無いとstreamが「契約が利用できない」で失敗する。
 COPY contracts/ ./contracts/
 COPY server/deploy/model-manifest.json /opt/screen-translation/model-manifest.json
+COPY server/deploy/stanza-manifest.json /opt/screen-translation/stanza-manifest.json
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
 	PYTHONUNBUFFERED=1 \
-	SCREEN_TRANSLATION_MODEL_MANIFEST=/opt/screen-translation/model-manifest.json
+	SCREEN_TRANSLATION_MODEL_MANIFEST=/opt/screen-translation/model-manifest.json \
+	SCREEN_TRANSLATION_STANZA_MANIFEST=/opt/screen-translation/stanza-manifest.json
 
 USER 10001:10001
 EXPOSE 8443

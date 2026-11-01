@@ -26,6 +26,10 @@ from _api_support import DEVICE, credential, DEVICE_TOKEN, ADMIN_TOKEN, BASE_URL
 # ハング防止の上限であり、同期の成否判定には使わない。
 _GUARD_SECONDS = 5
 SECRET_PATH = "/private/secret-dir/model"
+STANZA_MANIFEST = {
+	"version": "1.10.0",
+	"files": [{"path": "resources.json", "url": "https://resources.example.invalid/r.json", "size_bytes": 2, "sha256": "0" * 64}],
+}
 
 
 def build_manifest() -> tuple[ModelManifest, bytes]:
@@ -240,7 +244,12 @@ class MainWiringTest(unittest.TestCase):
 		with tempfile.TemporaryDirectory() as directory:
 			manifest_path = Path(directory, "manifest.json")
 			manifest_path.write_text(json.dumps(manifest.__dict__), encoding="utf-8")
-			env = {"SCREEN_TRANSLATION_MODEL_MANIFEST": str(manifest_path), "SCREEN_TRANSLATION_MODEL_DIR": directory, "SCREEN_TRANSLATION_ALLOWED_HOSTS": "server.example"}
+			stanza_path = Path(directory, "stanza.json")
+			stanza_path.write_text(json.dumps(STANZA_MANIFEST), encoding="utf-8")
+			env = {
+				"SCREEN_TRANSLATION_MODEL_MANIFEST": str(manifest_path), "SCREEN_TRANSLATION_MODEL_DIR": directory,
+				"SCREEN_TRANSLATION_STANZA_MANIFEST": str(stanza_path), "SCREEN_TRANSLATION_ALLOWED_HOSTS": "server.example",
+			}
 			captured: dict[str, object] = {}
 
 			def fake_server(app, *, tls_context):
@@ -270,8 +279,30 @@ class MainWiringTest(unittest.TestCase):
 			with self.assertRaises(StartupConfigurationError) as caught:
 				lifecycle_from_environment({
 					"SCREEN_TRANSLATION_MODEL_MANIFEST": str(path), "SCREEN_TRANSLATION_MODEL_DIR": directory,
+					"SCREEN_TRANSLATION_STANZA_MANIFEST": str(path),
 				})
 		self.assertNotIn("missing-secret", str(caught.exception))
+
+	def test_stanza_manifest_is_required_and_wired_into_lifecycle(self) -> None:
+		manifest, _ = build_manifest()
+		with tempfile.TemporaryDirectory() as directory:
+			model_path = Path(directory, "manifest.json")
+			model_path.write_text(json.dumps(manifest.__dict__), encoding="utf-8")
+			stanza_path = Path(directory, "stanza-secret.json")
+			base = {"SCREEN_TRANSLATION_MODEL_MANIFEST": str(model_path), "SCREEN_TRANSLATION_MODEL_DIR": directory}
+			with self.assertRaises(StartupConfigurationError):
+				lifecycle_from_environment(base)  # Stanza manifest未指定は起動させない(外部取得に戻さない)
+			env = {**base, "SCREEN_TRANSLATION_STANZA_MANIFEST": str(stanza_path)}
+			with self.assertRaises(StartupConfigurationError) as caught:
+				lifecycle_from_environment(env)  # ファイル無し
+			self.assertNotIn("stanza-secret", str(caught.exception))
+			stanza_path.write_text(json.dumps({"version": "1.10.0", "files": []}), encoding="utf-8")
+			with self.assertRaises(StartupConfigurationError):
+				lifecycle_from_environment(env)  # 空manifest
+			stanza_path.write_text(json.dumps(STANZA_MANIFEST), encoding="utf-8")
+			lifecycle = lifecycle_from_environment(env)
+		self.assertIsNotNone(lifecycle.stanza_resources)
+		self.assertEqual(lifecycle.stanza_resources.manifest.version, "1.10.0")  # type: ignore[union-attr]
 
 
 if __name__ == "__main__":

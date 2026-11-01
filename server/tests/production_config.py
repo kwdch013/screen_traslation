@@ -20,6 +20,7 @@ COMPOSE_PATH = ROOT / "compose.yml"
 ENV_EXAMPLE_PATH = ROOT / ".env.example"
 DOCKERFILE_PATH = ROOT / "Dockerfile"
 MANIFEST_PATH = ROOT / "deploy" / "model-manifest.json"
+STANZA_MANIFEST_PATH = ROOT / "deploy" / "stanza-manifest.json"
 
 _VARIABLE = re.compile(r"\$\{(?P<name>[A-Z0-9_]+)(?::(?P<op>[-?])(?P<arg>[^}]*))?\}")
 _UNITS = {"": 1, "b": 1, "k": 1024, "m": 1024**2, "g": 1024**3}
