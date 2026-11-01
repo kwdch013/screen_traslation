@@ -8,7 +8,7 @@ using ScreenTranslation.Client.Settings;
 namespace ScreenTranslation.Client.Tests;
 
 /// <summary>送られたHTTP要求の記録(本文は読み出し済みの文字列)。</summary>
-public sealed record RecordedRequest(HttpMethod Method, Uri Uri, string? Authorization, string? ContentType, string? Body);
+public sealed record RecordedRequest(HttpMethod Method, Uri Uri, string? Authorization, string? ContentType, string? Body, string? IfMatch = null);
 
 /// <summary>ネットワークに出ず、要求を記録して指定の応答を返すHTTPハンドラー。</summary>
 public sealed class StubHttpHandler(Func<RecordedRequest, CancellationToken, Task<HttpResponseMessage>> respond) : HttpMessageHandler
@@ -26,7 +26,7 @@ public sealed class StubHttpHandler(Func<RecordedRequest, CancellationToken, Tas
 		var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
 		var recorded = new RecordedRequest(
 			request.Method, request.RequestUri!, request.Headers.Authorization?.ToString(),
-			request.Content?.Headers.ContentType?.MediaType, body);
+			request.Content?.Headers.ContentType?.MediaType, body, request.Headers.IfMatch.FirstOrDefault()?.ToString());
 		lock (Requests) Requests.Add(recorded);
 		return await respond(recorded, cancellationToken);
 	}
@@ -48,6 +48,8 @@ public sealed class ApiFixture : IDisposable
 	}
 
 	public ControlApiClient Api(HttpMessageHandler handler, TimeSpan? timeout = null) => new(Settings, Credentials, handler, timeout);
+
+	public ServerSettingsApiClient SettingsApi(HttpMessageHandler handler, TimeSpan? timeout = null) => new(Api(handler, timeout));
 
 	public SessionApiClient Sessions(HttpMessageHandler handler, TimeSpan? timeout = null) => new(Api(handler, timeout));
 
@@ -84,6 +86,13 @@ public sealed class ApiFixture : IDisposable
 	{
 		using var document = ReadFixture("control-data.json");
 		return document.RootElement.EnumerateArray().First(item => item.GetProperty("schema").GetString() == "session").GetProperty("value").GetRawText();
+	}
+
+	/// <summary>control-data.jsonの指定schemaの正例(JSON文字列)。</summary>
+	public static string ControlValue(string schema)
+	{
+		using var document = ReadFixture("control-data.json");
+		return document.RootElement.EnumerateArray().First(item => item.GetProperty("schema").GetString() == schema).GetProperty("value").GetRawText();
 	}
 
 	private sealed class ReversingProtector : ICredentialProtector

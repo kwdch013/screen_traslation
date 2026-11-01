@@ -13,10 +13,15 @@ public partial class MainWindow : Window
 	private readonly SettingsStore _settingsStore = new(ClientStoragePaths.SettingsFile);
 	private readonly ProtectedCredentialStore _credentialStore = new(
 		ClientStoragePaths.CredentialFile, new DpapiCredentialProtector());
+	// 設定・用語辞書の更新に使う管理用の資格情報。端末資格情報とは別ファイルに保護保存する
+	private readonly ProtectedCredentialStore _adminCredentialStore = new(
+		ClientStoragePaths.AdminCredentialFile, new DpapiCredentialProtector());
 
     public MainWindow()
     {
         InitializeComponent();
+		InitializeOperations();
+		InitializeServerSettings();
 		_ = LoadSettingsAsync();
     }
 
@@ -36,6 +41,7 @@ public partial class MainWindow : Window
 				OverlayEnabledInput.IsChecked == true,
 				hotkeys);
 			await _settingsStore.SaveAsync(settings);
+			ResetServerSettingsIfConnectionChanged(settings.Connection);
 			StatusText.Text = "接続設定を保存しました。";
 		}
 		catch (ArgumentException)

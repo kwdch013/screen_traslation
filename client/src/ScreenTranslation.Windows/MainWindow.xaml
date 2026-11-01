@@ -3,7 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Screen Translation" Height="860" Width="600"
         MinHeight="700" MinWidth="560"
-        xmlns:views="clr-namespace:ScreenTranslation.Windows.Views">
+        xmlns:views="clr-namespace:ScreenTranslation.Windows.Views"
+        xmlns:settingsViews="clr-namespace:ScreenTranslation.Windows.Views.Settings">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
     <Grid Margin="20">
         <Grid.RowDefinitions>
@@ -16,7 +17,8 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <TextBlock Grid.Row="0" FontSize="20" FontWeight="SemiBold"
                    Text="接続設定" Margin="0,0,0,16" />
@@ -51,6 +53,7 @@
             <TextBlock x:Name="StatusText" Margin="0,12,0,0" TextWrapping="Wrap" />
         </StackPanel>
         <views:OperationPanel x:Name="Operations" Grid.Row="9" Margin="0,18,0,0" />
+        <settingsViews:ServerSettingsPanel x:Name="ServerSettings" Grid.Row="10" Margin="0,24,0,0" />
     </Grid>
     </ScrollViewer>
 </Window>

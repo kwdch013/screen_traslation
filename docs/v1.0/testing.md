@@ -145,6 +145,50 @@ hosted runnerで再現できない項目です。担当: Owner。**結果: 未�
 5. 履歴が最新100件で、停止後も閲覧でき、101件目以降で古い順に消え、位置不明の訳文が「(位置不明)」付きで残ることを確認する。再選択・再度の開始・アプリ終了後(再起動して)に履歴が復元されないことを確認する。
 6. サーバーを停止して切断し、状態が「未接続」になり、停止ボタンが誤動作せず、再接続しても自動で翻訳が再開されないことを確認する。
 
+## 翻訳設定・用語辞書の編集と競合表示 (Issue #99)
+
+`TranslationSettingsViewModel`・`GlossaryViewModel`(`client/src/ScreenTranslation.Client/ViewModels/Settings/`)が、サーバーの設定(`capture_fps`)と用語辞書を「読込→編集→If-Match付き保存」で扱います。状態機械は共通の`RevisionedEditor<T>`で、OSにもUIにも通信にも依存しません。通信は`ServerSettingsApiClient`(`Api/`)が#210の`ControlApiClient`(認証・TLS・本文上限・エラー分類)を再利用して行い、WPFの`Views/Settings/ServerSettingsPanel`は描画と呼び出しだけを持ちます。
+
+| 項目 | 振る舞い |
+| --- | --- |
+| 端末ローカル項目との分離 | 字幕の重畳表示・ホットキー・接続先は端末の設定ファイル(`ClientSettings`)に残し、サーバーへ送らない。サーバーへ送るのは取得頻度(1～5)と辞書だけ |
+| 保存 | 読み込んだrevisionを引用符付き十進数で`If-Match`に付けて`PUT`する。成功すると応答のrevisionと値を採用し、「これから送信する新しいフレームから反映され、処理中のフレームは変わらない」と表示する(契約の`X-Effective-From: next-frame`) |
+| 競合(409 `REVISION_CONFLICT`) | 上書きせず、編集内容とrevisionを保持したまま「先に更新されていたため保存しなかった。再読込してください」と表示する。再読込は未保存の編集があると確認(破棄の同意)が要り、同意なしでは通信も破棄もしない。同意すると最新の値に置き換え、競合表示を消す |
+| 保存失敗 | 401/403/422/413/5xx・期限切れ・接続不可・証明書拒否・応答不正のそれぞれを別の固定の日本語で表示し、編集内容は必ず保持する(消すのは成功の読込と「編集を取消」だけ)。サーバーが返した文言・トークン・URL・session_id・例外本文は表示しない。応答待ちの期限切れ・取消は「保存されたか確認できない。再読込して確認」と案内する |
+| 権限不足 | 更新は管理権限のみ。端末資格情報(GETは可)で保存すると、403を「管理権限の資格情報が必要」と案内し、編集は保持する。管理用の資格情報は端末資格情報とは別ファイルにDPAPIで保護保存する |
+| 二重送信・同時操作 | 保存・読込は同時に1つだけ(処理中の再要求は無視)。保存中の編集は受け付け、保存成功でも上書きせず未保存として残す。保存中は取消・再読込できない。通信は排他区間の外で行う |
+| 入力検証 | 取得頻度は1～5。辞書は前後の空白を除き、空・各128文字(コードポイント)超・1000件超・原文の重複(大文字小文字を区別しない)を送信前に拒否して入力を保つ。最終判断はサーバー(422)に従う |
+| 応答の検査 | `settings`/`glossary`のschemaに厳密に適合する200だけ受け入れる(余計な項目・範囲外・型違い・上限超過・200以外の2xxは「応答を解釈できない」) |
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 通信部品 | `client/tests/ScreenTranslation.Client.Tests/ServerSettingsApiClientTests.cs`(`Category=SettingsApi`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | If-Match・本文・契約fixture・応答schema違反・エラー分類・資格情報なし |
+| 編集モデル | `SettingsViewModelTests.cs`・`GlossaryViewModelTests.cs`(`Category=SettingsApi`。代替は`SettingsFakes.cs`) | 同上 | 保存・競合・再読込の確認・各失敗での保持・二重送信20並行・保存中の編集・破棄・入力検証・秘匿 |
+| 実サーバー結合 | `client/tests/ScreenTranslation.Client.IntegrationTests/RealServerSettingsTests.cs`(`Category=RealServerIntegration`) | `client/compose.real-server.yml`(本物のサーバーアプリ。設定専用の待受を別に持つ) | 管理tokenでの保存→再取得、古いrevisionの競合と編集保持・再読込、辞書の追加/削除の往復、クライアント検証を迂回した重複のサーバー拒否、端末tokenでの保存が権限不足になること |
+| WPF画面 | `client/tests/ScreenTranslation.Windows.Tests/ServerSettingsPanelTests.cs`(`Category=SettingsApi`) | Windowsのみ(`windows-client` CI) | 取得頻度の選択肢、拒否された追加で入力を残すこと、競合時に一覧と再読込案内を保つこと |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+docker compose -f client/compose.real-server.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=SettingsApi
+```
+
+`Category=SettingsApi`のWPF試験はWindows専用で、Linuxでのskipを合格として扱いません。この試験は実際のキー入力・見た目・混在DPIを検証しません。
+
+### Owner実機手順 (設定・用語辞書)
+
+結果は**未実施**です。Windows実機で行い、結果をIssue #99または#110へ記録します。
+
+1. 接続設定と端末資格情報を保存し、管理用の資格情報を保存する。「読み込み・再読込」で現在の取得頻度と用語一覧が表示されること。
+2. 取得頻度と用語を変更して保存し、翻訳中の字幕が「保存後の新しいフレーム」から変わること(処理済みのフレームの字幕は変わらない)。
+3. 2台目の画面(または別端末)で同じ設定を先に保存してから1台目で保存し、競合の案内が出て編集内容が残ること。再読込で確認が出て、同意すると最新の値になること。
+4. 保存中にネットワークを切る・サーバーを止めて保存し、失敗の案内が出ても入力が消えないこと。画面に資格情報やサーバーの内部情報が出ないこと。
+5. 端末資格情報だけ(管理用を未保存)で保存し、権限不足の案内が出ること。
+6. 文字の見え方(選択状態・エラー色・折り返し)、混在DPI・複数モニター間でのウィンドウ移動後の表示、キー操作(Tab順・Enter)を目視する。
+
 ## セッション取得・解放のHTTPSクライアント (Issue #210)
 
 `client/src/ScreenTranslation.Client/Api/`が、`POST /api/v1/sessions`(取得)と`DELETE /api/v1/sessions/{session_id}`(解放)を呼ぶ。共通の`ControlApiClient`(認証付きHTTPS・TLS検証・エラー分類。設定・辞書の編集 #99 が再利用する)と、`ISessionGrantProvider`の実装`SessionApiClient`から成る。

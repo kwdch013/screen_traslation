@@ -40,6 +40,7 @@ services:
     environment:
       REAL_SERVER_URL: https://localhost:8443
       REAL_SERVER_NOT_READY_URL: https://localhost:8444
+      REAL_SERVER_SETTINGS_URL: https://localhost:8445
       REAL_SERVER_SHARED_DIR: /shared
     command:
       - dotnet

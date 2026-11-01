@@ -1,0 +1,50 @@
+<UserControl x:Class="ScreenTranslation.Windows.Views.Settings.ServerSettingsPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel>
+        <TextBlock Text="サーバー設定・用語辞書" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+        <TextBlock TextWrapping="Wrap"
+                   Text="ここはサーバー側の設定です(変更には管理権限の資格情報が必要です)。字幕の重畳表示やホットキーなど、この端末だけの設定は上の「接続設定」にあります。" />
+        <TextBlock Text="管理用の資格情報 (端末資格情報とは別にWindowsで保護して保存)" Margin="0,10,0,4" />
+        <DockPanel>
+            <Button DockPanel.Dock="Right" Content="管理用の資格情報を保存" Padding="8,5" Margin="8,0,0,0" Click="SaveAdminCredential_Click" />
+            <PasswordBox x:Name="AdminCredentialInput" MinHeight="30" Padding="6"
+                         AutomationProperties.Name="管理用の資格情報" />
+        </DockPanel>
+        <TextBlock x:Name="CredentialText" TextWrapping="Wrap" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
+
+        <TextBlock Text="翻訳設定" FontWeight="SemiBold" Margin="0,14,0,4" />
+        <StackPanel Orientation="Horizontal">
+            <TextBlock Text="取得頻度 (1秒あたりの回数)" VerticalAlignment="Center" />
+            <ComboBox x:Name="FpsInput" Width="70" Margin="8,0,0,0" SelectionChanged="Fps_SelectionChanged"
+                      AutomationProperties.Name="取得頻度" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Button x:Name="SettingsLoadButton" Content="読み込み・再読込" Padding="8,4" Click="SettingsLoad_Click" />
+            <Button x:Name="SettingsSaveButton" Content="設定を保存" Padding="8,4" Margin="8,0,0,0" Click="SettingsSave_Click" />
+            <Button x:Name="SettingsCancelButton" Content="編集を取消" Padding="8,4" Margin="8,0,0,0" Click="SettingsCancel_Click" />
+        </StackPanel>
+        <TextBlock x:Name="SettingsText" TextWrapping="Wrap" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
+
+        <TextBlock Text="用語辞書 (原文は大文字小文字を区別せず1件だけ登録できます)" FontWeight="SemiBold" Margin="0,16,0,4" />
+        <ListBox x:Name="GlossaryList" Height="120" AutomationProperties.Name="用語一覧" />
+        <Grid Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="SourceInput" Grid.Column="0" Padding="4" MaxLength="256" AutomationProperties.Name="原文" />
+            <TextBox x:Name="TargetInput" Grid.Column="1" Padding="4" Margin="6,0,0,0" MaxLength="256" AutomationProperties.Name="訳語" />
+            <Button x:Name="AddButton" Grid.Column="2" Content="追加" Padding="10,4" Margin="6,0,0,0" Click="GlossaryAdd_Click" />
+            <Button x:Name="RemoveButton" Grid.Column="3" Content="選択を削除" Padding="10,4" Margin="6,0,0,0" Click="GlossaryRemove_Click" />
+        </Grid>
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Button x:Name="GlossaryLoadButton" Content="読み込み・再読込" Padding="8,4" Click="GlossaryLoad_Click" />
+            <Button x:Name="GlossarySaveButton" Content="辞書を保存" Padding="8,4" Margin="8,0,0,0" Click="GlossarySave_Click" />
+            <Button x:Name="GlossaryCancelButton" Content="編集を取消" Padding="8,4" Margin="8,0,0,0" Click="GlossaryCancel_Click" />
+        </StackPanel>
+        <TextBlock x:Name="GlossaryText" TextWrapping="Wrap" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite" />
+    </StackPanel>
+</UserControl>
