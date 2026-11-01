@@ -28,7 +28,18 @@ internal sealed class FakeTransport : ITranslationTransport
 	/// <summary>設定すると、取消された送信がこの完了を待ってからIOExceptionで失敗する(停止後に遅れて届く送信失敗の再現用)。</summary>
 	public TaskCompletionSource? FailAfterCancel;
 	public int ReceiveLoopStarts;
+	/// <summary>開き直しの呼び出し(sessionの有効化より前に呼ばれることの確認用)。</summary>
+	public List<string> Calls { get; } = [];
+	public Exception? FailReopen;
+	public List<TimeSpan> ExpectedCloseWindows { get; } = [];
+	public void ExpectServerClose(TimeSpan window) => ExpectedCloseWindows.Add(window);
 	public event Action? ConnectionLost;
+
+	public Task ReopenStreamAsync(CancellationToken cancellationToken = default)
+	{
+		Calls.Add("reopen");
+		return FailReopen is null ? Task.CompletedTask : Task.FromException(FailReopen);
+	}
 
 	public Task ConnectAsync(CancellationToken cancellationToken = default) { IsConnected = true; return Task.CompletedTask; }
 
@@ -36,6 +47,7 @@ internal sealed class FakeTransport : ITranslationTransport
 	{
 		if (!IsConnected) throw new InvalidOperationException("未接続です。");
 		active = (sessionId, generation, dictionaryRevision);
+		Calls.Add("activate");
 		Activations.Add(active.Value);
 	}
 

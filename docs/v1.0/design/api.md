@@ -77,7 +77,7 @@ OpenAPIはpath/method、schema、status、security schemeの機械可読な正�
 
 1. Clientは証明書検証を完了してhealth/readyを呼びます。ready false/503ならsession開始・frame送信をしません。
 2. 利用者が開始した時だけsessionを作ります。2台目は409 `SESSION_IN_USE`となり、既存所有者を切断/上書きしません。
-3. Clientは得たsession IDを使ってWSSを開きます。serverはUpgrade前と以降の各messageでtoken/sessionを検査します。
+3. Clientは得たsession IDを使ってWSSを開きます(serverはUpgrade時にsessionを結び付けるため、接続済みのWSSがあれば開き直します。停止時はDELETEの前に想定内の切断として準備し、DELETEによるWSS切断を接続断と扱わず未割当のWSSへつなぎ直します)。serverはUpgrade前と以降の各messageでtoken/sessionを検査します。
 4. WSS binary frameを受信したserverは宣言値・実長・型/寸法・session/generation/frame/revisionを照合してからdecoderと処理へ進みます。
 5. 結果は入力と同一相関値で返します。Clientは#63の採用条件と取得時単調時計の5秒期限を検査し、一項目でも不一致なら破棄します。
 6. 停止/対象消失/再選択時、Clientが先に送信停止・generation無効化・表示消去し、DELETEでserverを解放します。WSS切断後も再接続だけでは再開しません。

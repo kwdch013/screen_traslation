@@ -24,6 +24,69 @@ public sealed class OperationDisposeTests
 	}
 
 	[Fact]
+	public async Task Dispose_ReleasesTheSessionBeforeDisposingADisposableGrantProvider()
+	{
+		var grants = new RecordingDisposableGrants();
+		var host = new FakeSessionOperations();
+		var vm = new OperationsViewModel(host, grants, new FakeRegionSelector(), new FakeHotkeyRegistrar(), new ManualTimeProvider(DateTimeOffset.UnixEpoch));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.ConnectAsync()));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.SelectTargetAsync(OperationFixture.Target)));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.ReselectRegionAsync()));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.StartAsync()));
+
+		await T(vm.DisposeAsync().AsTask());
+		await T(vm.DisposeAsync().AsTask());
+
+		Assert.Equal(["acquire", "release", "dispose"], grants.Events);
+	}
+
+	[Fact]
+	public async Task Dispose_WaitsForAReleaseThatWasStartedInTheBackground_BeforeDisposingTheProvider()
+	{
+		var grants = new RecordingDisposableGrants { ReleaseGate = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+		var host = new FakeSessionOperations();
+		var vm = new OperationsViewModel(host, grants, new FakeRegionSelector(), new FakeHotkeyRegistrar(), new ManualTimeProvider(DateTimeOffset.UnixEpoch));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.ConnectAsync()));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.SelectTargetAsync(OperationFixture.Target)));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.ReselectRegionAsync()));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.StartAsync()));
+		// 接続断など、ホスト側の終了で始まる解放(待たずに投げ捨てる経路)
+		host.RaiseEnded(ScreenTranslation.Client.Overlay.OverlayClearReason.Disconnected);
+		await grants.ReleaseStarted.Task.WaitAsync(TimeSpan.FromSeconds(20));
+
+		var dispose = vm.DisposeAsync().AsTask();
+		await Task.Delay(100);
+		Assert.False(dispose.IsCompleted);
+		Assert.DoesNotContain("dispose", grants.Events);
+
+		grants.ReleaseGate.SetResult();
+		await T(dispose);
+		Assert.Equal(["acquire", "release", "dispose"], grants.Events);
+	}
+
+	private sealed class RecordingDisposableGrants : ISessionGrantProvider, IDisposable
+	{
+		private readonly object gate = new();
+		private readonly List<string> events = [];
+		public TaskCompletionSource? ReleaseGate;
+		public readonly TaskCompletionSource ReleaseStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		public string[] Events { get { lock (gate) return [.. events]; } }
+
+		private void Add(string name) { lock (gate) events.Add(name); }
+
+		public Task<SessionGrant> AcquireAsync(CancellationToken cancellationToken) { Add("acquire"); return Task.FromResult(new SessionGrant(Guid.NewGuid(), 1)); }
+
+		public async Task ReleaseAsync(Guid sessionId)
+		{
+			ReleaseStarted.TrySetResult();
+			if (ReleaseGate is not null) await ReleaseGate.Task;
+			Add("release");
+		}
+
+		public void Dispose() => Add("dispose");
+	}
+
+	[Fact]
 	public async Task Dispose_IsIdempotent_AndSafeWhenCalledConcurrently()
 	{
 		var f = new OperationFixture();

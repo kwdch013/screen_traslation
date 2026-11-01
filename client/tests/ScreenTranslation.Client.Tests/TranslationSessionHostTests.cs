@@ -149,7 +149,8 @@ public sealed class TranslationSessionHostTests
 
 		Assert.Equal(CapturePipelineOutcome.Submitted, f.EmitFrame());
 		var (metadata, _) = await f.Transport.NextSentAsync();
-		Assert.Equal((2ul, 1ul), (metadata.Generation, metadata.FrameId));
+		// 新しいsessionの世代は1から(契約。サーバーも新規sessionをgeneration=1で発行する)
+		Assert.Equal((1ul, 1ul), (metadata.Generation, metadata.FrameId));
 	}
 
 	[Fact]
@@ -238,7 +239,7 @@ public sealed class TranslationSessionHostTests
 		Assert.Equal(StartResult.Started, await f.Host.StartAsync(SessionId, 1));
 		f.Now += Second;
 		Assert.Equal(CapturePipelineOutcome.Submitted, f.EmitFrame());
-		Assert.Equal(2ul, (await f.Transport.NextSentAsync()).Metadata.Generation);
+		Assert.Equal(1ul, (await f.Transport.NextSentAsync()).Metadata.Generation);
 	}
 
 	[Fact]

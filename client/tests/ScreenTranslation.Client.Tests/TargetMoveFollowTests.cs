@@ -144,7 +144,7 @@ public sealed class TargetMoveFollowTests
 	}
 
 	[Fact]
-	public async Task ReselectingTargetAfterResize_AllowsRestartWithNewBoundsAndGenerationStaysMonotonic()
+	public async Task ReselectingTargetAfterResize_AllowsRestartWithNewBoundsAndANewSessionStartsAtGenerationOne()
 	{
 		await using var f = await StartWindowAsync();
 		f.Session.RaiseInvalidated(CaptureInvalidationReason.Resized);
@@ -155,7 +155,7 @@ public sealed class TargetMoveFollowTests
 		Assert.True(f.Host.SelectRegion(Roi));
 		Assert.Equal(StartResult.Started, await f.Host.StartAsync(SessionId, 1));
 
-		Assert.True(f.Host.Generation > 1);
+		Assert.Equal(1ul, f.Host.Generation);
 	}
 
 	[Fact]

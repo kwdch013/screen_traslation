@@ -106,14 +106,24 @@ public sealed partial class OperationsViewModel
 			}
 		}
 		Publish();
-		if (session is { } id) _ = ReleaseQuietlyAsync(id);
+		if (session is { } id) TrackRelease(ReleaseQuietlyAsync(id));
+	}
+
+	/// <summary>待たずに始めた解放を覚えておき、終了時に完了を待つ(通信を途中で打ち切らない)。</summary>
+	private void TrackRelease(Task release)
+	{
+		lock (pendingReleases)
+		{
+			pendingReleases.RemoveAll(task => task.IsCompleted);
+			pendingReleases.Add(release);
+		}
 	}
 
 	private async Task ReleaseQuietlyAsync(Guid session)
 	{
 		try
 		{
-			await grants.ReleaseAsync(session).ConfigureAwait(false);
+			await PrepareAndReleaseAsync(session).ConfigureAwait(false);
 		}
 		catch (Exception)
 		{
