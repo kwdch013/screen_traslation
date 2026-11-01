@@ -136,7 +136,7 @@ dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windo
 
 ### Owner実機手順 (操作・ホットキー・履歴)
 
-hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、モニター構成、合否をIssueへ記録し、この欄を更新してください。session取得のHTTPSクライアントが実装されるまで、アプリの「開始」は理由を示して断ります(手順3以降は実装後)。
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、モニター構成、合否をIssueへ記録し、この欄を更新してください。session取得のHTTPSクライアントは #210 で実装済みです。手順3以降は実サーバーへの接続(資格情報の登録と接続先の設定)が必要です。
 
 1. 設定でホットキーを有効にして保存し接続する。「ホットキーを再登録」で状態欄に各キーの登録結果が出ることを確認する。他のアプリが使うキー(例: 常駐ツールの割り当て)を指定すると、競合の理由とボタンで操作できる旨が出て、もう一方のキーは使えることを確認する。
 2. キーボードだけで、設定欄→接続→対象の選択→領域の再選択→開始/停止ボタンまで操作でき、状態の文言が読み上げ/拡大表示で判別できることを確認する(見た目・フォーカス順)。
@@ -144,6 +144,35 @@ hosted runnerで再現できない項目です。担当: Owner。**結果: 未�
 4. 翻訳中に領域の再選択(ボタンとホットキー)を行い、選択中は翻訳が止まり、選び直した後は自動で再開せず、履歴が消えていることを確認する。取り消した場合は履歴が残ることを確認する。
 5. 履歴が最新100件で、停止後も閲覧でき、101件目以降で古い順に消え、位置不明の訳文が「(位置不明)」付きで残ることを確認する。再選択・再度の開始・アプリ終了後(再起動して)に履歴が復元されないことを確認する。
 6. サーバーを停止して切断し、状態が「未接続」になり、停止ボタンが誤動作せず、再接続しても自動で翻訳が再開されないことを確認する。
+
+## セッション取得・解放のHTTPSクライアント (Issue #210)
+
+`client/src/ScreenTranslation.Client/Api/`が、`POST /api/v1/sessions`(取得)と`DELETE /api/v1/sessions/{session_id}`(解放)を呼ぶ。共通の`ControlApiClient`(認証付きHTTPS・TLS検証・エラー分類。設定・辞書の編集 #99 が再利用する)と、`ISessionGrantProvider`の実装`SessionApiClient`から成る。
+
+| 観点 | 振る舞い |
+| --- | --- |
+| TLS | OSの検証に従い、設定された証明書SHA-256指紋があれば追加で固定する(WSSと同じ`ServerCertificatePin`)。検証の無効化・緩和、OS信頼ストアの変更、リダイレクト追従、Cookieの経路は持たない(公開APIに検証を差し替える引数がないこととソース走査を`ControlApiSecurityTests`で固定) |
+| 応答の検証 | 201の本文が`session.schema.json`に適合し、開始直後のgeneration=1、revision>=1、session_idが正規のUUIDのときだけ受理。余計な項目・型違い・64 KiB超・201以外は`InvalidResponse`。エラー本文は`error.schema.json`に適合するものだけ解釈し、message・correlation_idの中身は使わない |
+| 利用者への通知 | 409(使用中)・401・403・503(準備中)・資格情報なし・期限切れ・到達不能・証明書拒否・応答不正・サーバー異常を別々の日本語で通知し(`SessionGrantFailure`)、次の操作を示す。画面は待機中へ戻り、再度の開始で再試行できる。サーバーの文言・URL・session_id・トークンは出さない |
+| 解放 | 204と、解放済み(404)を成功とする(冪等)。403は例外。失敗してもローカルの停止は維持する。解放の前に「想定内の切断」として準備する(サーバーはDELETEで結び付いたWSSを閉じるため、準備しないと停止のたびに未接続になる)。想定内の切断(10秒以内に1回)は通知せず、未割当のWSSへ静かにつなぎ直す。つなぎ直せなければ通常の切断として通知する |
+| WSSの結び付け | サーバーはWSSのUpgrade時にsessionを結び付ける。開始ではPOSTの後、session有効化の前にWSSを開き直す(`ReopenStreamAsync`)。再選択後の再開はDELETE→明示的な新規POSTで、サーバーのgenerationは1に戻る |
+| 取消・期限 | 呼び出し側の取消は取消のまま伝え、要求ごとの期限(既定10秒)は`Timeout`として区別する。終了時は待たずに始めた解放の完了を待ってから通信部品を片付ける |
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 単体・契約fixture | `SessionApiClientTests`・`ControlApiClientTests`・`ControlApiSecurityTests`・`OperationSessionApiTests`・`OperationUnbindTests`・`TransportReopenTests`・`HostSessionBindingTests`(`client/tests/ScreenTranslation.Client.Tests`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | `contracts/fixtures`の`control-data.json`・`errors.json`・`compatibility.json`のsession例を使い、全エラーの分類、不正応答の拒否、機微情報を出さないこと、タイムアウト・取消・切断、操作モデルとの結合(理由の表示と再試行)、WSS開き直し |
+| 実サーバー結合 | `RealServerTests`(Category=RealServerIntegration)・`client/compose.real-server.yml`・`client/tests/real-server/serve.py` | Linuxコンテナ2つ(外向き通信なし) | serverイメージの本物のアプリ(実TLS・実WSS・認証・セッション管理。OCR・翻訳エンジンだけ固定の代替)に、クライアントの通信部品で接続する。接続→対象と領域→開始(POST→WSS開き直し)→フレーム送信→サーバーの訳が字幕に表示→別端末の409→停止(DELETE)→別端末が取得、同じ端末の再開、401/403/404、準備中(503)、未信頼証明書、到達不能 |
+
+```bash
+docker compose -p <名前> -f client/compose.real-server.yml run --build --rm test
+docker compose -p <名前> -f client/compose.real-server.yml down -v
+```
+
+実サーバー結合は、起動のたびに一時CA・サーバー証明書・端末資格情報を生成し、共有volumeでテストコンテナへ渡す(固定の秘密・接続先をリポジトリへ置かない)。接続先は環境変数(`REAL_SERVER_URL`など)で受け取り、未設定ならスキップする。CIの`contracts`ジョブで実行する。
+
+この結合で、WSSのsubprotocol `screen-translation.v1`をサーバーが選択していない不具合が判明したため、サーバーに最小の修正を入れた(`server/tests/test_stream_subprotocol.py`)。
+
+未検証: Windows実機での実接続(DPAPI保存の資格情報、実Linuxサーバーとの通し)、実エンジン(OCR・翻訳)を通した通し(#108/#109)、証明書指紋の固定(OS検証も通る証明書が前提)の実接続。Owner手順: 資格情報を登録して接続先を設定し、(1)開始できる (2)他端末で使用中のとき「他の端末が使用中」の文言が出て、その端末を停止すると再度の開始で通る (3)サーバー停止中に開始すると到達不能の文言が出て、復旧後に開始できる、を確認する。担当: Owner。結果: **未実施(Windows実機が必要)**。
 
 ## ウィンドウ移動・リサイズへの追従 (Issue #198)
 

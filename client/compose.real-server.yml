@@ -1,0 +1,53 @@
+# 実サーバー結合試験: 本物のサーバーアプリ(serverイメージ。OCR・翻訳エンジンだけ固定の代替)に、
+# クライアントの通信部品(HTTPS制御API・WSS)が接続する。外部ネットワークには出ない。
+# 実行: docker compose -p <名前> -f client/compose.real-server.yml run --build --rm test
+# 後始末: docker compose -p <名前> -f client/compose.real-server.yml down -v
+name: screen-translation-client-real-server
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    init: true
+    cpus: 2
+    mem_limit: 2g
+    # 外向き通信を持たない。試験側がこのnamespaceを共有し、loopbackで接続する
+    network_mode: none
+    volumes:
+      # 起動のたびに生成する一時CA・端末資格情報の受け渡し先(リポジトリへ秘密を置かない)
+      - shared:/shared
+      - ./tests/real-server:/harness:ro
+    command: [python, -B, /harness/serve.py, /shared]
+    healthcheck:
+      test: [CMD, test, -f, /shared/ready]
+      interval: 2s
+      timeout: 3s
+      retries: 90
+  test:
+    build:
+      context: ..
+      dockerfile: client/Dockerfile.test
+    init: true
+    cpus: 2
+    mem_limit: 2g
+    network_mode: service:server
+    depends_on:
+      server:
+        condition: service_healthy
+    volumes:
+      - shared:/shared:ro
+      - ../contracts:/workspace/contracts:ro
+    environment:
+      REAL_SERVER_URL: https://localhost:8443
+      REAL_SERVER_NOT_READY_URL: https://localhost:8444
+      REAL_SERVER_SHARED_DIR: /shared
+    command:
+      - dotnet
+      - test
+      - client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTranslation.Client.IntegrationTests.csproj
+      - --configuration
+      - Release
+      - --filter
+      - Category=RealServerIntegration
+volumes:
+  shared: {}

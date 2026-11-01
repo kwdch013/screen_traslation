@@ -176,11 +176,22 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 		if (!transport.IsConnected) return StartResult.NotConnected;
 		if (!overlay.CanStream && !overlay.Prepare()) return StartResult.OverlayUnavailable;
 
+		// サーバーはWSS接続時にsessionを結び付ける。取得したsessionで受け付けられるよう、有効化の前に開き直す
+		try
+		{
+			await transport.ReopenStreamAsync(cancellationToken).ConfigureAwait(false);
+		}
+		catch (InvalidOperationException)
+		{
+			return StartResult.NotConnected;
+		}
+
 		lock (sync)
 		{
 			if (active) return StartResult.AlreadyRunning;
 			if (target is null || physicalRoi is not { } roi || !TryToLocal(roi, windowBounds, out var local)) return StartResult.RegionNotSelected;
-			var next = generation + 1;
+			// 契約: 新しいsessionの世代は1から(再選択は解放→新規取得で、世代は1に戻る)。移動・ROI切替でだけ進む
+			const ulong next = 1;
 			try
 			{
 				transport.ActivateSession(newSessionId, next, newDictionaryRevision);
@@ -217,6 +228,18 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 		}
 		return StartResult.Started;
 	}
+
+	/// <summary>
+	/// 解放(DELETE)の前に呼ぶ。サーバーは解放でsessionに結び付いたWSSを閉じる。その切断は接続断ではないので、
+	/// 一定時間内の切断は通知せず、未割当のWSSへ静かにつなぎ直す。
+	/// </summary>
+	public Task PrepareForReleaseAsync()
+	{
+		if (disposeTask is null) transport.ExpectServerClose(ExpectedCloseWindow);
+		return Task.CompletedTask;
+	}
+
+	private static readonly TimeSpan ExpectedCloseWindow = TimeSpan.FromSeconds(10);
 
 	/// <summary>停止する。送信と表示は、取得セッションの停止(操作ロック待ち)を待たずに先に止める。</summary>
 	public async ValueTask StopAsync(CancellationToken cancellationToken = default)

@@ -1,4 +1,5 @@
 using System.Windows;
+using ScreenTranslation.Client.Api;
 using ScreenTranslation.Client.Settings;
 using ScreenTranslation.Client.ViewModels;
 using ScreenTranslation.Windows.Hotkeys;
@@ -46,11 +47,23 @@ public partial class MainWindow
 		}
 
 		await DisposeOperationsAsync();
+		SessionApiClient grants;
+		try
+		{
+			// 保存済みの接続設定(HTTPSのみ・指紋の形式)が不正なら、通信部品を作れない
+			grants = new SessionApiClient(settings.Connection, _credentialStore);
+		}
+		catch (ArgumentException)
+		{
+			StatusText.Text = "接続設定が正しくありません。サーバー接続先と証明書の指紋を確認して保存し直してください。";
+			return;
+		}
 		_composedConnection = settings.Connection;
 		var app = (App)Application.Current;
 		var registrar = new WindowsHotkeyRegistrar();
+		// 操作モデルが終了時にgrantsを片付ける(解放の通信を待ってから)
 		_operations = OperationsComposition.Create(
-			app.CaptureRuntime, settings, _credentialStore, Dispatcher, new UnavailableSessionGrantProvider(), registrar);
+			app.CaptureRuntime, settings, _credentialStore, Dispatcher, grants, registrar);
 		Operations.Attach(_operations, app.CaptureRuntime.Targets);
 		_operations.ApplyHotkeys(settings.Hotkeys);
 		await _operations.ConnectAsync();

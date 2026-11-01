@@ -63,6 +63,7 @@ from screen_translation_server.pipeline import FrameInput, PipelineLimitError, T
 
 
 _UNIMPLEMENTED = {"detail": "not implemented"}
+WSS_SUBPROTOCOL = "screen-translation.v1"
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -251,7 +252,9 @@ def create_app(
 			await _deny_websocket(websocket, 401)
 			return
 		app.state.limiter.finish(remote, success=True)
-		await websocket.accept()
+		# 契約のsubprotocolは、クライアントが提示したときだけ選択する(提示しない相手へは返さない)
+		offered = websocket.scope.get("subprotocols", [])
+		await websocket.accept(subprotocol=WSS_SUBPROTOCOL if WSS_SUBPROTOCOL in offered else None)
 		session = await app.state.sessions.active_for_owner(credential.credential_id)
 		subscription = None
 		sender_task: asyncio.Task[None] | None = None

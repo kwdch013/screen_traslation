@@ -1,4 +1,5 @@
 using System.Windows.Threading;
+using ScreenTranslation.Client.Api;
 using ScreenTranslation.Client.Hotkeys;
 using ScreenTranslation.Client.Security;
 using ScreenTranslation.Client.Settings;
@@ -117,14 +118,15 @@ public sealed class OperationsWindowsTests
 		using var pump = new PumpingThread();
 		var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
 		await using var runtime = new WindowsCaptureRuntime();
+		var connection = new ConnectionSettings("https://service.example");
+		var credentials = new ProtectedCredentialStore(path, new DpapiCredentialProtector());
 		var (holder, model) = await pump.InvokeAsync(() =>
 		{
 			var holder = new WindowsHotkeyRegistrar();
 			Assert.Equal(HotkeyRegistrationStatus.Registered, holder.TryRegister(TestKey, () => { }, out _));
 			var model = OperationsComposition.Create(
-				runtime, new ClientSettings(new ConnectionSettings("https://service.example")),
-				new ProtectedCredentialStore(path, new DpapiCredentialProtector()),
-				Dispatcher.CurrentDispatcher, new UnavailableSessionGrantProvider(), new WindowsHotkeyRegistrar());
+				runtime, new ClientSettings(connection), credentials,
+				Dispatcher.CurrentDispatcher, new SessionApiClient(connection, credentials), new WindowsHotkeyRegistrar());
 			model.ApplyHotkeys(new HotkeySettings(true, "Ctrl+Alt+Shift+F24", "Ctrl+Alt+Shift+F22"));
 			return Task.FromResult((holder, model));
 		});
@@ -155,13 +157,14 @@ public sealed class OperationsWindowsTests
 	}
 
 	[Fact]
-	public async Task UnavailableSessionGrant_RefusesWithAnExplanation()
+	public async Task SessionGrantProvider_WithoutAStoredCredential_RefusesWithoutSendingAnyRequest()
 	{
-		var provider = new UnavailableSessionGrantProvider();
+		// 保存先にファイルが無いので、通信の前に資格情報の未登録として断る(ネットワークに依存しない)
+		var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+		using var provider = new SessionApiClient(new ConnectionSettings("https://service.example"), new ProtectedCredentialStore(path, new DpapiCredentialProtector()));
 
 		var exception = await Assert.ThrowsAsync<SessionGrantException>(() => provider.AcquireAsync(CancellationToken.None));
 
-		Assert.Contains("未実装", exception.Message);
-		await provider.ReleaseAsync(Guid.NewGuid());
+		Assert.Equal(SessionGrantFailure.CredentialMissing, exception.Kind);
 	}
 }

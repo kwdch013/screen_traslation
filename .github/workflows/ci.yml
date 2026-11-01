@@ -97,10 +97,16 @@ jobs:
 
   contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - name: Linux client契約fixtureテスト
         run: docker compose -f client/compose.test.yml run --build --rm test
+      - name: Linux client 実サーバー結合試験 (serverイメージの本物のアプリに接続)
+        run: docker compose -f client/compose.real-server.yml run --build --rm test
+      - name: 実サーバー結合試験の後始末
+        if: always()
+        run: docker compose -f client/compose.real-server.yml down -v
 
   windows-client:
     runs-on: windows-latest

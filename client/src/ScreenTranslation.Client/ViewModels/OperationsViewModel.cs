@@ -17,6 +17,7 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 {
 	private readonly ISessionOperations host;
 	private readonly ISessionGrantProvider grants;
+	private readonly List<Task> pendingReleases = [];
 	private readonly IRegionSelector selector;
 	private readonly IHotkeyRegistrar? hotkeys;
 	private readonly TranslationHistory history;
@@ -326,11 +327,25 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 		if (session is not { } id) return;
 		try
 		{
-			await grants.ReleaseAsync(id).ConfigureAwait(false);
+			await PrepareAndReleaseAsync(id).ConfigureAwait(false);
 		}
 		catch (Exception)
 		{
 		}
+	}
+
+	/// <summary>解放でサーバーがWSSを閉じることを準備してから解放する。準備に失敗しても解放は行う。</summary>
+	private async Task PrepareAndReleaseAsync(Guid session)
+	{
+		try
+		{
+			await host.PrepareForReleaseAsync().ConfigureAwait(false);
+		}
+		catch (Exception)
+		{
+		}
+
+		await grants.ReleaseAsync(session).ConfigureAwait(false);
 	}
 
 	/// <summary>
@@ -531,6 +546,11 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 		finally
 		{
 			await ReleaseSessionAsync().ConfigureAwait(false);
+			Task[] pending;
+			lock (pendingReleases) pending = [.. pendingReleases];
+			await Task.WhenAll(pending).ConfigureAwait(false);
+			// 解放の通信が終わってから、通信部品を片付ける
+			(grants as IDisposable)?.Dispose();
 		}
 	}
 

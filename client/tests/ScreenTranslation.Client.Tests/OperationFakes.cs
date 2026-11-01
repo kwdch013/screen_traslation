@@ -102,6 +102,18 @@ internal sealed class FakeSessionOperations : ISessionOperations
 		return StartResult;
 	}
 
+	/// <summary>順序の確認用の記録(unbindがreleaseより前か)。</summary>
+	public List<string> Events { get; } = [];
+	public int PrepareCount;
+	public Exception? PrepareError;
+
+	public Task PrepareForReleaseAsync()
+	{
+		PrepareCount++;
+		lock (Events) Events.Add("prepare");
+		return PrepareError is null ? Task.CompletedTask : Task.FromException(PrepareError);
+	}
+
 	public async ValueTask StopAsync(CancellationToken cancellationToken = default)
 	{
 		StopCount++;
