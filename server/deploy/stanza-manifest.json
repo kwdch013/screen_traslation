@@ -3,25 +3,25 @@
  "files": [
   {
    "path": "resources.json",
-   "url": "https://raw.githubusercontent.com/stanfordnlp/stanza-resources/main/resources_1.10.0.json",
+   "url": "https://raw.githubusercontent.com/stanfordnlp/stanza-resources/6c91e03e9281e297a6d7a7d0649a6c7b642058da/resources_1.10.0.json",
    "size_bytes": 434061,
    "sha256": "3efb2833a67c0184fac2ea9986c04f9585bfb89fb943a4ab1a6bcbed641d6be0"
   },
   {
    "path": "en/tokenize/combined.pt",
-   "url": "https://huggingface.co/stanfordnlp/stanza-en/resolve/v1.10.0/models/tokenize/combined.pt",
+   "url": "https://huggingface.co/stanfordnlp/stanza-en/resolve/92f1a846e29acaa866ed76e433ede3589115a2a9/models/tokenize/combined.pt",
    "size_bytes": 650887,
    "sha256": "6280da0f82125c267e22f5fb912c4e090cb02804232d17a2df9a174df7c8fef1"
   },
   {
    "path": "en/tokenize/ewt.pt",
-   "url": "https://huggingface.co/stanfordnlp/stanza-en/resolve/v1.10.0/models/tokenize/ewt.pt",
+   "url": "https://huggingface.co/stanfordnlp/stanza-en/resolve/92f1a846e29acaa866ed76e433ede3589115a2a9/models/tokenize/ewt.pt",
    "size_bytes": 634501,
    "sha256": "fc2fed0cd74dbaef1620bd3e776141ae76c4e28eb5aeff369b2715c31cc73cba"
   },
   {
    "path": "en/mwt/combined.pt",
-   "url": "https://huggingface.co/stanfordnlp/stanza-en/resolve/v1.10.0/models/mwt/combined.pt",
+   "url": "https://huggingface.co/stanfordnlp/stanza-en/resolve/92f1a846e29acaa866ed76e433ede3589115a2a9/models/mwt/combined.pt",
    "size_bytes": 509238,
    "sha256": "5f7579111def1f6212c98fa8154ff964bf0eafb9218845ecfa3a1d5a931be237"
   }

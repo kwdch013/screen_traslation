@@ -12,6 +12,7 @@ from pathlib import Path
 
 from production_config import MANIFEST_PATH, STANZA_MANIFEST_PATH
 from screen_translation_server import manifest_check as mc
+from screen_translation_server.engines.stanza_resources import is_commit_pinned_url
 
 DATA = {
 	"https://models.example.invalid/a.argosmodel": b"argos-model-bytes",
@@ -124,6 +125,19 @@ class CompareTest(unittest.TestCase):
 		self.assertEqual([r.status for r in results], ["match", "error", "match"])
 		self.assertEqual(results[1].differences, ("fetch_failed:OSError",))
 		self.assertNotIn("secret-path", repr(results[1]))
+
+	def test_固定SHAが到達不能_404_410なら確認不能で差分にしない(self) -> None:
+		# コミット固定URLが削除・force pushで消えた場合。差分(1)ではなく取得不能(3)として報告する(#218)。
+		import urllib.error
+
+		for status in (404, 410):
+			data = dict(DATA)
+			data["https://res.example.invalid/resources.json"] = urllib.error.HTTPError("https://res.example.invalid/resources.json", status, "gone", None, None)  # type: ignore[arg-type]
+			results = mc.check_entries(self.entries(), FakeFetcher(data))
+			self.assertEqual(results[1].status, "error", status)
+			self.assertEqual(results[1].differences, ("fetch_failed:HTTPError",))
+			self.assertEqual(mc.exit_code(results), 3)
+			self.assertIn("確認不能", mc.format_report(results))
 
 	def test_空のmanifestは確認不能ではなく設定エラー(self) -> None:
 		with self.assertRaises(mc.ManifestCheckError):
@@ -283,6 +297,11 @@ class ProductionManifestTest(unittest.TestCase):
 		self.assertEqual(entries[0].label.split(":")[0], "argos")
 		self.assertTrue(any(e.label.startswith("stanza:") for e in entries))
 		self.assertTrue(all(e.url.startswith("https://") for e in entries))
+
+	def test_同梱のStanza資源URLはコミットSHA固定(self) -> None:
+		stanza = [e for e in mc.entries_from_files(MANIFEST_PATH, STANZA_MANIFEST_PATH) if e.label.startswith("stanza:")]
+		self.assertTrue(stanza)
+		self.assertTrue(all(is_commit_pinned_url(e.url) for e in stanza), [e.url for e in stanza if not is_commit_pinned_url(e.url)])
 
 
 if __name__ == "__main__":
