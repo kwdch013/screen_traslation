@@ -40,13 +40,13 @@
             </StackPanel>
         </StackPanel>
         <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="0,18,0,0">
-            <Button Content="設定を保存" MinWidth="100" Padding="8,5" Click="SaveSettings_Click" />
-            <Button Content="取消" MinWidth="80" Padding="8,5" Margin="8,0,0,0" Click="CancelSettings_Click" />
+            <Button x:Name="SaveSettingsButton" Content="設定を保存" MinWidth="100" Padding="8,5" Click="SaveSettings_Click" />
+            <Button x:Name="CancelSettingsButton" Content="取消" MinWidth="80" Padding="8,5" Margin="8,0,0,0" Click="CancelSettings_Click" />
         </StackPanel>
         <StackPanel Grid.Row="8" VerticalAlignment="Top" Margin="0,18,0,0">
             <TextBlock Text="端末資格情報 (通常設定とは別にWindowsで保護して保存)" Margin="0,0,0,4" />
             <DockPanel>
-                <Button DockPanel.Dock="Right" Content="資格情報を保存" Padding="8,5" Margin="8,0,0,0"
+                <Button x:Name="SaveCredentialButton" DockPanel.Dock="Right" Content="資格情報を保存" Padding="8,5" Margin="8,0,0,0"
                         Click="SaveCredential_Click" />
                 <PasswordBox x:Name="CredentialInput" MinHeight="30" Padding="6" />
             </DockPanel>

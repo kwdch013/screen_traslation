@@ -8,6 +8,9 @@ using Xunit;
 
 namespace ScreenTranslation.Client.Tests;
 
+// Windows.Tests にも取り込まれる。そちらでは使わない設定項目があるため警告を出さない
+#pragma warning disable CS0649
+
 /// <summary>操作モデルの試験用ホスト。ゲートで処理中の状態を作り、固定sleepを同期条件にしない。</summary>
 internal sealed class FakeSessionOperations : ISessionOperations
 {
