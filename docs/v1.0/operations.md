@@ -57,8 +57,8 @@ Linuxサーバーは [`server/compose.yml`](../../server/compose.yml) で常駐�
 
 ### 再起動・更新・停止
 
-- ホストやDockerデーモンの再起動後も `restart: unless-stopped` で自動起動します。設定・辞書（`server-data`）、台帳（`server-credentials`）、モデル（`server-models`）は名前付きvolumeに残り、再起動で作り直されません。`docker compose down` もvolumeを消しません（`-v` を付けない）。実コンテナで再起動をまたぐ保持を検証する作業は Issue #196 です。
-- 更新は `git pull` 後に `docker compose -f server/compose.yml build` → `up -d` です。モデルを更新するときは manifest を差し替えて `prepare-model` を再実行します。
+- ホストやDockerデーモンの再起動後も `restart: unless-stopped` で自動起動します。設定・辞書（`server-data`）、台帳（`server-credentials`）、モデル（`server-models`）は名前付きvolumeに残り、再起動で作り直されません。`docker compose down` もvolumeを消しません（`-v` を付けない）。実コンテナの `stop`→`start` と `down`→`up` をまたぐ保持と、session の初期化(旧 session_id は無効で、再度 POST が必要)は [試験(Issue #196)](testing.md#実コンテナの停止起動をまたぐ永続とセッション初期化-issue-196) で確認しています。
+- 更新は `git pull` 後に `docker compose -f server/compose.yml build` → `up -d` です。モデルを更新するときは [manifest更新手順](#モデルstanza資源のmanifest更新手順) に従って manifest を差し替え、`prepare-model` を再実行します。
 - 証明書更新は [TLS証明書の供給と更新](#tls証明書の供給と更新) のとおり `docker compose -f server/compose.yml kill -s SIGHUP server` で再読込します。
 - healthcheck は `.env` 変更後の再作成（`up -d`）で反映されます。複数プロジェクトを同居させるときは `-p <名前>` と別の `SERVER_API_PORT` を使います。
 
@@ -98,6 +98,82 @@ Compose構成（[本番コンテナの構成と導入手順](#本番コンテナ
 ```sh
 python -m screen_translation_server.admin.credentials --store "$SCREEN_TRANSLATION_CREDENTIALS_FILE" <command>
 ```
+
+## モデル・Stanza資源のmanifest更新手順
+
+対象は、固定manifestで取得・検証する次の2つです（Issue #215）。
+
+| 対象 | manifest | 取得元の形 |
+| --- | --- | --- |
+| Argos Translateの英日モデル | [`server/deploy/model-manifest.json`](../../server/deploy/model-manifest.json) | HTTPSの単一ファイル（`.argosmodel`） |
+| Stanzaの文分割資源 | [`server/deploy/stanza-manifest.json`](../../server/deploy/stanza-manifest.json) | resources.json（stanza-resourcesの`main`上の版付きファイル）と、英語のtokenize/mwtモデル（Hugging Face） |
+
+Tesseract本体と英語の学習データ（`tesseract-ocr-eng`）はmanifest対象ではなく、OSパッケージとして`server/Dockerfile`のイメージ再ビルドで更新します。digest固定の対象ではないため、この手順の差分確認コマンドにも含まれません。
+
+### 前提と性質
+
+- manifestのサイズ・SHA-256は**取得元から観測した値**で、配布元が保証するdigestではありません。取得元でファイルが差し替わると、`prepare-model`はSHA-256不一致で**準備に失敗**します（黙って別内容を受け入れない）。これは意図した動作で、失敗したらこの手順で原因を確認します。特にstanza-resourcesの`main`ブランチや、Hugging Faceのタグ・ブランチ参照は動き得ます。
+- 英語以外の言語の資源は、v1.0の対象外です。v1.0の対象言語は英語→日本語だけで、追加言語は要件書（[対象範囲と対象外](../../requirements/version_1/requirements.md#対象範囲と対象外)の「追加言語」、REQ-F-004）で対象外と定めています。manifestへ他言語のモデルを足さないでください。
+- 外部へ通信するのは、下記の確認コマンドと`prepare-model`の実行時だけです。サーバー実行時とCIでは外部取得をしません。
+
+### 1. 取得元の更新を検出する
+
+読み取り専用の確認コマンドで、manifestの全ファイルを取得元から再取得し、サイズ・SHA-256と比較します。manifestは書き換えません。定期的に、またはモデル・資源の準備が失敗したときに手動で実行します。
+
+```sh
+docker compose -f server/compose.yml --profile model run --rm prepare-model \
+  python -m screen_translation_server.manifest_check
+# --target argos または --target stanza で片方だけ確認できる
+```
+
+`prepare-model`と同じ外向き通信のあるサービス（`network_mode: bridge`）で動かします。manifestの場所は、イメージに設定済みの環境変数（`SCREEN_TRANSLATION_MODEL_MANIFEST`・`SCREEN_TRANSLATION_STANZA_MANIFEST`）が既定です。`--model-manifest`・`--stanza-manifest`で別のファイルを指定することもできます。Argosモデルは約115 MiBを取得するため、数分かかることがあります。
+
+| 終了コード | 意味 |
+| --- | --- |
+| 0 | 全件がmanifestと一致 |
+| 1 | 差分あり（サイズ・SHA-256の変化、HTTPSからのリダイレクト逸脱）。報告に取得元の観測値を出す |
+| 2 | 設定エラー（manifest未指定・読めない・形式不正）。通信しない |
+| 3 | 取得できず確認不能（差分は見つかっていない）。通信状況を確認して再実行する |
+
+CDNへのHTTPSリダイレクトは通常動作なので差分にしません。報告にはリダイレクト先（署名付きURL）を出しません。
+
+### 2. 新しい値の取得と検証
+
+差分が出た、または版を上げるときに、人が次を行います。
+
+1. 変更の理由を確認する。取得元の更新履歴（stanza-resourcesのコミット履歴、Hugging Faceのリポジトリ履歴、Argos Translateのパッケージ一覧）で、意図した更新かを確かめる。理由が分からない差し替えは採用しない。
+2. 新しい値を二重に確認する。確認コマンドの観測値に加え、取得元が公開する値と照合する。Hugging Faceのファイルは、応答ヘッダ`x-linked-etag`（LFSのSHA-256）と`x-linked-size`、またはファイル一覧API（`/api/models/<repo>/tree/<ref>/<dir>`）の`lfs.oid`・`size`が使えます。公開値と観測値が一致しない場合は採用しない。公開値がない取得元（resources.json、Argosモデル）は、観測値を取り直して再現することだけを確認し、配布元保証の値ではないことを作業記録に残す。
+3. 取得元の参照を可能な限り固定する。ブランチ名・動くタグではなく、コミットSHAを含むURLへ変えると、取得元の更新に影響されません（URLを変えた場合は、新しいURLで1.の確認コマンドを再実行する）。
+4. manifestの`size_bytes`・`sha256`（必要なら`version`・URL）を更新する。ファイルの追加・削除はStanzaの`files`配列で行い、`path`は配置先の相対パスで重複・`..`は不可。
+
+### 3. ライセンスの確認観点（Owner判断）
+
+ライセンスを確認して採用可否を決めるのは**Ownerです。エージェントや本手順の実行者は確認済みとみなしません**。更新時にOwnerへ次を渡し、判断をIssueまたはPRに記録してもらいます。
+
+- 新しい版・取得元のライセンス名とURL（Argosはmanifestの`license_name`・`license_url`、Stanza資源は取得元リポジトリのライセンス表示）。
+- 利用条件（利用目的の制限、帰属表示）、再配布条件（本リポジトリとイメージはモデルを同梱せず、準備段階で取得するだけである点）、前の版からの変更点。
+- Argosモデルの`license_accepted`は、Ownerが確認した証跡としてのみ`true`にします。確認前に導入しないでください。
+
+### 4. 変更の影響確認
+
+manifest更新のPRでは、少なくとも次を実行し、結果をPR本文と作業記録に書きます。
+
+1. 確認コマンドの再実行で全件一致（終了コード0）になること。
+2. 単体試験（`docker compose -p <名前> -f server/compose.test.yml run --build --rm test`）。manifestの形式・同梱を確認する試験を含みます。
+3. 実エンジン結合試験。`prepare-model`相当の準備（`--profile model run prepare-model`、新しいボリュームで取得から検証）に成功し、続けて`--profile integration`（`network_mode: none`）の実エンジン結合試験が通ること。これで、新しい資源での初回翻訳が外向き通信なしで成功することを確認します。詳細は[試験手順](testing.md#stanza資源の準備と外向き通信なしの翻訳-issue-189)。
+4. 取得元の更新を採り込まない場合は、manifestを変えず、その理由（採用しない根拠）を記録する。
+
+### 5. ロールバック
+
+- 更新PRのコミットを`git revert`で戻し、イメージを再ビルドして`prepare-model`を再実行します。`prepare-model`は、manifestと一致しない既存ファイルを検出して取得し直します。
+- ただし、戻した先の取得元の値が既に変わっていると、戻したmanifestでは準備に失敗します。その場合は旧版を採用できないため、前の版の検証済みファイルをボリュームのバックアップから戻す（[バックアップと復旧](#バックアップと復旧)）か、新しい版へ進めます。
+- 準備に失敗している間、サーバーはreadyにならず翻訳を受け付けません（既存のreadiness 503）。取得元の更新が原因のときは、サーバー実行中の稼働済み環境には影響しません（実行時は取得しないため）。
+
+### 6. 運用上の注意
+
+- 取得元の更新で`prepare-model`が失敗するのは意図した動作です。manifestを緩めたり、SHA-256検証を外したりしてはいけません。
+- この確認コマンドの実行結果（日付・コマンド・終了コード）は、更新時の作業記録に残します。実行できなかった場合は「未実施」と書きます。
+- 確認コマンドは取得元の本体を実際にダウンロードします。回線や取得先の利用条件に配慮し、頻繁に実行しないでください（CIや定期ジョブへの組み込みは、外部取得をCIに入れない方針のため行いません）。
 
 ## 端末資格情報の発行・ローテーション
 
@@ -161,7 +237,7 @@ secret/certificate providerとの自動連携も対象外です。運用者が�
 
 後続Taskで次を実施します。
 
-- #103（実装済み）: 本番コンテナ、永続化、資源制限。実コンテナでの再起動をまたぐ永続の検証は #196、Stanza資源の準備は #189 で実装済み（`prepare-model` に統合）。
+- #103（実装済み）: 本番コンテナ、永続化、資源制限。実コンテナでの再起動をまたぐ永続の検証は #196（実施済み、手動実行でCI対象外）、Stanza資源の準備は #189 で実装済み（`prepare-model` に統合）。
 - #105: 導入・障害復旧・バックアップの手順とライセンス文書を完成する。
 - #106: 配布物の新規導入・更新・復旧を結合試験する。
 - #108: 実Windows・Linux間の正常系と障害復旧E2Eを確認する。

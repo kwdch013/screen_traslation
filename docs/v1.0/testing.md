@@ -381,7 +381,7 @@ docker compose -f server/compose.test.yml --profile integration run --build --rm
 
 **本番と同じ経路**: 保存先は環境変数`SCREEN_TRANSLATION_DATA_DIR`、pipelineはappが最初のframeで`create_default_pipeline`により作る経路(辞書wrapper・保存済みfpsを引き継ぐ)です。重い実エンジンだけを共有し、pipeline生成関数を差し替えています。
 
-**「再起動」の定義**: 同じ保存先・資格情報・証明書のまま、listener・Session・辞書とキャッシュ・pipelineを止めて新しく作り直します(プロセス再起動の再現)。コンテナの停止・起動、名前付きvolumeの再マウントはこの試験では行っていません(下の未検証)。
+**「再起動」の定義**: 同じ保存先・資格情報・証明書のまま、listener・Session・辞書とキャッシュ・pipelineを止めて新しく作り直します(プロセス再起動の再現)。コンテナの停止・起動、名前付きvolumeの再マウントはこの試験では行わず、実コンテナでの検証は[別の試験(#196)](#実コンテナの停止起動をまたぐ永続とセッション初期化-issue-196)で行います。
 
 ### 検証内容
 
@@ -400,10 +400,52 @@ docker compose -f server/compose.test.yml --profile integration run --build --rm
 
 ### 未解決事項・未検証 (#85)
 
-- **未検証**: コンテナの停止・起動をまたぐ名前付きvolumeの永続、製品の起動経路(`main`)での再起動。8時間連続稼働、性能(p50/p95)、Windows実機を含むE2E、複数端末の同時利用は#108/#109。
-- **製品の起動経路**: `main()`は`create_app()`を`is_ready=False`で起動し、`EngineLifecycle`のreadyをappへ反映する配線が見当たりません。本試験はlifecycleのreadyを試験側で反映しており、製品起動でsessionが開始できるかは未検証です(要確認の課題)。
+- **(解消済み・#196)** コンテナの停止・起動をまたぐ名前付きvolumeの永続は実コンテナで検証しました。**未検証**: 8時間連続稼働、性能(p50/p95)、Windows実機を含むE2E、複数端末の同時利用は#108/#109。
+- **(解消済み・#194/#196)** 製品の起動経路(`main()`)のready反映は#194で製品側に実装されました。本試験が試験側で補っていたready反映・ログ検査の除外は撤去済みで(`start`は製品の`LifecycleReadiness`を使い、`LogCapture`は`uvicorn.access`・`argostranslate`を除外しない)、#196で残存がないことを確認しました。
 - **(解消済み・#195)** uvicornのaccessログに`DELETE /api/v1/sessions/{session_id}`のsession_idが出る件、`argostranslate`がINFOで原文・訳文を出す件は、製品側で固定しました([運用ログの秘匿](#運用ログの秘匿-issue-195))。本試験は`uvicorn.access`・`argostranslate`を検査から除外しません。
 - **(解消済み・#189)** Stanza資源の外部取得は製品側で止め、試験側の回避を削除しました。
+
+## 実コンテナの停止・起動をまたぐ永続とセッション初期化 (Issue #196)
+
+#85の「再起動」はプロセス内の作り直しの再現でした。本試験は**本番の`server/compose.yml`を実コンテナで起動**し、`docker compose stop`→`start`と`down`(volume維持)→`up`をまたいで、名前付きvolumeの永続とセッションの初期化を確認します。ファイルは`server/tests/container/`の`test_container_restart.py`(試験)と`stack.py`(ハーネス)です。
+
+**CIでは実行しません。** ホストのDocker Compose v2を操作するため(Docker-in-Dockerが必要)、`ci.yml`には含めず手動で実行します。`SERVER_CONTAINER_TEST=1`が無ければskipされ、`discover -s tests`や`tests/integration`の既存コマンドにも含まれません。
+
+```bash
+python3 -m venv .venv-container && .venv-container/bin/pip install -r server/requirements-dev.txt
+SERVER_CONTAINER_TEST=1 [SERVER_TEST_MODELS_FROM=<準備済みモデルvolume名>] \
+	.venv-container/bin/python -B -m unittest discover -s server/tests/container -v
+```
+
+| 環境変数 | 内容 |
+| --- | --- |
+| `SERVER_CONTAINER_TEST` | `1`のときだけ実行(必須) |
+| `SERVER_TEST_MODELS_FROM` | 準備済みモデルvolumeの名前。**読み取り専用**で借り、試験専用volumeへ複製して取得時間を省く(任意)。複製後も`prepare-model`を通すので外向き通信は必要。未指定ならモデル全体を取得する(約115MiB以上) |
+| `SERVER_TEST_IMAGE` | 使うイメージ名(未指定は`screen-translation-server:local`。他の作業と共有しないよう指定を推奨) |
+| `SERVER_TEST_COMPOSE_FILES` | 追加のcompose(`:`区切り)。ネットワークのアドレスプールが枯渇した環境で、自分専用の外部ネットワークへ向ける等に使う |
+| `SERVER_TEST_KEEP` | `1`で試験後の片付けを省略(失敗調査用。プロジェクト名を出力) |
+
+試験ごとにランダムなプロジェクト名、空きポート、一時CA・証明書(OSの信頼ストアには触れない)、管理/端末tokenを生成し、終了時に**そのプロジェクトのvolume・networkだけ**を`down --volumes`で消します。待機は期限付きのポーリング(ready、healthy)で、固定sleepを同期条件にしていません。
+
+| 確認 | 内容 |
+| --- | --- |
+| 実行環境 | healthyになる。UID 10001で実行され、`/data`は書込可、ルートFSと`/credentials`は書込不可 |
+| 更新 | 辞書(管理token+If-Match)と設定(capture_fps)を更新し、revisionが進む |
+| stop→start | 同じコンテナが再開(`StartedAt`が変わる)。辞書・設定・revisionが一致、台帳のtokenで認証できる。旧session_idの`DELETE`は404、旧session_idのframeはWSSで拒否(切断)される。再POSTで新しいsessionが作られ、generation 1・保存済み辞書revisionから始まる。稼働中だったWSS接続は停止で切れる |
+| down→up | コンテナが作り直される(IDが変わる)が、同じ項目が保持される |
+| ログ | 再起動をまたぐ全コンテナログに、管理/端末token、session_id、辞書の原文・訳文が出ない |
+
+**mutation(#196)**: ①起動時に`/data`を空にする(永続しない構成)→辞書の保持確認で失敗、②`user`を10001以外にして保存先の権限を誤らせる→保存先に書けず失敗(後述の結果欄)、③`Dockerfile`のruntimeステージから`COPY contracts/`を外す→`test_production_compose`の静的検証が失敗。
+
+### この試験で見つかった製品側の不具合(#196で修正)
+
+本番の`runtime`イメージに`contracts/`が含まれず、`events/__init__.py`が読むWSS配信メッセージのスキーマが存在しないため、**sessionを開始してWSSへ接続すると配信が`RuntimeError: WSS stream contract is not available`で失敗**していました(単体・結合試験はテスト用イメージで`contracts/`を持つため検出できませんでした)。`runtime`ステージで`contracts/`をコピーするよう修正し、静的検証(`test_production_compose.py`)も追加しました。
+
+### 未解決事項・制約 (#196)
+
+- **準備段階の通信**: 本番どおり`server-models`は読み取り専用のまま使います。モデルは`prepare-model`で導入するため(`SERVER_TEST_MODELS_FROM`指定時も複製後に再実行し、Stanza資源を取得する。#189)、準備段階だけ外向き通信が必要です。実行時のserverは通信しません。
+- 「restart: unless-stopped」によるホスト/Dockerデーモン再起動後の自動起動、SIGKILL等の異常終了後の保持、実機を含むE2Eは未検証です。
+- セッション初期化の確認はsession_idの無効化とgenerationの再開始までで、mutationによる「セッションが復元されてしまう」場合の検出は未実施です。
 
 ## 運用ログの秘匿 (Issue #195)
 
