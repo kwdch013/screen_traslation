@@ -57,7 +57,7 @@ Linuxサーバーは [`server/compose.yml`](../../server/compose.yml) で常駐�
 
 ### 再起動・更新・停止
 
-- ホストやDockerデーモンの再起動後も `restart: unless-stopped` で自動起動します。設定・辞書（`server-data`）、台帳（`server-credentials`）、モデル（`server-models`）は名前付きvolumeに残り、再起動で作り直されません。`docker compose down` もvolumeを消しません（`-v` を付けない）。実コンテナで再起動をまたぐ保持を検証する作業は Issue #196 です。
+- ホストやDockerデーモンの再起動後も `restart: unless-stopped` で自動起動します。設定・辞書（`server-data`）、台帳（`server-credentials`）、モデル（`server-models`）は名前付きvolumeに残り、再起動で作り直されません。`docker compose down` もvolumeを消しません（`-v` を付けない）。実コンテナの `stop`→`start` と `down`→`up` をまたぐ保持と、session の初期化(旧 session_id は無効で、再度 POST が必要)は [試験(Issue #196)](testing.md#実コンテナの停止起動をまたぐ永続とセッション初期化-issue-196) で確認しています。
 - 更新は `git pull` 後に `docker compose -f server/compose.yml build` → `up -d` です。モデルを更新するときは manifest を差し替えて `prepare-model` を再実行します。
 - 証明書更新は [TLS証明書の供給と更新](#tls証明書の供給と更新) のとおり `docker compose -f server/compose.yml kill -s SIGHUP server` で再読込します。
 - healthcheck は `.env` 変更後の再作成（`up -d`）で反映されます。複数プロジェクトを同居させるときは `-p <名前>` と別の `SERVER_API_PORT` を使います。
@@ -153,7 +153,7 @@ secret/certificate providerとの自動連携も対象外です。運用者が�
 
 後続Taskで次を実施します。
 
-- #103（実装済み）: 本番コンテナ、永続化、資源制限。実コンテナでの再起動をまたぐ永続の検証は #196、Stanza資源の準備は #189 で実装済み（`prepare-model` に統合）。
+- #103（実装済み）: 本番コンテナ、永続化、資源制限。実コンテナでの再起動をまたぐ永続の検証は #196（実施済み、手動実行でCI対象外）、Stanza資源の準備は #189 で実装済み（`prepare-model` に統合）。
 - #105: 導入・障害復旧・バックアップの手順とライセンス文書を完成する。
 - #106: 配布物の新規導入・更新・復旧を結合試験する。
 - #108: 実Windows・Linux間の正常系と障害復旧E2Eを確認する。
