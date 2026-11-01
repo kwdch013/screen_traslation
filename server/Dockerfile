@@ -28,6 +28,8 @@ RUN groupadd --system --gid 10001 translation \
 	&& mkdir -p /data /credentials /models \
 	&& chown 10001:10001 /data /credentials /models
 
+# サーバーがWSS配信メッセージを検証するスキーマ。無いとstreamが「契約が利用できない」で失敗する。
+COPY contracts/ ./contracts/
 COPY server/deploy/model-manifest.json /opt/screen-translation/model-manifest.json
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

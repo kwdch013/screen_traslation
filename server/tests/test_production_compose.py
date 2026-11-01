@@ -162,6 +162,10 @@ class DockerfileTest(unittest.TestCase):
 		self.assertNotIn("tests", runtime)
 		self.assertRegex(runtime, r'(?m)^CMD \["python", "-m", "screen_translation_server"\]$')
 
+	def test_runtime_stage_ships_the_stream_contract_the_server_validates_against(self) -> None:
+		# events/__init__.pyは<ルート>/contracts/schemas/stream-message.schema.jsonを読む。無いとWSS配信が失敗する(Issue #196で実コンテナ試験が検出)。
+		self.assertRegex(self.stage("runtime"), r"(?m)^COPY contracts/ \./contracts/$")
+
 	def test_test_stage_stays_last_so_existing_test_builds_are_unchanged(self) -> None:
 		stages = re.findall(r"(?m)^FROM .* AS (\w+)$", self.text)
 		self.assertEqual(stages[-1], "test")
