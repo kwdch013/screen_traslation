@@ -12,7 +12,7 @@ public sealed class TranslationSettingsViewModel : IDisposable
 
 	/// <summary>画面に出す取得頻度の説明(固定文)。保存の反映時期を、実行中と停止中で区別して伝える。</summary>
 	public const string CaptureFpsGuidance =
-		"保存すると、実行中の翻訳の取得頻度にも次のフレームから反映されます(すでに処理中のフレームは変わりません)。停止中に保存した場合は、次回の開始から使われます。";
+		"保存すると、実行中の翻訳の取得頻度にも次のフレームから反映されます(すでに処理中のフレームは変わりません)。停止中に保存した場合は、次回の開始から使われます。設定を読み込むと、取得頻度はサーバーの値に揃います。読み込むまでは、この端末の既定値で動きます。";
 
 	private readonly RevisionedEditor<int> editor;
 
@@ -41,6 +41,16 @@ public sealed class TranslationSettingsViewModel : IDisposable
 	{
 		add => editor.SavedValue += value;
 		remove => editor.SavedValue -= value;
+	}
+
+	/// <summary>
+	/// 取得頻度の読み込みが成功した(サーバーの現在値)。起動時の既定値とサーバーの値を揃える契機で、保存と同じく値だけを渡す。
+	/// 購読側の例外は読み込みの失敗には変換せず、そのまま呼び出し元へ伝える。
+	/// </summary>
+	public event Action<int>? Loaded
+	{
+		add => editor.LoadedValue += value;
+		remove => editor.LoadedValue -= value;
 	}
 
 	public EditorSnapshot<int> Snapshot => editor.Snapshot;

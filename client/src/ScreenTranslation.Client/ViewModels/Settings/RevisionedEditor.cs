@@ -87,6 +87,13 @@ public sealed class RevisionedEditor<T> : IDisposable
 	/// <summary>保存が確定した値(サーバーが返した値)。<see cref="Saved"/>の直後に発火する。revisionを渡したくない購読側(設定)が使う。</summary>
 	public event Action<T>? SavedValue;
 
+	/// <summary>
+	/// 読み込みが成功した(サーバーが返した値)。再読込(編集の破棄)でも発火する。失敗・中断・確認待ちでは発火しない。
+	/// 読み込みの結果が確定した後、<see cref="Changed"/>より先に、任意のスレッドから1回だけ発火する。
+	/// 購読側の例外は読み込みの失敗には変換せず、そのまま呼び出し元へ伝える。
+	/// </summary>
+	public event Action<T>? LoadedValue;
+
 	public EditorSnapshot<T> Snapshot
 	{
 		get
@@ -155,9 +162,10 @@ public sealed class RevisionedEditor<T> : IDisposable
 		Changed?.Invoke();
 		if (needsConfirmation) return EditorOutcome.NeedsConfirmation;
 
+		Revisioned<T> loaded;
 		try
 		{
-			var loaded = await fetch(lifetime.Token).ConfigureAwait(false);
+			loaded = await fetch(lifetime.Token).ConfigureAwait(false);
 			lock (sync)
 			{
 				baseline = draft = loaded.Value;
@@ -167,8 +175,6 @@ public sealed class RevisionedEditor<T> : IDisposable
 				phase = EditorPhase.Ready;
 				Notice(SettingsMessages.Loaded, NoticeSeverity.Info);
 			}
-			Changed?.Invoke();
-			return EditorOutcome.Completed;
 		}
 		catch (OperationCanceledException)
 		{
@@ -191,6 +197,11 @@ public sealed class RevisionedEditor<T> : IDisposable
 			Changed?.Invoke();
 			return EditorOutcome.Failed;
 		}
+
+		// 読み込みが確定した通知は、購読側の例外が読み込み結果を変えないよう、読み込みの例外処理の外で行う
+		LoadedValue?.Invoke(loaded.Value);
+		Changed?.Invoke();
+		return EditorOutcome.Completed;
 	}
 
 	/// <summary>編集内容を、読み込んだrevisionを条件に保存する。失敗しても編集内容は保持する。</summary>

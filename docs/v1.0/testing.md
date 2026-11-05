@@ -882,10 +882,19 @@ Argos Translateの文分割(`argostranslate.sbd.StanzaSentencizer`)は`stanza.Pi
 | 範囲外(1～5以外)・破棄後 | 何もしない(falseを返し、現在値を保つ) |
 | 画面 | 設定欄の説明と保存成功の文言で「実行中は次のフレームから、停止中は次回の開始から」と伝える |
 
+### 読み込み成功時の反映(Issue #258)
+
+#246では保存成功だけを反映していたため、**起動時のクライアントの取得頻度は既定(2)のままで、設定画面で保存するまでサーバーの値と揃わない**限界があった(サーバーが1 fpsだと、クライアントが上限を超えて送り、サーバーのレート制限で破棄される無駄が出る)。#258で、設定の**読み込み成功**でも同じ経路(`TranslationSettingsViewModel.Loaded` → `OperationsViewModel.ApplyCaptureFps` → ...)で値だけをホストへ反映し、この限界を解消した。範囲外(1～5以外)・停止中・破棄後の扱いは#246と同じ(`ApplyCaptureFps`の規則)。読み込みに失敗・中断した場合と、未保存の編集があり確認待ちで読み込まなかった場合は反映しない。再読込(編集の破棄)の成功では反映する。
+
+**自動読み込みはしない(判断)**: 契約上は端末tokenでも設定のGETは許される(`openapi.yaml`の`getSettings`)が、クライアントの設定API(`IServerSettingsApi`)は管理用の資格情報を使う構成で、接続・開始時に端末tokenで取得する経路は無い。設定画面を開かない限り読み込まれないため、**画面を開いて読み込むまでの間は既定(2)で動く**。この点は設定欄の説明(`CaptureFpsGuidance`)で利用者に伝える。接続時の自動取得(端末tokenでの設定GET)は別Taskとする。
+
 ### 試験
 
 | 試験 | 確認すること |
 | --- | --- |
+| `SettingsViewModelTests.Load_RaisesLoaded*`ほか(#258) | `Loaded`はサーバーの値だけ(revisionは渡さない)、失敗・確認待ちでは発火しない、破棄を伴う再読込では発火する、購読側の例外が読み込みの失敗にならない、画面の説明に既定値の扱いがある |
+| `ClientScenarioRealServerSettingsTests.LoadingSettings_Aligns*`(実サーバー・#258) | サーバーを1 fpsにして読み込むと、既定2 fpsなら通る600ms後のフレームが間引かれ、通信・世代は維持される |
+| `MainWindowWiringTests.TranslationSettingsLoad_*`(`windows-client` CI・#258) | 画面の読み込みだけ(保存なし)で、サーバーの取得頻度が値としてホストへ届き、辞書revisionとしては適用されない |
 | `FrameRateLimiterTests.SetFps_*` | 間隔の変更、窓の履歴の維持、範囲外の拒否 |
 | `FrameSenderTests.SetSendFps_*` | 送信間隔の変更。session・revision・frame_id不変 |
 | `HostCaptureFpsTests` | 実行中の下げ/上げが次のフレームから効く(間引かれたフレームは読み出さない)、sessionのrevision・generation・frame_idが動かず通信維持、送信済みの結果を捨てない、停止中の保存が次回開始で効く、範囲外・破棄後 |

@@ -185,4 +185,22 @@ public sealed class MainWindowWiringTests
 			Assert.Empty(harness.Host.AppliedRevisions);
 		}, Saved);
 	}
+
+	[Fact]
+	public void TranslationSettingsLoad_ReachesTheRunningSessionAsTheServerFpsValue()
+	{
+		MainWindowHarness.Run(harness =>
+		{
+			var input = harness.Part<TextBox>("ServerUriInput");
+			MainWindowHarness.PumpUntil(() => input.Text.Length > 0, "保存済み設定の読み込み");
+			MainWindowHarness.Click(harness.Part<Button>("Operations", "ConnectButton"));
+			MainWindowHarness.PumpUntil(() => harness.Host.ConnectCount == 1, "接続の完了");
+			MainWindowHarness.Click(harness.Part<Button>("ServerSettings", "SettingsLoadButton"));
+
+			// 読み込みの成功だけで(保存せずに)、サーバーの取得頻度の値が実行中のホストへ届く
+			MainWindowHarness.PumpUntil(() => harness.Host.AppliedCaptureFps.Count == 1, "読み込んだ取得頻度のホストへの反映");
+			Assert.Equal([harness.Api.ServerFps], harness.Host.AppliedCaptureFps);
+			Assert.Empty(harness.Host.AppliedRevisions);
+		}, Saved);
+	}
 }
