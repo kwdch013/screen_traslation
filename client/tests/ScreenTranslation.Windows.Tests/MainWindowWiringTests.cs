@@ -15,6 +15,7 @@ namespace ScreenTranslation.Windows.Tests;
 /// 見た目・実際の入力操作・混在DPIはOwner実機手順(docs/v1.0/testing.md)で確認する。
 /// </summary>
 [Trait("Category", "MainWindowWiring")]
+[Collection("WpfSta")]
 public sealed class MainWindowWiringTests
 {
 	/// <summary>購読不要の公開イベント(「型名.イベント名」→理由)。現在は無い。追加するときは購読しなくてよい理由を書く。</summary>

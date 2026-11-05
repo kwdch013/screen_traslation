@@ -46,23 +46,30 @@ internal sealed class MainWindowHarness : IDisposable
 	public static void Run(Action<MainWindowHarness> body, ClientSettings? saved = null)
 	{
 		Exception? failure = null;
+		var stage = "開始前";
 		var thread = new Thread(() =>
 		{
 			try
 			{
 				// 非同期処理の続きがUIスレッドへ戻るようにする(未設定だと続きがスレッドプールで動き、UIを触れず落ちる)
+				stage = "同期コンテキスト設定";
 				SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+				stage = "部品の生成";
 				using var harness = new MainWindowHarness();
+				stage = "設定の事前保存";
 				if (saved is not null) Task.Run(() => harness.Settings.SaveAsync(saved)).GetAwaiter().GetResult();
+				stage = "MainWindowの生成";
 				harness.Window = new MainWindow(harness.CreateServices());
+				stage = "試験本体";
 				body(harness);
+				stage = "終了処理";
 			}
 			catch (Exception exception) { failure = exception; }
 			finally { Dispatcher.CurrentDispatcher.InvokeShutdown(); }
 		});
 		thread.SetApartmentState(ApartmentState.STA);
 		thread.Start();
-		Assert.True(thread.Join(TimeSpan.FromSeconds(120)), "STAテストが時間内に終了しませんでした。");
+		Assert.True(thread.Join(TimeSpan.FromSeconds(60)), "STAテストが時間内に終了しませんでした。最後の段階: " + stage);
 		if (failure is not null) throw new Xunit.Sdk.XunitException("STAスレッドの試験が失敗しました: " + failure);
 	}
 
