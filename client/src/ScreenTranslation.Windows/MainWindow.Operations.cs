@@ -12,7 +12,6 @@ public partial class MainWindow
 	private void InitializeOperations()
 	{
 		Operations.ConnectRequested += ConnectAsync;
-		Operations.HotkeyReapplyRequested += ReapplyHotkeys;
 		Closed += async (_, _) => await DisposeOperationsAsync();
 	}
 
