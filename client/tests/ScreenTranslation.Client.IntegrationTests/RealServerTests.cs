@@ -14,7 +14,7 @@ namespace ScreenTranslation.Client.IntegrationTests;
 /// 実WGC・実HWND・Windowsの資格情報保護は、このLinux試験の範囲外(Windows実機手順)。
 /// </summary>
 [Trait("Category", "RealServerIntegration")]
-public sealed class RealServerTests
+public sealed partial class RealServerTests
 {
 	private static readonly TimeSpan Watchdog = TimeSpan.FromSeconds(60);
 	private static readonly CaptureTarget Display = new("display:2", CaptureTargetKind.Display, "ディスプレイ2", new CaptureBounds(0, 0, 1280, 720), 96);

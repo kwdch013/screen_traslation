@@ -51,6 +51,13 @@ internal sealed class FakeTransport : ITranslationTransport
 		Activations.Add(active.Value);
 	}
 
+	public int Deactivations;
+	public void DeactivateSession()
+	{
+		Calls.Add("deactivate");
+		Interlocked.Increment(ref Deactivations);
+	}
+
 	/// <summary>辞書revisionの更新の呼び出し(実際のStreamTransportClientと同じく、有効なsessionが無ければ失敗する)。</summary>
 	public List<ulong> RevisionUpdates { get; } = [];
 	public Exception? FailRevisionUpdate;

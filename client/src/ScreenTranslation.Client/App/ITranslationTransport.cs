@@ -26,6 +26,11 @@ public interface ITranslationTransport : IFrameTransport
 	void ExpectServerClose(TimeSpan window);
 	void ActivateSession(Guid sessionId, ulong generation, ulong dictionaryRevision);
 	/// <summary>
+	/// 停止・切断などでsessionの送信を止めたことを伝える。サーバーへの生存通知(keepalive)をこれ以降送らない。
+	/// 接続自体は保つ(未割当のWSSのまま)。有効なsessionが無くても呼べる。
+	/// </summary>
+	void DeactivateSession();
+	/// <summary>
 	/// 実行中のsessionの辞書revisionを更新する(辞書の保存成功時)。送信するフレームの検査値と、結果・errorの採否の基準を新revisionへ移し、
 	/// 旧revisionの結果は以降採用しない。generationとframe_idは変えない。有効なsessionが無ければ<see cref="InvalidOperationException"/>。
 	/// </summary>

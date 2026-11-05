@@ -147,6 +147,22 @@ class ContractFixtureTests(unittest.TestCase):
 				with self.subTest(file=filename, case=fixture.get("type", fixture.get("frame_id"))):
 					validator.validate(fixture)
 
+	def test_client_text_fixtures_match_keepalive_schema_and_server_parser(self) -> None:
+		"""クライアント→サーバーの生存通知。スキーマの合否とサーバーの検証(parse_keepalive)が一致する (Issue #245)。"""
+		from screen_translation_server.api.keepalive import parse_keepalive
+
+		fixtures = self.read_json(self.contracts / "fixtures/client-text.json")
+		validator = Draft202012Validator(self.schemas["client-message"], format_checker=self.format_checker)
+		for value in fixtures["valid"]:
+			with self.subTest(valid=value):
+				validator.validate(value)
+				self.assertEqual(parse_keepalive(json.dumps(value)).generation, value["generation"])
+		for value in fixtures["invalid"]:
+			with self.subTest(invalid=value):
+				self.assertFalse(validator.is_valid(value))
+				with self.assertRaises(ValueError):
+					parse_keepalive(json.dumps(value))
+
 	def test_coordinate_conversion_examples_match_contract_values(self) -> None:
 		fixture = self.read_json(self.contracts / "fixtures/geometry/coordinate-cases.json")
 		for case in fixture["conversions"]:

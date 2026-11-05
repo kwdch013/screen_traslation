@@ -105,7 +105,7 @@ internal sealed class RealServerClient : IDisposable
 	public ServerSettingsApiClient ServerSettings { get; }
 	public StreamTransportClient Transport { get; }
 
-	public RealServerClient(string url, string token, string authorityPem, TimeSpan? requestTimeout = null)
+	public RealServerClient(string url, string token, string authorityPem, TimeSpan? requestTimeout = null, Func<TimeSpan, CancellationToken, Task>? keepaliveDelay = null)
 	{
 		credentials = new TestCredentials(token);
 		Settings = new ConnectionSettings(url);
@@ -113,7 +113,7 @@ internal sealed class RealServerClient : IDisposable
 		Sessions = new SessionApiClient(new ControlApiClient(Settings, credentials.Store, validation, requestTimeout));
 		ServerSettings = new ServerSettingsApiClient(new ControlApiClient(Settings, credentials.Store, validation, requestTimeout));
 		Transport = new StreamTransportClient(Settings, credentials.Store, new ClientWebSocketStreamFactory(validation),
-			new ReconnectPolicy(2, TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1)));
+			new ReconnectPolicy(2, TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1)), keepaliveDelay: keepaliveDelay);
 	}
 
 	public void Dispose()

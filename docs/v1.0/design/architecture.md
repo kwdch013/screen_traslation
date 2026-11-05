@@ -102,7 +102,7 @@ SDKパッチは現在の公式配布情報を作成日に確認した値であ�
 ### FLW-003 停止、切断、再選択
 
 - 明示停止はDELETE `/api/v1/sessions/{session_id}`を行い、client側の送信を直ちに停止、generationを進め、画面表示を消す。serverは処理結果を以降配信しない。
-- 1秒間隔のheartbeat/pingを使い、無通信5秒以内に切断を検知する。切断検知後1秒以内にWindows表示を消し、server所有権を検知後10秒以内に解放する。
+- 1秒間隔のheartbeat/pingを使い、無通信5秒以内に切断を検知する。serverの`heartbeat`に加え、clientは接続中、画面が静止してフレームを送らない間も1秒間隔で`keepalive`を送ってsessionの生存を伝える（#245、[ADR-0005](adr/0005-session-lifecycle.md)）。切断検知後1秒以内にWindows表示を消し、server所有権を検知後10秒以内に解放する。
 - 再接続後は状態を「接続済み/停止中」とし、session取得と明示開始操作を再度必要とする。古いsession/generation/frameの結果は拒否する。
 - 対象消失、WGC終了、キャプチャ除外失敗、未知のDPI contextはfail-closedで送信停止し、対象を再選択させる。
 

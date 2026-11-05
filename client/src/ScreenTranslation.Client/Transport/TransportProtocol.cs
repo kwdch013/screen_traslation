@@ -73,6 +73,36 @@ public static class TransportProtocol
 		return parsedMetadata;
 	}
 
+	/// <summary>生存通知(keepalive)の上限。固定の3項目だけなので小さく切る。contracts/schemas/client-message.schema.json と同じ。</summary>
+	public const int MaximumClientTextBytes = 256;
+
+	/// <summary>静止画面でもサーバーがsessionの生存を判断できるよう、定期的に送るtext message。</summary>
+	public static string CreateKeepalive(Guid sessionId, ulong generation)
+	{
+		if (generation == 0) throw new ArgumentOutOfRangeException(nameof(generation), "generationは1以上で指定してください。");
+		return $"{{\"type\":\"keepalive\",\"session_id\":\"{sessionId:D}\",\"generation\":{generation}}}";
+	}
+
+	/// <summary>クライアント→サーバーのtext messageが契約(client-message.schema.json)に適合するか。</summary>
+	public static bool IsValidClientTextMessage(string message)
+	{
+		if (Encoding.UTF8.GetByteCount(message) > MaximumClientTextBytes) return false;
+		try
+		{
+			using var document = JsonDocument.Parse(message, new JsonDocumentOptions { MaxDepth = 4 });
+			var root = document.RootElement;
+			return HasExactProperties(root, "type", "session_id", "generation")
+				&& root.GetProperty("type").ValueKind == JsonValueKind.String
+				&& root.GetProperty("type").GetString() == "keepalive"
+				&& IsUuid(root, "session_id")
+				&& IsPositiveUInt64(root, "generation");
+		}
+		catch (JsonException)
+		{
+			return false;
+		}
+	}
+
 	public static bool IsValidTextMessage(string message)
 	{
 		var byteLength = Encoding.UTF8.GetByteCount(message);

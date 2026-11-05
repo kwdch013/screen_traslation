@@ -15,6 +15,11 @@ public interface IStreamSocket : IAsyncDisposable
 {
 	Task ConnectAsync(Uri endpoint, string deviceToken, CancellationToken cancellationToken);
 	Task SendBinaryAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken);
+	/// <summary>
+	/// クライアント→サーバーのtext message(生存通知)を送る。フレーム送信と同時に呼ばれても、実装は送信を直列化する。
+	/// 既定は何もしない(生存通知を使わない試験用の代替socket向け)。
+	/// </summary>
+	Task SendTextAsync(string message, CancellationToken cancellationToken) => Task.CompletedTask;
 	Task<string?> ReceiveTextAsync(CancellationToken cancellationToken);
 }
 
@@ -58,8 +63,16 @@ public sealed class StreamTransportClient(
 	IStreamSocketFactory socketFactory,
 	ReconnectPolicy reconnectPolicy,
 	Func<TimeSpan, CancellationToken, Task>? delay = null,
-	Func<long>? monotonicNanoseconds = null) : ScreenTranslation.Client.App.ITranslationTransport
+	Func<long>? monotonicNanoseconds = null,
+	Func<TimeSpan, CancellationToken, Task>? keepaliveDelay = null) : ScreenTranslation.Client.App.ITranslationTransport
 {
+	/// <summary>生存通知の間隔。サーバーは無通信5秒で切断とみなすため、余裕を持たせた1秒(設計の「1秒間隔」)。</summary>
+	internal static readonly TimeSpan KeepaliveInterval = TimeSpan.FromSeconds(1);
+
+	private readonly Func<TimeSpan, CancellationToken, Task> keepaliveDelay = keepaliveDelay ?? Task.Delay;
+	private CancellationTokenSource? keepaliveCancellation;
+	private Task keepaliveTask = Task.CompletedTask;
+
 	private readonly ResultAcceptanceTracker resultTracker = new();
 	private readonly Func<TimeSpan, CancellationToken, Task> delay = delay ?? Task.Delay;
 	private readonly Func<long> monotonicNanoseconds = monotonicNanoseconds ?? (() => System.Diagnostics.Stopwatch.GetTimestamp() * (1_000_000_000L / System.Diagnostics.Stopwatch.Frequency));
@@ -94,6 +107,52 @@ public sealed class StreamTransportClient(
 		currentGeneration = generation;
 		currentDictionaryRevision = dictionaryRevision;
 		sessionActive = true;
+		StartKeepalive(socket);
+	}
+
+	/// <inheritdoc />
+	public void DeactivateSession() => StopKeepalive();
+
+	/// <summary>試験用: 生存通知の送信ループ。</summary>
+	internal Task KeepaliveLoopTask => Volatile.Read(ref keepaliveTask);
+
+	/// <summary>
+	/// 接続中のsessionの間、フレームとは無関係に一定間隔で生存通知を送る。画面が静止してフレームが送られなくても、
+	/// サーバーが無通信と誤認してsessionを失効させないため。世代の切替で呼び直されたときは、古いループを止めて1本にする。
+	/// </summary>
+	private void StartKeepalive(IStreamSocket current)
+	{
+		var cancellation = CancellationTokenSource.CreateLinkedTokenSource(shutdown.Token);
+		var previous = Interlocked.Exchange(ref keepaliveCancellation, cancellation);
+		previous?.Cancel();
+		Volatile.Write(ref keepaliveTask, Task.Run(() => RunKeepaliveAsync(current, cancellation)));
+	}
+
+	private void StopKeepalive() => Interlocked.Exchange(ref keepaliveCancellation, null)?.Cancel();
+
+	private async Task RunKeepaliveAsync(IStreamSocket current, CancellationTokenSource owner)
+	{
+		var token = owner.Token;
+		try
+		{
+			while (!token.IsCancellationRequested)
+			{
+				await keepaliveDelay(KeepaliveInterval, token).ConfigureAwait(false);
+				// 送る値は、そのとき有効なsessionのもの。切替・停止・入れ替え済みなら送らず終える
+				if (token.IsCancellationRequested || !sessionActive || !ReferenceEquals(socket, current)) return;
+				await current.SendTextAsync(TransportProtocol.CreateKeepalive(currentSessionId, currentGeneration), token).ConfigureAwait(false);
+			}
+		}
+		catch (Exception)
+		{
+			// 取消は正常終了。送信失敗はsocketの切断で、同じ接続の受信ループが失敗して既存の切断経路(ConnectionLost)へ流れる。
+			// ここで再試行や再接続はしない(二重の切断処理を避ける)。
+		}
+		finally
+		{
+			Interlocked.CompareExchange(ref keepaliveCancellation, null, owner);
+			owner.Dispose();
+		}
 	}
 
 	public void UpdateDictionaryRevision(ulong dictionaryRevision)
@@ -369,6 +428,7 @@ public sealed class StreamTransportClient(
 
 	private void InvalidateSession()
 	{
+		StopKeepalive();
 		sessionActive = false;
 		currentSessionId = Guid.Empty;
 		currentGeneration = 0;
@@ -396,6 +456,8 @@ internal sealed class ClientWebSocketStream(string? certificateSha256, TestCerti
 	private const int MaximumTextMessageBytes = 1_048_576;
 	private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 	private readonly ClientWebSocket client = new();
+	// ClientWebSocketは同時に1件しか送れない。フレーム(binary)と生存通知(text)の送信を直列化する
+	private readonly SemaphoreSlim sendGate = new(1, 1);
 
 	public async Task ConnectAsync(Uri endpoint, string deviceToken, CancellationToken cancellationToken)
 	{
@@ -486,8 +548,24 @@ internal sealed class ClientWebSocketStream(string? certificateSha256, TestCerti
 			: (System.Net.HttpStatusCode)0;
 	}
 
-	public async Task SendBinaryAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken) =>
-		await client.SendAsync(message, WebSocketMessageType.Binary, endOfMessage: true, cancellationToken).ConfigureAwait(false);
+	public Task SendBinaryAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken) =>
+		SendSerializedAsync(message, WebSocketMessageType.Binary, cancellationToken);
+
+	public Task SendTextAsync(string message, CancellationToken cancellationToken) =>
+		SendSerializedAsync(Encoding.UTF8.GetBytes(message), WebSocketMessageType.Text, cancellationToken);
+
+	private async Task SendSerializedAsync(ReadOnlyMemory<byte> message, WebSocketMessageType type, CancellationToken cancellationToken)
+	{
+		await sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+		try
+		{
+			await client.SendAsync(message, type, endOfMessage: true, cancellationToken).ConfigureAwait(false);
+		}
+		finally
+		{
+			sendGate.Release();
+		}
+	}
 
 	public async Task<string?> ReceiveTextAsync(CancellationToken cancellationToken)
 	{
