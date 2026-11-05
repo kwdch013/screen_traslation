@@ -46,6 +46,9 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 	/// <summary>辞書の保存成功(新revision)を実行中のsessionへ反映する。反映したらtrue。</summary>
 	public bool ApplyDictionaryRevision(ulong dictionaryRevision) => host.ApplyDictionaryRevision(dictionaryRevision);
 
+	/// <summary>翻訳設定(取得頻度)の保存成功を、取得・送信の上限へ反映する。設定のrevisionは別系列のため、sessionのrevisionは動かさない。</summary>
+	public bool ApplyCaptureFps(int captureFps) => host.ApplyCaptureFps(captureFps);
+
 	public OperationsViewModel(ISessionOperations host, ISessionGrantProvider grants, IRegionSelector selector, IHotkeyRegistrar? hotkeys = null, TimeProvider? timeProvider = null)
 	{
 		this.host = host ?? throw new ArgumentNullException(nameof(host));

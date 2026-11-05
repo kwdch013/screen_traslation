@@ -10,6 +10,10 @@ public sealed class TranslationSettingsViewModel : IDisposable
 	public const int MinimumCaptureFps = 1;
 	public const int MaximumCaptureFps = 5;
 
+	/// <summary>画面に出す取得頻度の説明(固定文)。保存の反映時期を、実行中と停止中で区別して伝える。</summary>
+	public const string CaptureFpsGuidance =
+		"保存すると、実行中の翻訳の取得頻度にも次のフレームから反映されます(すでに処理中のフレームは変わりません)。停止中に保存した場合は、次回の開始から使われます。";
+
 	private readonly RevisionedEditor<int> editor;
 
 	public TranslationSettingsViewModel(IServerSettingsApi api)
@@ -26,6 +30,17 @@ public sealed class TranslationSettingsViewModel : IDisposable
 	{
 		add => editor.Changed += value;
 		remove => editor.Changed -= value;
+	}
+
+	/// <summary>
+	/// 取得頻度の保存が成功した(サーバーが確定した値)。実行中の取得・送信の上限へ反映する契機。
+	/// 設定のrevisionは辞書のrevisionとは別系列のため、渡さない(sessionのrevisionへ適用させない)。
+	/// 購読側の例外は保存の失敗には変換せず、そのまま呼び出し元へ伝える(保存は既にサーバーで確定している)。
+	/// </summary>
+	public event Action<int>? Saved
+	{
+		add => editor.SavedValue += value;
+		remove => editor.SavedValue -= value;
 	}
 
 	public EditorSnapshot<int> Snapshot => editor.Snapshot;

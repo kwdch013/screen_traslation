@@ -36,6 +36,11 @@ public interface ISessionOperations : IAsyncDisposable
 	/// 旧revisionの結果は表示しない。反映したらtrue(停止中・古い/同じrevisionなら何もせずfalse)。
 	/// </summary>
 	bool ApplyDictionaryRevision(ulong dictionaryRevision);
+	/// <summary>
+	/// 翻訳設定(取得頻度)の保存が成功したことを、取得・送信の上限へ反映する。次に取得するフレームから新しい値で判定し、
+	/// 停止中の保存は次回の開始から使う。設定のrevisionは別系列のため渡さない。反映したらtrue(範囲外・破棄後はfalse)。
+	/// </summary>
+	bool ApplyCaptureFps(int captureFps);
 	Task<StartResult> StartAsync(Guid sessionId, ulong dictionaryRevision, CancellationToken cancellationToken = default);
 	ValueTask StopAsync(CancellationToken cancellationToken = default);
 

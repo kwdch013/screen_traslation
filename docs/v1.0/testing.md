@@ -863,3 +863,34 @@ Argos Translateの文分割(`argostranslate.sbd.StanzaSentencizer`)は`stanza.Pi
 - 単体: `test_stanza_resources.py`（manifest検証・取得・再取得・ハッシュ不一致・期限・パス秘匿）、`test_stanza_offline.py`、`test_stanza_readiness.py`（未準備で503・翻訳要求拒否、準備後に復旧）、`test_provision.py`（Stanza資源の配置・失敗時の終了コードと秘匿）、`test_production_compose.py`（本番イメージにmanifestを同梱し環境変数で指す）、`test_lifecycle_readiness.py`（`SCREEN_TRANSLATION_STANZA_MANIFEST`必須）。
 - 結合（`network_mode: none`、試験側の回避なし）: `test_offline_translation.py`（新しいtranslatorが`socket`の接続・名前解決を禁止した状態で翻訳できる／資源の一部欠落でエンジンを読み込まず準備失敗）に加え、既存の`test_pipeline*.py`・`test_startup_ready.py`が回避なしで通る。
 - manifestの値（URL・サイズ・SHA-256）は、準備段階で取得元から観測した値であり、配布元が保証する信頼済みdigestではありません。`resources.json`はstanza-resourcesの`main`ブランチ上の版付きファイルで、取得元の更新でSHA-256が変わると準備が失敗します（黙って別内容を受け入れない）。ライセンスの確認は対象外です。
+
+## 実行中のcapture_fps反映と設定/辞書のrevision系列 (Issue #246)
+
+契約(`contracts/session-state.md`「設定・辞書更新」): revisionは設定と辞書で**別系列**。sessionのframe照合に使う`dictionary_revision`を動かすのは辞書のPUTだけで、設定のPUTは動かさない(設定のrevisionをsessionへ適用すると、より大きいrevisionとして1008で切断される)。
+
+### 方針(A: 保存成功で実行中の取得頻度を即時に更新する)
+
+`TranslationSettingsViewModel.Saved`(保存した取得頻度の**値**。revisionは渡さない) → `OperationsViewModel.ApplyCaptureFps` → `TranslationSessionHost.ApplyCaptureFps` → `CaptureSendPipeline.UpdateCaptureFps`(`FrameProcessor`の取得上限と`FrameSender`の送信上限を同じ値へ)。`MainWindow.ServerSettings.cs`が配線する。
+
+決めた理由: サーバーは設定のPUT確定後に、実行中のpipelineの受信レート制限(`capture_fps`)を即時に更新する(`api/settings.py`、`test_settings_update_reaches_production_pipeline_rate_limit`)。クライアントの間引きだけが次回の開始まで古い値だと、サーバーだけが上限を下げた場合にクライアントが上限を超えて送り続けて破棄される不整合になり、REQ-F-008「成功した更新は次の新規フレームへ反映」とも合わない。次回の開始から反映(B)は、利用者が保存の効果を確認するために停止・再開を強いられる。
+
+| 場面 | 規則 |
+| --- | --- |
+| 実行中に保存 | 次に取得するフレームから新しい上限で間引く。session・generation・frame_id・辞書revision・待機画像・送信済みフレームの結果は変えない。通信は切れない |
+| 受理済みの記録 | 残す(連続10秒の窓の上限は、過去の高いレートの分も数えて守る。上限を下げた直後に窓を超えて送らない) |
+| 停止中に保存 | 保持し、次回の開始から使う(パイプラインは開始をまたいで1つ) |
+| 範囲外(1～5以外)・破棄後 | 何もしない(falseを返し、現在値を保つ) |
+| 画面 | 設定欄の説明と保存成功の文言で「実行中は次のフレームから、停止中は次回の開始から」と伝える |
+
+### 試験
+
+| 試験 | 確認すること |
+| --- | --- |
+| `FrameRateLimiterTests.SetFps_*` | 間隔の変更、窓の履歴の維持、範囲外の拒否 |
+| `FrameSenderTests.SetSendFps_*` | 送信間隔の変更。session・revision・frame_id不変 |
+| `HostCaptureFpsTests` | 実行中の下げ/上げが次のフレームから効く(間引かれたフレームは読み出さない)、sessionのrevision・generation・frame_idが動かず通信維持、送信済みの結果を捨てない、停止中の保存が次回開始で効く、範囲外・破棄後 |
+| `SettingsViewModelTests.Save_RaisesSavedWith*`ほか | `Saved`は値だけ(revisionは渡さない)、失敗・競合では発火しない、画面の説明 |
+| `OperationTests.ApplyCaptureFps_*` | 辞書revisionの適用が起きない |
+| `ClientScenarioRealServerSettingsTests`(実サーバー) | 設定のPUT → 実行中の取得頻度の変化(2fps→5fpsで300ms間隔の取得が通る)、保存後も通信・世代が維持され翻訳が表示される |
+| `server/tests/test_settings_revision_series.py` | 設定のPUT後もsessionの辞書revisionは1のままでrevision 1のframeが受理される。設定のrevision(2)をframeに載せると1008で切断される |
+| `MainWindowWiringTests.TranslationSettingsSave_*`・`ServerSettingsPanelTests`(`windows-client` CI) | 画面の保存が値としてホストへ届き、辞書revisionとしては適用されない。説明文の表示 |

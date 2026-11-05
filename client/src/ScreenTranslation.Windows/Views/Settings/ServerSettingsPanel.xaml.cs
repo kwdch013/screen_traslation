@@ -21,6 +21,7 @@ public partial class ServerSettingsPanel : UserControl
 	{
 		InitializeComponent();
 		FpsInput.ItemsSource = Enumerable.Range(TranslationSettingsViewModel.MinimumCaptureFps, TranslationSettingsViewModel.MaximumCaptureFps).ToArray();
+		FpsGuidanceText.Text = TranslationSettingsViewModel.CaptureFpsGuidance;
 		RenderSettings(null);
 		RenderGlossary(null);
 	}

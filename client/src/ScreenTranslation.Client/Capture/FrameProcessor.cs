@@ -61,6 +61,12 @@ public sealed class FrameProcessor
 		acquisitionLimiter = new FrameRateLimiter(captureFps);
 	}
 
+	/// <summary>
+	/// 取得fps上限を変える(実行中の設定変更)。変化判定の基準は変えず、受理済みの記録は窓の判定に残す。
+	/// 範囲外は<see cref="ArgumentOutOfRangeException"/>で現在値を保つ。
+	/// </summary>
+	public void SetCaptureFps(int captureFps) => acquisitionLimiter.SetFps(captureFps);
+
 	/// <summary>世代切替などで変化判定の基準を捨て、次の有効フレームを必ず送信対象にする。</summary>
 	public void ResetBaseline()
 	{

@@ -94,6 +94,26 @@ public sealed class CaptureSendPipeline
 		}
 	}
 
+	/// <summary>
+	/// 設定(capture_fps)の保存成功。取得の間引きと送信の上限を、同じ値へ更新する(サーバーの受信レート制限と揃える)。
+	/// sessionの有無に関わらず適用でき(停止中の保存は次回の開始から使う)、revision・generation・frame_idは変えない。
+	/// 範囲外は<see cref="ArgumentOutOfRangeException"/>で、どちらも更新しない。
+	/// </summary>
+	public void UpdateCaptureFps(int captureFps)
+	{
+		// 検証を先に行い、片方だけ更新される状態を作らない
+		if (captureFps is < FrameRateLimiter.MinimumFps or > FrameRateLimiter.MaximumFps)
+		{
+			throw new ArgumentOutOfRangeException(nameof(captureFps), "fpsは1～5で指定してください。");
+		}
+
+		lock (sync)
+		{
+			processor.SetCaptureFps(captureFps);
+			sender.SetSendFps(captureFps);
+		}
+	}
+
 	/// <summary>停止・対象終了・取得不可。以降のフレームは処理せず、旧画像も送らない。</summary>
 	public void EndSession()
 	{

@@ -19,6 +19,7 @@
             <ComboBox x:Name="FpsInput" Width="70" Margin="8,0,0,0" SelectionChanged="Fps_SelectionChanged"
                       AutomationProperties.Name="取得頻度" />
         </StackPanel>
+        <TextBlock x:Name="FpsGuidanceText" TextWrapping="Wrap" Margin="0,4,0,0" />
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <Button x:Name="SettingsLoadButton" Content="読み込み・再読込" Padding="8,4" Click="SettingsLoad_Click" />
             <Button x:Name="SettingsSaveButton" Content="設定を保存" Padding="8,4" Margin="8,0,0,0" Click="SettingsSave_Click" />

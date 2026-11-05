@@ -99,6 +99,12 @@ public sealed class FrameSender
 		}
 	}
 
+	/// <summary>
+	/// 送信fps上限を変える(実行中の設定変更)。session・generation・frame_id・辞書revisionと待機画像は変えない。
+	/// 範囲外は<see cref="ArgumentOutOfRangeException"/>で現在値を保つ。
+	/// </summary>
+	public void SetSendFps(int sendFps) => sendLimiter.SetFps(sendFps);
+
 	/// <summary>辞書revisionの確定。generationとframe_idは維持し、次に送る画像から新revisionを付ける。</summary>
 	public void UpdateDictionaryRevision(ulong newDictionaryRevision)
 	{
