@@ -294,6 +294,9 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 		return Task.CompletedTask;
 	}
 
+	/// <summary>解放の失敗時に想定内切断の準備を取り消す。窓の間の本物の切断を通知させるため。</summary>
+	public void CancelPrepareForRelease() => transport.CancelExpectedServerClose();
+
 	private static readonly TimeSpan ExpectedCloseWindow = TimeSpan.FromSeconds(10);
 
 	/// <summary>停止する。送信と表示は、取得セッションの停止(操作ロック待ち)を待たずに先に止める。</summary>

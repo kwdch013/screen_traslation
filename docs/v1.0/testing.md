@@ -245,7 +245,6 @@ dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTransla
 
 | 項目 | 現行の挙動(試験で確認) | 関連 |
 | --- | --- | --- |
-| 通信部品の分割・開き直し競合試験 | 未着手(`StreamTransportClient.cs`は500行超) | #222 |
 | 全画面の複雑背景のOCR予算 | Owner判断待ち。この通しでは検証していない | #224 |
 
 ### Owner実機手順 (Windowsクライアント全体)

@@ -24,6 +24,11 @@ public interface ITranslationTransport : IFrameTransport
 	/// 結び付いたWSSを閉じるため。想定内の切断は通知せず、未割当のWSSへ静かにつなぎ直す(旧sessionは復元しない)。
 	/// </summary>
 	void ExpectServerClose(TimeSpan window);
+	/// <summary>
+	/// <see cref="ExpectServerClose"/>の準備を取り消す。解放(DELETE)が失敗してサーバーがWSSを閉じない見込みになったとき、
+	/// 窓の間の本物の切断を想定内として見逃さないため。準備が無ければ何もしない。
+	/// </summary>
+	void CancelExpectedServerClose();
 	void ActivateSession(Guid sessionId, ulong generation, ulong dictionaryRevision);
 	/// <summary>
 	/// 停止・切断などでsessionの送信を止めたことを伝える。サーバーへの生存通知(keepalive)をこれ以降送らない。

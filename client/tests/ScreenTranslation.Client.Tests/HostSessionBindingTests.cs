@@ -88,6 +88,18 @@ public sealed class HostSessionBindingTests
 	}
 
 	[Fact]
+	public async Task CancelPrepareForRelease_CancelsTheTransportsExpectation()
+	{
+		await using var f = new HostFixture();
+		await f.Host.ConnectAsync();
+		await f.Host.PrepareForReleaseAsync();
+
+		f.Host.CancelPrepareForRelease();
+
+		Assert.Equal(1, f.Transport.CancelledExpectedCloses);
+	}
+
+	[Fact]
 	public async Task PrepareForRelease_AfterDispose_DoesNothing()
 	{
 		var f = new HostFixture();

@@ -55,6 +55,8 @@ public sealed partial class StreamTransportClient
 	public void ExpectServerClose(TimeSpan window) =>
 		Volatile.Write(ref expectedCloseUntilNanoseconds, monotonicNanoseconds() + (long)window.TotalNanoseconds);
 
+	public void CancelExpectedServerClose() => Volatile.Write(ref expectedCloseUntilNanoseconds, 0);
+
 	private bool ConsumeExpectedClose()
 	{
 		var until = Interlocked.Exchange(ref expectedCloseUntilNanoseconds, 0);
