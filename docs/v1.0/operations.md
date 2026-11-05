@@ -259,9 +259,86 @@ secret/certificate providerとの自動連携も対象外です。運用者が�
 
 - #103（実装済み）: 本番コンテナ、永続化、資源制限。実コンテナでの再起動をまたぐ永続の検証は #196（実施済み、手動実行でCI対象外）、Stanza資源の準備は #189 で実装済み（`prepare-model` に統合）。
 - #104（実装済み）: Windowsクライアントの自己完結配布物、チェックサム、更新・ロールバック方針。[導入文書](install-client.md)。
-- #105: 導入・障害復旧・バックアップの手順とライセンス文書を完成する。
+- #105（本文書の導入・障害の切り分け・バックアップ復元・ログ採取と、[サーバー導入](install-server.md)・[ライセンス棚卸し](licenses.md)）: 手順は実成果物に合わせた文書で、実機での通しは #106 で検証する（未実施）。
 - #106: 配布物の新規導入・更新・復旧を結合試験する。
 - #108: 実Windows・Linux間の正常系と障害復旧E2Eを確認する。
+
+## 障害の切り分け
+
+症状から原因を絞る表です。いずれも証明書検証を無効にしたり、HTTPへ切り替えたりして回避しません。
+
+| 症状 | 確認すること | 対処 |
+|---|---|---|
+| キー失効（401、または接続直後に切断） | `list --include-revoked` で対象IDの状態・期限を確認 | 失効・期限切れなら新しいIDで再発行して端末へ登録し直す。失効したIDは再利用しない（[一覧・失効](#一覧失効)） |
+| 権限がない（403） | 端末用の資格情報を使っているか。管理操作に端末トークンを使っていないか | roleに合う資格情報を使う |
+| 証明書期限（TLS検証失敗） | サーバー側で `server/deploy/tls/verify-pair.sh` を実行し、期限・SAN・CA信頼を確認。端末の日時 | 新しい証明書の組を配置して `SIGHUP` で再読込（[TLS証明書の供給と更新](#tls証明書の供給と更新)）。名前が `SERVER_ALLOWED_HOSTS` とSANに一致しているか確認 |
+| 指紋の不一致 | 画面の「サーバー証明書 SHA-256 指紋」が現在の証明書のものか | 証明書を更新した場合は、新しい指紋を運用者から受け取り設定し直す |
+| モデル未準備（503 `MODEL_NOT_READY`） | `/api/v1/ready` が503か。`docker compose -f server/compose.yml logs --tail 100 server` | `prepare-model` を再実行（[モデル準備とready](#モデル準備とready)）。取得元の差し替えが疑われるときは [manifest更新手順](#モデルstanza資源のmanifest更新手順)の確認コマンド。準備後は再起動なしでreadyに遷移 |
+| 切断（接続できない、結果が止まる） | `docker compose -f server/compose.yml ps` が `healthy` か。ネットワーク・ホストのファイアウォール・`SERVER_BIND_ADDRESS` | 無通信は5秒以内に検知され、所有権は10秒以内に解放される。復旧後は利用者が「開始」を押し直す（再接続だけではsessionを復元しない）。409 `SESSION_IN_USE` は使用中の端末で停止してから開始する |
+| OCR低精度（訳が出ない、誤読が多い） | 対象の文字が小さい・低コントラスト・背景が複雑でないか。`OCR_TIMEOUT` の案内が出ていないか | 領域を狭めて選び直す。表示倍率を上げて文字を大きくする。英語以外の文字は対象外（英語→日本語のみ）。処理が追いつかない場合は取得fpsを下げる設定を確認 |
+| DPIずれ（訳文の位置が対象と合わない） | モニターごとの表示倍率、取得中に別倍率のモニターへ移動していないか | 「領域を再選択」で選び直す。倍率や配置を変えたときは、古い座標を継続せず選び直す。許容誤差を超える場合は開始前に拒否され、再選択が案内される（ACC-06） |
+
+切り分けても解消しない場合は、[ログ採取時の秘匿化](#ログ採取時の秘匿化)に従って情報を集めます。
+
+## 設定・辞書のバックアップと復元
+
+設定・辞書（`server-data` volume）、資格情報台帳（`server-credentials` volume）、TLS秘密鍵、Windows側の設定を、**別々に**扱います。トークン平文はバックアップ対象に存在しません。保管先・保管期間・読める人は組織の方針で制限します。モデル（`server-models`）は取得元から再取得できるため、通常はバックアップせず `prepare-model` で復旧します。
+
+volume名はComposeのプロジェクト名（`screen-translation-server`）が前に付きます。実際の名前は次で確認します。
+
+```sh
+docker volume ls --filter name=server-data
+```
+
+### 取得（サーバーの設定・辞書）
+
+稼働中でも取得できます。イメージ（`SERVER_IMAGE` の値、既定は `screen-translation-server:local`）の `tar` を、外向き通信なし・読み取り専用で使い、標準出力から保存します。
+
+```sh
+IMAGE="${SERVER_IMAGE:-screen-translation-server:local}"
+umask 077
+docker run --rm --network none --user 10001:10001 -v screen-translation-server_server-data:/data:ro "$IMAGE" tar -C /data -cf - . > data-backup.tar
+```
+
+台帳も同じ方法で取得します（`server-credentials` を指定。取得物は資格情報の検証情報を含むため、保管先を厳しく制限します）。
+
+### 復元
+
+1. サーバーを止めます（`docker compose -f server/compose.yml stop`）。
+2. 復元します。
+
+   ```sh
+   IMAGE="${SERVER_IMAGE:-screen-translation-server:local}"
+   docker run --rm -i --network none --user 10001:10001 -v screen-translation-server_server-data:/data "$IMAGE" tar -C /data -xf - < data-backup.tar
+   ```
+
+3. 起動してreadyを確認します（`docker compose -f server/compose.yml up -d`、`server/deploy/wait-ready.sh`）。設定・辞書・revisionが復元されていることを、Windows画面の「読み込み・再読込」で確認します。
+
+**台帳の復元は特に注意が必要です。** 古い台帳を戻すと、失効済みの資格情報が再び有効になるおそれがあります。バックアップ後の発行・失効の記録と照合し、確認できない場合は、復旧時点の既存IDを失効して新しいトークンを発行します（[バックアップと復旧](#バックアップと復旧)）。
+
+### Windows側の設定
+
+`%LOCALAPPDATA%\ScreenTranslation\` の `settings.json` は、接続先などの通常設定です。コピーして保管できます（秘密を含みません）。`device-credential.bin` と `admin-credential.bin` はDPAPIでその利用者アカウントに結び付くため、別のアカウント・PCでは復号できず、バックアップしても移行に使えません。移行・復旧時は、サーバーで端末資格情報を新規発行して登録し直します（[端末資格情報の発行・ローテーション](#端末資格情報の発行ローテーション)）。
+
+## ログ採取時の秘匿化
+
+サーバーの運用ログ（標準出力・標準エラー）には、原文・訳文・画像・トークン・session_idを出さない設計です（[運用ログの扱い](#運用ログの扱い)）。それでも、外部へ共有する前に次を行います。
+
+1. 範囲を絞って取得します。
+
+   ```sh
+   docker compose -f server/compose.yml logs --no-color --tail 500 server > server.log
+   ```
+
+2. 秘密らしい文字列が無いことを確認します。出力があれば共有しません。
+
+   ```sh
+   grep -n -i -E 'token|authorization|BEGIN [A-Z ]*PRIVATE KEY' server.log
+   ```
+
+3. 接続先のホスト名・IP・利用者名は、共有先に応じて伏せ字にします（`SERVER_ALLOWED_HOSTS` の値や `docker compose config` の出力にも含まれます）。
+4. 次は添付しません。`.env`、TLSのディレクトリ（秘密鍵）、台帳のバックアップ、Windowsの `device-credential.bin` と `admin-credential.bin`、`settings.json`（接続先を含む）、翻訳結果の画面写真（原文・訳文が写るため）。
+5. Windowsクライアントは、原文・訳文・画像・資格情報を永続ログに残しません。状況の説明には、画面の日本語の状態表示（文言）と発生時刻を使います。
 
 ## バックアップと復旧
 
@@ -276,6 +353,9 @@ secret/certificate providerとの自動連携も対象外です。運用者が�
 | REQ-NF-006 | TLS 1.2以上、device/admin role分離、無効/失効資格情報の拒否 |
 | REQ-NF-002 / REQ-NF-005 | OCR1回を2.0秒で打ち切り、子プロセスを回収して残さない。単一スレッドで2 CPU予算を守る(#190) |
 | REQ-NF-007 | tokenはsalt付きverifierのみ保存し、秘密はsecret管理/OS保護へ分離。運用ログ(accessログ・依存ライブラリ)にsession_id・内容を出さない(#195) |
+| REQ-F-012 | [サーバー導入](install-server.md)・[Windows導入](install-client.md)・設定/辞書のバックアップと復元・障害の切り分け |
+| REQ-NF-008 | Linux x86_64・Windows 11 x64の対象環境(導入文書) |
+| REQ-NF-010 | 旧Web版の入口を維持([README](../../README.md#旧web版の起動と利用)) |
 | REQ-NF-009 | HTTPS/WSSの証明書名・期限・信頼を検証し、検証無効化を禁止 |
 | ACC-05 / ACC-12 / ACC-14 | 失効後1秒以内拒否、秘密をログ/API/イメージへ含めない、管理CLIをadmin roleに限定 |
 
