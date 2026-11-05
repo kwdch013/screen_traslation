@@ -44,8 +44,9 @@ READY_PORT = 8443
 NOT_READY_PORT = 8444
 # 設定・用語辞書を書き換える試験専用の待受(他の試験が前提にする辞書のrevisionを動かさないため分ける)
 SETTINGS_PORT = 8445
-# 切断検知を速くして、試験が所有権の解放を待つ時間を短くする(製品の既定は5秒)
-DISCONNECT_TIMEOUT = float(os.environ.get("REAL_SERVER_DISCONNECT_TIMEOUT", "1.0"))
+# 既定は製品と同じ5秒。静止画面(フレームなし)でもクライアントの生存通知でsessionが維持されることを、
+# 製品の値で確認するため短縮しない(Issue #245)。短縮したい試験だけが環境変数で上書きする。
+DISCONNECT_TIMEOUT = float(os.environ.get("REAL_SERVER_DISCONNECT_TIMEOUT", "5.0"))
 
 
 def openssl(*arguments: object) -> None:

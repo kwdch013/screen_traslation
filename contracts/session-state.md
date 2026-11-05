@@ -71,7 +71,7 @@ WSS server-to-client textは`stream-message.schema.json`に従い、state/heartb
 
 ## セッション所有権と切断
 
-サーバーは同時に一つのsession ownerだけを保持する。明示stopではsessionを解放し、他端末の開始を許可する。無通信5秒以内に切断を検知し、検知後10秒以内に所有権を解放する。再接続したclientは旧sessionを復元せず、新しい明示開始を行う。通信遅延中に旧ownerが残っていれば409を返し、暗黙に交代しない。
+サーバーは同時に一つのsession ownerだけを保持する。明示stopではsessionを解放し、他端末の開始を許可する。無通信5秒以内に切断を検知し、検知後10秒以内に所有権を解放する。「通信」にはフレームに加え、clientが接続中に1秒間隔で送る生存通知（`keepalive`。[contracts README](README.md#クライアントサーバーのtext生存通知)）を含む。画面が静止してフレームを送らない間も、生存通知がsessionを維持する（#245）。再接続したclientは旧sessionを復元せず、新しい明示開始を行う。通信遅延中に旧ownerが残っていれば409を返し、暗黙に交代しない。
 
 Issue #73 の `SessionManager` はこの遷移表に従い、停止・再選択・認証済みstream切断・heartbeat timeout・アプリ終了の各経路でsessionを無効化する。追跡中の非同期処理はcancelし、完了を待ってから所有権を解放する。heartbeat時計と待機は注入可能で、単体テストでは手動時計を使う。これはプロセス内の単体/route検証であり、サーバーコンテナを通した結合確認は #74、Windows/Linux実機E2Eは #108 の範囲とする。
 

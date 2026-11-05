@@ -26,6 +26,7 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from screen_translation_server.api.glossary import glossary_routes
+from screen_translation_server.api.keepalive import KeepaliveRateLimiter, check_keepalive
 from screen_translation_server.api.settings import settings_routes
 from screen_translation_server.glossary_runtime import GlossaryRuntime
 from screen_translation_server.storage import GlossaryStore, SettingsStore
@@ -78,6 +79,7 @@ def create_app(
 	sessions: SessionManager | None = None,
 	pipeline: TranslationPipeline | None = None,
 	heartbeat_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+	keepalive_clock: Callable[[], float] = time.monotonic,
 	settings_store: SettingsStore | None = None,
 	glossary_store: GlossaryStore | None = None,
 	glossary_runtime: GlossaryRuntime | None = None,
@@ -112,6 +114,7 @@ def create_app(
 	app.state.cancel_tasks = set()
 	app.state.pipeline = pipeline
 	app.state.heartbeat_sleep = heartbeat_sleep
+	app.state.keepalive_clock = keepalive_clock
 	app.state.streams = {}
 	if settings_store is None and glossary_store is None:
 		settings_store, glossary_store = _stores_from_environment()
@@ -269,6 +272,7 @@ def create_app(
 					session.session_id, session.generation, session.dictionary_revision, state,
 				)
 			heartbeat_task = asyncio.create_task(_send_heartbeats(app, session.session_id))
+		keepalive_limiter = KeepaliveRateLimiter(clock=app.state.keepalive_clock)
 		revocation_watch = asyncio.create_task(
 			_watch_websocket_revocation(
 				websocket,
@@ -283,8 +287,21 @@ def create_app(
 				if message["type"] == "websocket.disconnect":
 					return
 				if message.get("text") is not None:
-					await websocket.close(code=1003)
-					return
+					# 静止画面でフレームが無くてもsessionの生存を伝える(Issue #245)
+					close_code = await check_keepalive(
+						message["text"],
+						authenticate=lambda: authenticate_request(
+							app.state.credentials, app.state.policy, is_secure=websocket.url.scheme == "wss",
+							host=websocket.headers.get("host"), origin=websocket.headers.get("origin"),
+							authorization=websocket.headers.get("authorization"), allowed_roles=frozenset({Role.DEVICE}),
+						),
+						limiter=keepalive_limiter, sessions=app.state.sessions, session=session,
+						owner_id=credential.credential_id,
+					)
+					if close_code is not None:
+						await websocket.close(code=close_code)
+						return
+					continue
 				data = message.get("bytes")
 				if not isinstance(data, bytes) or len(data) > BINARY_MESSAGE_MAX_BYTES:
 					await websocket.close(code=1008)

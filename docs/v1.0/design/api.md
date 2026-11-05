@@ -117,6 +117,10 @@ serverからclientへのtext JSONは[`stream-message.schema.json`](../../../cont
 
 `frame_id`はstate/heartbeatにも必須とし、frameに未関連なら`null`を送ります。これにより制御状態と画像処理状態を同じ形式で相関できます。全messageの`correlation_id`は、段階時間・破棄診断とclient/server間の追跡を本文を記録せず結び付けるため必須です。result/errorの`session_id`、`generation`、`frame_id`、`dictionary_revision`は、clientが所有session・現世代・送信frame・有効revisionを照合して古い結果を拒否するため必須です。これはstream-messageに対するwire上の破壊的変更であり、v1.0未リリースの間にclient/server双方を同時更新します。旧clientは未知の`heartbeat` typeを拒否するため、新serverと混在させません。互換性方針は[contracts README](../../../contracts/README.md#互換性と版管理)を参照してください。
 
+### クライアント→サーバーのtext（生存通知）
+
+`heartbeat`はserverの生存通知で、clientの生存をserverへ伝えません。静止画面ではclientがフレームを送らないため、clientは接続中（session有効）の間、1秒間隔で`keepalive`（[`client-message.schema.json`](../../../contracts/schemas/client-message.schema.json)。`type`, `session_id`, `generation`）を送ります。serverは資格情報とsession所有権・generationを照合して生存を更新し、不一致は1008、形式違反は1003、頻度超過（1秒に10件超）は1008で閉じます。方式の選択理由は[ADR-0005](adr/0005-session-lifecycle.md)を参照します。
+
 相関値の発行者、generation/frame採番、辞書反映、逆順/旧世代結果の破棄、単調時計の5秒期限は[session state契約](../../../contracts/session-state.md)を正本とします。
 
 ## Settings / Glossary revision競合

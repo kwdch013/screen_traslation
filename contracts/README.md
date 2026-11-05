@@ -112,6 +112,19 @@ HTTPSの4xx/5xx本文は[`error.schema.json`](schemas/error.schema.json)の次�
 
 WSSではUpgrade前は同じJSONエラーをHTTP応答として返し、Upgrade後はRFC 6455 closeを使います。1008は認証/所有権/契約違反、1009は上限超過、1011は内部処理障害です。Close reasonにはtoken・入力値・tracebackを載せず、UTF-8で123 bytes以下にします。Reasonは`AUTHENTICATION_FAILED`, `SESSION_MISMATCH`, `PROTOCOL_VIOLATION`, `MESSAGE_TOO_LARGE`, `PROCESSING_FAILED`に限定します。Upgrade後のserver-to-client textは[`stream-message.schema.json`](schemas/stream-message.schema.json)で検証し、`state`, `heartbeat`, `result`, `error`の各messageにUUID `correlation_id`とsession/generation/frame/revisionを持たせます。frame未割当のstate/heartbeatは`frame_id: null`、frame起因のresult/errorは実frame IDを使います。`error`は`code`を含み、入力本文・例外詳細を返しません。`code`は`PROCESSING_FAILED`に加え、OCRが時間予算で打ち切られたframeだけ`OCR_TIMEOUT`を使います(#223)。`OCR_TIMEOUT`はframe単位の通知でstreamを閉じず、`message`などの追加fieldを持ちません。clientは自分が送信済みで現在のsession・generation・revision・失効期限(5秒)内のframeに対するものだけを採用し、同じframeの重複は1回だけ扱います。位置を特定できないregionは`rect: null`、文字なしは`status: empty`と空の`regions`で表し、互いに読み替えません。購読者ごとのqueueは最大8件、送信期限は1秒です。上限超過時は最古イベントを破棄し、送信期限超過時は購読を閉じます。破棄/timeout診断には本文を含めません。
 
+### クライアント→サーバーのtext（生存通知）
+
+画面が静止している間、クライアントはフレームを送りません。フレームの受信だけがsessionの生存を更新すると、製品既定の切断検知（無通信5秒）でsessionが失効するため、クライアントは接続中（session有効）の間、1秒間隔で次のtext messageを送ります（#245）。形式は[`client-message.schema.json`](schemas/client-message.schema.json)、固定例は[`fixtures/client-text.json`](fixtures/client-text.json)です。
+
+```json
+{"type": "keepalive", "session_id": "<UUID>", "generation": 1}
+```
+
+- 3項目だけで、UTF-8 JSON 256 bytes以下。未知fieldと他のtext型は契約違反です。
+- serverは受信ごとに資格情報（失効・Host・Origin）と、現在のsession・所有者・generationを照合してから`last_heartbeat`を更新します。不一致・資格情報の失効・1接続あたり1秒に10件を超える頻度は1008、形式違反は1003で閉じます。応答は返しません（server→clientの`heartbeat`は別の通知です）。
+- 通信が途絶えれば更新されず、従来どおり無通信5秒以内に検知し、検知後10秒以内に所有権を解放します。
+- 互換性: text messageの追加は、新clientと旧serverの組み合わせでは旧serverがtextを1003で閉じるため、混在させません（v1.0未リリース中のclient/server同時更新。#228・#223と同じ扱い）。旧clientは生存通知を送らないだけで新serverには接続できますが、静止画面でsessionが失効するため、新serverと新clientの組み合わせだけをサポートします。
+
 このIssueでは`stream-message`の必須fieldを追加し、`heartbeat` message型を導入します。必須fieldの追加はwire上の破壊的変更です。v1.0は未リリースのため、この変更を含むclient/serverを同時更新してからv1.0として提供します。既に公開済みのv1 client/serverを個別更新する用途には使いません。旧clientは未知の`heartbeat`型を拒否しstreamを閉じるため、新serverとの組み合わせをサポートしません。
 
 ## 互換性と版管理

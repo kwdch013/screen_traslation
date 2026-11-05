@@ -281,7 +281,7 @@ hosted runnerで再現できない項目です。担当: Owner。**結果: 未�
 
 - 旧(より小さい)revisionのフレームは、WSSを閉じず、処理せず破棄する(`app.py`の`stale_revision`、観測は`stale_dictionary_revision`)。応答は無い。処理中に旧revisionになった結果・errorも配信直前の`is_frame_current`で破棄される(`result_delivery.py`)。契約と一致する。
 - sessionより**大きい**revisionのフレームは、WSSをcode 1008で閉じる(`app.py`)。クライアントが先走って新revisionを使うと切断される。辞書のPUTは保存確定と同じtickで`set_dictionary_revision`を呼んでから200を返すため、200を受けた後に新revisionを送るのは安全。設定のrevisionを辞書revisionとして適用すると、この経路で切断される(上の表のとおり適用しない)。
-- サーバーはsessionの生存を**フレームの受信でだけ**更新する(`SessionManager.heartbeat`の呼び出し元は`app.py`のフレーム受信のみ。クライアントは生存通知を送らない)。無通信が`disconnect_timeout`(製品の既定5秒)を超えるとsessionを解放し、結び付いたWSSも閉じ得る(コードを読んだ範囲の事実)。#94の「静止画面は再送しない」と組み合わさると、字幕を読むために画面を動かさない場合にsessionが切れる懸念がある。実機・実サーバーでは未確認のため、別Issue案として報告する(本Taskでは扱わない)。実サーバー結合の試験用サーバーは検知を速くするため既定1秒で動かしていたが、開始直後の最初のフレームが1秒を超えると切れて試験が不定期に失敗したため、`client/compose.real-server.yml`の`REAL_SERVER_DISCONNECT_TIMEOUT`で3秒にした(コードの切断検知の仕様は変えていない)。
+- sessionの生存は、かつて**フレームの受信でだけ**更新されていた(`SessionManager.heartbeat`の呼び出し元は`app.py`のフレーム受信のみ。クライアントは生存通知を送らなかった)。#94の「静止画面は再送しない」と組み合わさり、無通信が`disconnect_timeout`(製品の既定5秒)を超えるとsessionが失効した。#245で、クライアントが接続中に1秒間隔の生存通知(`keepalive`。[contracts README](../../contracts/README.md))を送り、サーバーが受信で生存を更新するようにした。実サーバー結合の試験用サーバーは、開始直後の切断を避けるために一時的に`REAL_SERVER_DISCONNECT_TIMEOUT`を3秒にしていた(#241)が、これは上記の欠陥の回避だったため外し、製品既定の5秒で動かす。
 - #100・#241の起票時の「更新後に表示が止まり、通信も切れた」の切れ方は、旧revisionのフレームを受けたことによるものではない(サーバーは旧revisionで切断しない)。原因は特定していない(推測: 更新直後の処理中フレームでの`PROCESSING_FAILED`をクライアントが通信全体の切断として扱う #226 / #202。確認していない)。サーバーが契約と食い違う挙動は見つかっていない。
 
 ### 試験
@@ -294,6 +294,29 @@ hosted runnerで再現できない項目です。担当: Owner。**結果: 未�
 | Windows配線 | `MainWindowWiringTests.GlossarySave_ReachesTheRunningSessionAsTheNewRevision`(`windows-client` CI) | 実`MainWindow`で辞書を保存すると、操作モデル経由でホストへ新revisionが届く |
 
 未検証: 別の端末・別の管理操作が先に辞書を更新した場合(このクライアントが保存していない新revision)は、サーバーのsessionのrevisionだけが進み、このクライアントは旧revisionのまま送り続けて破棄される。サーバーはstate/heartbeatに現在のrevisionを載せるため検知は可能だが、本Taskでは扱わない。
+
+## 静止画面の生存通知 (Issue #245)
+
+画面が静止してフレームが送られない間も、クライアントは接続中(session有効)に1秒間隔で`keepalive`(text)を送り、サーバーは資格情報とsession・generationを照合して生存を更新する。契約は[contracts README](../../contracts/README.md)、方式の選択理由は[ADR-0005](design/adr/0005-session-lifecycle.md)。
+
+### 再現した事実
+
+- 修正前のサーバーは、sessionの生存をフレーム受信でしか更新せず、クライアントからのtextは契約違反としてcode 1003で閉じていた(コードの事実)。
+- 製品既定(5秒)の実サーバーに対し、フレームも生存通知も送らないクライアントを接続すると、`SilentClient_IsDetectedAndOwnershipIsReleasedWithinTheContractTime`のとおり他端末が約5秒後〜15秒以内に開始できる(sessionが失効して所有権が解放される)。静止画面のクライアントは修正前、この状態と同じだった。
+- 修正後は、同じ製品既定の実サーバーで9秒間フレームを出さなくても、`SessionSurvivesAStaticScreenLongerThanTheServerDisconnectTimeout_AndTranslatesAfterwards`のとおりsessionは維持され(他端末は409のまま)、変化したフレームで同じsession・generation 1のまま翻訳が返る。
+
+### 試験
+
+| 区分 | 場所 | 内容 |
+| --- | --- | --- |
+| サーバー単体(注入時計・製品既定5秒) | `server/tests/test_stream_keepalive.py` | フレームが無くても生存通知が1秒ごとにあれば12秒間失効しない / 生存通知もフレームもなければ5秒で失効 / 他のsession・古いgenerationは更新せず1008 / 形式違反は1003で更新しない / 1秒に10件超は1008 / 検証関数とレート制限 |
+| 契約fixture | `contracts/fixtures/client-text.json`。Python: `server/tests/contracts/test_contract_fixtures.py`、C#: `TransportKeepaliveContractTests` | スキーマの合否と、サーバー(`parse_keepalive`)・クライアント(`IsValidClientTextMessage`)の検証が一致 |
+| クライアント単体(注入ティッカー) | `client/tests/ScreenTranslation.Client.Tests/TransportKeepaliveTests.cs`・`HostSessionBindingTests` | フレームなしでも毎tickで契約どおりの通知を送る / session有効化前は送らない / `DeactivateSession`・切断・開き直し後は送らない / 世代切替でも1本 / 送信失敗は再試行せず終了し、受信ループが既存の切断経路で通知 / ホストの停止で`DeactivateSession`を呼ぶ |
+| 実サーバー結合(**実時間に依存**) | `client/tests/ScreenTranslation.Client.IntegrationTests/RealServerKeepaliveTests.cs`(`client/compose.real-server.yml`、サーバーの`disconnect_timeout`は製品既定5秒) | 9秒の静止画面でsessionと接続が維持され、その後の変化フレームで翻訳が返る / 沈黙するクライアントは契約時間内(5秒+10秒)に解放される。サーバーの切断検知が実時計で動くため、5秒超の実際の経過を待つ(経過そのものが検証対象。閾値には余裕を持たせた) |
+
+mutationで落ちることを確認した: サーバーの生存更新の除去(`test_session_survives_...`、`..._stale_generation_...`が失敗)、クライアントの通知送出の除去(`ActiveSession_SendsAContractKeepalive...`ほかが失敗)、`DeactivateSession`の無効化(`Deactivate_StopsKeepalive...`が失敗)、ホストの停止時の通知除去(`Stop_DeactivatesTheTransportSession...`が失敗)。
+
+未検証: Windows実機での長時間運用(R4)。送信失敗時の切断通知は、実際の`ClientWebSocket`が送信に失敗した接続の受信も失敗させることに依存する(代替のsocketで再現)。
 
 ## セッション取得・解放のHTTPSクライアント (Issue #210)
 

@@ -129,6 +129,8 @@ public sealed partial class TranslationSessionHost
 			sendCancellation = null;
 			pipeline.EndSession();
 			overlay.Invalidate(reason);
+			// 停止後に生存通知を送り続けない。再開始のActivateSessionと同じ排他区間で行い、新しいsessionの通知を止めない
+			transport.DeactivateSession();
 		}
 		SessionEnded?.Invoke(reason);
 		return true;

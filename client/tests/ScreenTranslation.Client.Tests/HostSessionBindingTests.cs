@@ -22,6 +22,22 @@ public sealed class HostSessionBindingTests
 	}
 
 	[Fact]
+	public async Task Stop_DeactivatesTheTransportSession_SoKeepaliveIsNotSentAfterwards()
+	{
+		await using var f = new HostFixture();
+		await f.ConnectedWithTargetAndRegionAsync();
+		Assert.Equal(StartResult.Started, await f.Host.StartAsync(SessionId, 1));
+		Assert.Equal(0, f.Transport.Deactivations);
+
+		await f.Host.StopAsync();
+
+		Assert.Equal(["reopen", "activate", "deactivate"], f.Transport.Calls);
+		// 停止済みの再停止は何もしない(新しいsessionの生存通知を止めない)
+		await f.Host.StopAsync();
+		Assert.Equal(1, f.Transport.Deactivations);
+	}
+
+	[Fact]
 	public async Task Start_DoesNotTouchTheConnectionWhenAPrerequisiteIsMissing()
 	{
 		await using var f = new HostFixture();

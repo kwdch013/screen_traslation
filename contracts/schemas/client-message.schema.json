@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-translation.invalid/contracts/v1/client-message.schema.json",
+  "title": "WSS client-to-server text message",
+  "description": "クライアントからサーバーへのtext message。現在は生存通知(keepalive)だけ。UTF-8 JSONで256 bytes以下。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "session_id", "generation"],
+  "properties": {
+    "type": {"const": "keepalive"},
+    "session_id": {"type": "string", "format": "uuid", "maxLength": 36},
+    "generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615}
+  }
+}
