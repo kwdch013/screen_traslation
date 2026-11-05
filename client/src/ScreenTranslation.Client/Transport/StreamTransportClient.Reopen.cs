@@ -69,6 +69,8 @@ public sealed partial class StreamTransportClient
 	/// </summary>
 	private async Task ReconnectAfterExpectedCloseAsync(IStreamSocket closed, CancellationToken cancellationToken)
 	{
+		// 想定内切断として処理に入った(入れ替え済みで黙って無視する経路ではない)ことを、試験が決定的に待つための通知
+		BeforeExpectedCloseReconnect?.Invoke();
 		try
 		{
 			await ReopenCoreAsync(closed, cancellationToken).ConfigureAwait(false);
@@ -78,7 +80,18 @@ public sealed partial class StreamTransportClient
 			await InvalidateAfterDisconnectAsync().ConfigureAwait(false);
 			throw;
 		}
+		finally
+		{
+			// 受信ループが旧socketの失敗を処理し終えたことを、試験が固定のsleepに頼らず待つための通知
+			AfterExpectedCloseReconnect?.Invoke();
+		}
 	}
+
+	/// <summary>試験用。想定内切断の再接続処理に入った直後(接続の操作を待つ前)に呼ばれる。製品では設定しない(既定null)。</summary>
+	internal Action? BeforeExpectedCloseReconnect { get; set; }
+
+	/// <summary>試験用。想定内切断の再接続処理(入れ替え済みなら何もしない場合を含む)が終わった直後に呼ばれる。ロックの外で呼ぶ。</summary>
+	internal Action? AfterExpectedCloseReconnect { get; set; }
 
 	/// <summary>受信中のsocketが入れ替えられた後の、閉じた古いsocketの失敗か(切断ではない)。</summary>
 	private bool IsReplaced(IStreamSocket received, Exception exception, CancellationToken cancellationToken) =>
