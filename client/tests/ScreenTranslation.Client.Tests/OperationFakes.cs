@@ -65,6 +65,15 @@ internal sealed class FakeSessionOperations : ISessionOperations
 		IsConnected = !ConnectLeavesDisconnected;
 	}
 
+	public readonly List<ulong> AppliedRevisions = [];
+	public bool ApplyDictionaryRevisionResult = true;
+
+	public bool ApplyDictionaryRevision(ulong dictionaryRevision)
+	{
+		AppliedRevisions.Add(dictionaryRevision);
+		return ApplyDictionaryRevisionResult;
+	}
+
 	public ValueTask SelectTargetAsync(CaptureTarget target, CancellationToken cancellationToken = default)
 	{
 		SelectTargetCount++;

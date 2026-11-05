@@ -29,6 +29,16 @@ public sealed class GlossaryViewModel : IDisposable
 		remove => editor.Changed -= value;
 	}
 
+	/// <summary>
+	/// 辞書の保存が成功した(サーバーが返した新revision)。実行中のsessionへ新revisionを反映する契機。
+	/// 翻訳設定(取得頻度)の保存にはこのイベントを設けない: サーバーの設定と辞書は別系列のrevisionで、sessionのrevisionを動かすのは辞書だけのため。
+	/// </summary>
+	public event Action<ulong>? Saved
+	{
+		add => editor.Saved += value;
+		remove => editor.Saved -= value;
+	}
+
 	public EditorSnapshot<IReadOnlyList<GlossaryEntry>> Snapshot => editor.Snapshot;
 
 	public Task<EditorOutcome> LoadAsync(bool discardEdits = false) => editor.LoadAsync(discardEdits);

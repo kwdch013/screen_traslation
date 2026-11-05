@@ -27,6 +27,7 @@ import time
 from app.contracts import Rect, TextRegion
 from screen_translation_server.admin.credentials import CredentialManager
 from screen_translation_server.app import create_app, create_server
+from screen_translation_server.glossary_runtime import GlossaryRuntime
 from screen_translation_server.pipeline import TranslationPipeline
 from screen_translation_server.security.auth import (
 	CredentialStore,
@@ -44,7 +45,7 @@ NOT_READY_PORT = 8444
 # 設定・用語辞書を書き換える試験専用の待受(他の試験が前提にする辞書のrevisionを動かさないため分ける)
 SETTINGS_PORT = 8445
 # 切断検知を速くして、試験が所有権の解放を待つ時間を短くする(製品の既定は5秒)
-DISCONNECT_TIMEOUT = 1.0
+DISCONNECT_TIMEOUT = float(os.environ.get("REAL_SERVER_DISCONNECT_TIMEOUT", "1.0"))
 
 
 def openssl(*arguments: object) -> None:
@@ -73,6 +74,13 @@ def fixed_ocr(_frame: object) -> list[TextRegion]:
 	return [TextRegion("Hello", Rect(10, 10, 100, 30), 0.99)]
 
 
+class FixedTranslator:
+	"""画像の文字によらず「訳:原文」を返す固定の翻訳。用語辞書は製品と同じ経路(GlossaryRuntime)で上から適用される。"""
+
+	def translate(self, text: str) -> str:
+		return f"訳:{text}"
+
+
 class Instance:
 	"""1つの待受(app+uvicorn)。別スレッドのイベントループで動かす。"""
 
@@ -87,12 +95,15 @@ class Instance:
 			"SCREEN_TRANSLATION_PORT": str(port),
 		})
 		sessions = SessionManager(clock=time.monotonic, sleep=asyncio.sleep, disconnect_timeout=DISCONNECT_TIMEOUT)
+		# 製品と同じく、保存済みの辞書をGlossaryRuntime経由で翻訳へ反映する(辞書の更新が訳文に現れることを確認するため)
+		glossary_runtime = GlossaryRuntime()
 		app = create_app(
+			glossary_runtime=glossary_runtime,
 			credentials=CredentialStore.from_file(directory / "credentials.json"),
 			policy=SecurityPolicy(frozenset({f"{HOST_NAME}:{port}"})),
 			is_ready=ready,
 			sessions=sessions,
-			pipeline=TranslationPipeline(fixed_ocr, lambda text: f"訳:{text}", clock=time.monotonic, is_current=sessions.is_current),
+			pipeline=TranslationPipeline(fixed_ocr, glossary_runtime.wrap(FixedTranslator()), clock=time.monotonic, is_current=sessions.is_current),
 		)
 		self.server = create_server(app, tls_context=create_server_tls_context(directory / "server.pem", directory / "server.key"))
 		self.thread = threading.Thread(target=lambda: asyncio.run(self.server.serve()), daemon=True)

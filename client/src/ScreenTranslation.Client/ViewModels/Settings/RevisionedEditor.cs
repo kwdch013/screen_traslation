@@ -78,6 +78,12 @@ public sealed class RevisionedEditor<T> : IDisposable
 
 	public event Action? Changed;
 
+	/// <summary>
+	/// 保存が成功した(サーバーが返した新revision)。保存の結果が確定した後、<see cref="Changed"/>より先に、任意のスレッドから1回だけ発火する。
+	/// 購読側の例外は保存の失敗には変換せず、そのまま呼び出し元へ伝える(保存は既にサーバーで確定している)。
+	/// </summary>
+	public event Action<ulong>? Saved;
+
 	public EditorSnapshot<T> Snapshot
 	{
 		get
@@ -209,9 +215,10 @@ public sealed class RevisionedEditor<T> : IDisposable
 		Changed?.Invoke();
 		if (rejection is not null) return EditorOutcome.Ignored;
 
+		Revisioned<T> saved;
 		try
 		{
-			var saved = await update(sentRevision, sentValue, lifetime.Token).ConfigureAwait(false);
+			saved = await update(sentRevision, sentValue, lifetime.Token).ConfigureAwait(false);
 			lock (sync)
 			{
 				baseline = saved.Value;
@@ -222,8 +229,6 @@ public sealed class RevisionedEditor<T> : IDisposable
 				phase = EditorPhase.Ready;
 				Notice(SettingsMessages.Saved(subject), NoticeSeverity.Info);
 			}
-			Changed?.Invoke();
-			return EditorOutcome.Completed;
 		}
 		catch (OperationCanceledException)
 		{
@@ -247,6 +252,11 @@ public sealed class RevisionedEditor<T> : IDisposable
 			Changed?.Invoke();
 			return EditorOutcome.Failed;
 		}
+
+		// 保存が確定した通知は、購読側の例外が保存結果を変えないよう、保存の例外処理の外で行う
+		Saved?.Invoke(saved.Revision);
+		Changed?.Invoke();
+		return EditorOutcome.Completed;
 	}
 
 	/// <summary>編集内容を、読み込んだ値へ戻す(通信しない)。保存中は何もしない。</summary>

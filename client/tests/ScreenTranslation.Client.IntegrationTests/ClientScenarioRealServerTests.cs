@@ -33,7 +33,7 @@ public sealed class ClientScenarioRealServerTests
 	}
 
 	/// <summary>フレームを出し続け、最初に表示された訳文を返す(実サーバーの処理時間に依存するため時刻でなく表示の到着で待つ)。</summary>
-	private static async Task<string> TranslateAsync(FakeCaptureSessionFactory factory, FakeOverlaySurface surface, int alreadyRendered, int seedBase)
+	private static async Task<string> TranslateAsync(OperationsViewModel model, FakeCaptureSessionFactory factory, FakeOverlaySurface surface, int alreadyRendered, int seedBase)
 	{
 		var clock = Stopwatch.StartNew();
 		for (var seed = seedBase; clock.Elapsed < Watchdog; seed++)
@@ -46,7 +46,8 @@ public sealed class ClientScenarioRealServerTests
 			}
 			await Task.Delay(300);
 		}
-		throw new TimeoutException("実サーバーの翻訳が表示されませんでした。");
+		// 原因の切り分けのため、状態と文言だけを添える(画像・訳文・session_id・トークンは含めない)
+		throw new TimeoutException($"実サーバーの翻訳が表示されませんでした。状態={model.Snapshot.Phase} / {model.Snapshot.Message}");
 	}
 
 	[RealServerFact]
@@ -64,37 +65,37 @@ public sealed class ClientScenarioRealServerTests
 		await Completed(model, model.SelectTargetAsync(ScenarioRig.Display));
 		await Completed(model, model.ReselectRegionAsync());
 		await Completed(model, model.StartAsync());
-		Assert.Equal("訳:Hello", await TranslateAsync(factory!, surface, 0, 1));
+		Assert.Equal("訳:Hello", await TranslateAsync(model, factory!, surface, 0, 1));
 		Assert.Equal(1ul, host.Generation);
 		Assert.NotEmpty(model.History);
 
-		// 辞書更新(管理用資格情報)。サーバーは稼働中のsessionへ新revisionを即時反映する
+		// 辞書更新(管理用資格情報)。サーバーは稼働中のsessionへ新revisionを即時反映する。
+		// クライアントは保存成功を実行中のsessionへ反映し(製品の配線と同じ)、次に取得するフレームから新revisionで送る
 		using var glossary = new GlossaryViewModel(admin.ServerSettings);
+		glossary.Saved += revision => model.ApplyDictionaryRevision(revision);
 		Assert.Equal(EditorOutcome.Completed, await glossary.LoadAsync().WaitAsync(Watchdog));
-		Assert.True(glossary.Add($"Term{Guid.NewGuid():N}", "用語"));
+		Assert.True(glossary.Add("Hello", "こんにちは"));
 		Assert.Equal(EditorOutcome.Completed, await glossary.SaveAsync().WaitAsync(Watchdog));
 		var updated = glossary.Snapshot.Revision;
 
-		// 【未解決の記録】実行中のsessionへ新revisionを適用する経路が現行クライアントに無い(契約: 保存成功で即時active、次のframeから新revision)。
-		// 実サーバー相手では、更新後に新しい訳文が表示されなくなり、観測した実行では通信も切れた(「接続を維持できなくなりました」)。
-		// 切れ方は処理中フレームの有無で変わり得るため、ここでは「更新後に新しい訳文が表示されない」ことだけを確認する。
-		// 修正されたらこの確認が落ちるので、期待を契約どおり(更新後も表示される)へ改めること。
-		var before = surface.Rendered.Count;
-		for (var seed = 1000; seed < 1008; seed++)
-		{
-			factory!.Sessions[^1].Emit(() => TestScreens.Capture(ScenarioRig.Display.Bounds, Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency), seed));
-			await Task.Delay(300);
-		}
-		Assert.Equal(before, surface.Rendered.Count);
-		// 通信が切れていたら、利用者の操作(接続)で戻す。自動では再開しない
-		if (model.Snapshot.Phase == OperationPhase.Disconnected) await Completed(model, model.ConnectAsync());
+		// 更新後は、開始し直さずに、辞書の訳語で新しい訳が表示される。通信は切れず、世代も変わらない
+		Assert.Equal("こんにちは", await TranslateAsync(model, factory!, surface, surface.Rendered.Count, 1000));
+		Assert.Equal(OperationPhase.Streaming, model.Snapshot.Phase);
+		Assert.Equal(1ul, host.Generation);
+		Assert.True(host.IsConnected);
+
+		// 後始末: 辞書を元に戻す(同じ待受を使う他の試験が「訳:Hello」を前提にしても影響しない)。この更新も実行中のsessionへ反映される
+		Assert.True(glossary.Remove("Hello"));
+		Assert.Equal(EditorOutcome.Completed, await glossary.SaveAsync().WaitAsync(Watchdog));
+		Assert.Equal("訳:Hello", await TranslateAsync(model, factory!, surface, surface.Rendered.Count, 1500));
+		Assert.Equal(OperationPhase.Streaming, model.Snapshot.Phase);
 
 		// 再選択(停止→選び直し)→明示再開始: 世代は1に戻り、新revisionで翻訳される
 		await Completed(model, model.ReselectRegionAsync());
 		Assert.Empty(model.History);
 		await Completed(model, model.StartAsync());
 		Assert.Equal(1ul, host.Generation);
-		Assert.Equal("訳:Hello", await TranslateAsync(factory!, surface, surface.Rendered.Count, 2000));
+		Assert.Equal("訳:Hello", await TranslateAsync(model, factory!, surface, surface.Rendered.Count, 2000));
 		Assert.True(updated >= 2);
 
 		// 停止で解放され、別端末が開始できる

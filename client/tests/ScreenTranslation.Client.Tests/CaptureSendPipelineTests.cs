@@ -142,4 +142,31 @@ public sealed class CaptureSendPipelineTests
 		Assert.Equal(CapturePipelineOutcome.Submitted, h.Pipeline.OnCaptured(frame, Roi, 1));
 		Assert.Equal(CapturePipelineOutcome.Throttled, h.Pipeline.OnCaptured(frame with { CapturedMonotonicNanoseconds = frame.CapturedMonotonicNanoseconds + 1 }, Roi, 1));
 	}
+
+	[Fact]
+	public async Task DictionaryRevisionUpdateKeepsGenerationFrameIdAndPendingImage()
+	{
+		var h = new Harness();
+		h.Pipeline.BeginSession(SessionId, 3, 1);
+		Assert.Equal(CapturePipelineOutcome.Submitted, h.Pipeline.OnCaptured(h.Frame(1), Roi, 3));
+		Assert.True(await h.Pipeline.SendNextAsync().WaitAsync(Watchdog));
+		Assert.Equal(CapturePipelineOutcome.Submitted, h.Pipeline.OnCaptured(h.Frame(2), Roi, 3));
+
+		h.Pipeline.UpdateDictionaryRevision(4);
+
+		Assert.True(h.Pipeline.HasPending);
+		Assert.True(await h.Pipeline.SendNextAsync().WaitAsync(Watchdog));
+		Assert.Equal([(3UL, 1UL, 1UL), (3UL, 2UL, 4UL)], h.Transport.Sent.Select(m => (m.Generation, m.FrameId, m.DictionaryRevision)));
+		Assert.Equal(3UL, h.Pipeline.Generation);
+	}
+
+	[Fact]
+	public void DictionaryRevisionUpdateWithoutASessionIsRejected()
+	{
+		var h = new Harness();
+		Assert.Throws<InvalidOperationException>(() => h.Pipeline.UpdateDictionaryRevision(2));
+		h.Pipeline.BeginSession(SessionId, 1, 1);
+		h.Pipeline.EndSession();
+		Assert.Throws<InvalidOperationException>(() => h.Pipeline.UpdateDictionaryRevision(2));
+	}
 }
