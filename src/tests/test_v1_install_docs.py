@@ -174,7 +174,8 @@ class InstallDocsTest(unittest.TestCase):
 
 	def section(self, document: str, heading_text: str) -> str:
 		match = re.search(rf"(?ms)^(#+) [^\n]*{re.escape(heading_text)}[^\n]*\n(.*?)(?=^\1 |\Z)", document)
-		self.assertIsNotNone(match, f"見出し {heading_text} が無い")
+		if match is None:
+			self.fail(f"見出し {heading_text} が無い")
 		return match.group(2)
 
 	# ---- 秘匿・特定環境の混入 -------------------------------------------
