@@ -195,6 +195,69 @@ class InstallDocsTest(unittest.TestCase):
 				with self.subTest(document=path, rule=name):
 					self.assertIsNone(re.search(pattern, text), f"{path} に {name} が含まれる")
 
+	# ---- Issue #266: 表現の統一・手順・危険コマンド -----------------------
+
+	def test_license_acceptedは運用上の導入ゲートでOwner確認の代わりではないと書く(self) -> None:
+		for path in (INSTALL_SERVER, LICENSES):
+			text = self.read(path)
+			for sentence in re.findall(r"[^\n。]*license_accepted[^\n。]*。?", text):
+				with self.subTest(document=path, sentence=sentence[:40]):
+					# Ownerの確認証跡・確認した証跡とは書かない (実際はOwner未確認のままtrue)
+					self.assertNotRegex(sentence, r"(確認した|確認の)証跡")
+					self.assertNotIn("Ownerがライセンスを確認した", sentence)
+			self.assertRegex(text, r"license_accepted[^\n]*導入ゲート")
+			self.assertRegex(text, r"Owner[^\n]*最終確認の代わりでは(?:ない|ありません)")
+
+	def test_提供元の表示は未照合の転記と明記する(self) -> None:
+		licenses = self.read(LICENSES)
+		self.assertIn("未照合の転記", licenses)
+		self.assertIn("提供元での再確認は未実施", licenses)
+		self.assertNotIn("調査時点で転記", licenses)
+
+	def test_管理トークンをファイルへ安全に保存する手順がある(self) -> None:
+		section = self.section(self.read(INSTALL_SERVER), "管理トークンの保存")
+		self.assertIn("umask 077", section)
+		self.assertIn("chmod 600", section)
+		self.assertIn("0600", section)
+		self.assertIn("履歴", section)
+		self.assertIn("wait-ready.sh", section)
+		# トークンをコマンド引数・環境変数・echoで渡す例を載せない
+		for line in section.splitlines():
+			if line.lstrip().startswith(("echo ", "printf ", "export ")):
+				self.fail(f"トークンを引数や環境変数で扱う例がある: {line}")
+
+	def test_バックアップ復元は既存ファイルを上書きするだけと書く(self) -> None:
+		rollback = self.read(INSTALL_SERVER)
+		self.assertRegex(rollback, r"上書き[^\n]*余分なファイルは消え")
+
+	DANGEROUS = (
+		re.compile(r"\bdown\b[^\n`]*\s(?:-v|--volumes)\b"),
+		re.compile(r"\bdocker\s+volume\s+(?:rm|remove|prune)\b"),
+		re.compile(r"\bdocker\s+compose\b[^\n`]*\brm\b[^\n`]*\s-\w*v"),
+		re.compile(r"\bprune\b[^\n`]*--volumes"),
+	)
+	NEGATION = re.compile(r"付けない|付与しない|使わない|使用しない|禁止|しないで|ないでください|消えます|消す")
+
+	def dangerous_lines(self, text: str) -> list[str]:
+		found = []
+		for line in text.splitlines():
+			if any(pattern.search(line) for pattern in self.DANGEROUS) and not self.NEGATION.search(line):
+				found.append(line.strip())
+		return found
+
+	def test_volumeを消すコマンドを勧めない(self) -> None:
+		for path, text in self.all_text().items():
+			with self.subTest(document=path):
+				self.assertEqual(self.dangerous_lines(text), [])
+
+	def test_危険コマンド検査は検出と否定文脈の許容を区別する(self) -> None:
+		self.assertTrue(self.dangerous_lines("docker compose -f server/compose.yml down -v"))
+		self.assertTrue(self.dangerous_lines("docker compose down --volumes"))
+		self.assertTrue(self.dangerous_lines("docker volume rm screen-translation-server_server-data"))
+		self.assertTrue(self.dangerous_lines("docker volume prune -f"))
+		self.assertEqual(self.dangerous_lines("`down -v` は付けないでください"), [])
+		self.assertEqual(self.dangerous_lines("docker volume rm は禁止です"), [])
+
 	# ---- ライセンス棚卸し -------------------------------------------------
 
 	def test_ライセンスの最終確認はOwner判断として扱い合格と書かない(self) -> None:
