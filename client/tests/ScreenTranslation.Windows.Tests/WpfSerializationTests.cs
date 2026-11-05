@@ -19,7 +19,9 @@ public sealed class WpfSerializationTests
 	{
 		var types = typeof(WpfSerializationTests).Assembly.GetTypes();
 
-		Assert.Empty(WpfSerializationInspector.FindProblems(types, "WpfSta", NoSerializationNeeded));
+		var problems = WpfSerializationInspector.FindProblems(types, "WpfSta", NoSerializationNeeded);
+
+		Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
 	}
 
 	[Fact]
