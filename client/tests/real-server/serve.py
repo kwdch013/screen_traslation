@@ -75,6 +75,20 @@ def fixed_ocr(_frame: object) -> list[TextRegion]:
 	return [TextRegion("Hello", Rect(10, 10, 100, 30), 0.99)]
 
 
+def make_ocr(fault_file: Path | None):
+	"""固定OCR。試験が指定したファイルが存在する間だけ、1フレームの処理失敗(PROCESSING_FAILED)を起こす。
+
+	クライアントが非致命のフレーム単位エラーで通信を閉じないことを、実サーバーの本物のerror配信で確認するための注入点(Issue #226)。
+	"""
+
+	def ocr(frame: object) -> list[TextRegion]:
+		if fault_file is not None and fault_file.exists():
+			raise RuntimeError("試験用に注入した処理失敗")
+		return fixed_ocr(frame)
+
+	return ocr
+
+
 class FixedTranslator:
 	"""画像の文字によらず「訳:原文」を返す固定の翻訳。用語辞書は製品と同じ経路(GlossaryRuntime)で上から適用される。"""
 
@@ -85,7 +99,7 @@ class FixedTranslator:
 class Instance:
 	"""1つの待受(app+uvicorn)。別スレッドのイベントループで動かす。"""
 
-	def __init__(self, directory: Path, port: int, *, ready: bool) -> None:
+	def __init__(self, directory: Path, port: int, *, ready: bool, fault_file: Path | None = None) -> None:
 		self.port = port
 		data_dir = directory / f"data-{port}"
 		data_dir.mkdir()
@@ -104,7 +118,7 @@ class Instance:
 			policy=SecurityPolicy(frozenset({f"{HOST_NAME}:{port}"})),
 			is_ready=ready,
 			sessions=sessions,
-			pipeline=TranslationPipeline(fixed_ocr, glossary_runtime.wrap(FixedTranslator()), clock=time.monotonic, is_current=sessions.is_current),
+			pipeline=TranslationPipeline(make_ocr(fault_file), glossary_runtime.wrap(FixedTranslator()), clock=time.monotonic, is_current=sessions.is_current),
 		)
 		self.server = create_server(app, tls_context=create_server_tls_context(directory / "server.pem", directory / "server.key"))
 		self.thread = threading.Thread(target=lambda: asyncio.run(self.server.serve()), daemon=True)
@@ -137,7 +151,13 @@ def main() -> int:
 			create_credential(token_b, Role.DEVICE, expires, "device-b"),
 			create_credential(token_admin, Role.ADMIN, expires, "admin"),
 		])
-		instances = [Instance(directory, READY_PORT, ready=True), Instance(directory, NOT_READY_PORT, ready=False), Instance(directory, SETTINGS_PORT, ready=True)]
+		# 処理失敗の注入は設定用の待受だけ(他の待受を使う試験へ影響させない)。環境変数が無ければ注入しない
+		fault_path = os.environ.get("REAL_SERVER_FAULT_FILE")
+		instances = [
+			Instance(directory, READY_PORT, ready=True),
+			Instance(directory, NOT_READY_PORT, ready=False),
+			Instance(directory, SETTINGS_PORT, ready=True, fault_file=Path(fault_path) if fault_path else None),
+		]
 		for instance in instances:
 			instance.start()
 		(shared / "ca.pem").write_text((directory / "ca.pem").read_text(encoding="ascii"), encoding="ascii")

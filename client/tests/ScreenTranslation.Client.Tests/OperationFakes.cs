@@ -55,6 +55,7 @@ internal sealed class FakeSessionOperations : ISessionOperations
 	public event Action<OverlayFailure>? OverlayFailed;
 	public event Action? ConnectionLost;
 	public event Action? OcrTimedOut;
+	public event Action<string>? FrameFailed;
 	public event Action<Guid, ulong, IReadOnlyList<OverlayRegion>>? TranslationsPresented;
 
 	public async Task ConnectAsync(CancellationToken cancellationToken = default)
@@ -169,6 +170,7 @@ internal sealed class FakeSessionOperations : ISessionOperations
 	public void RaiseConnectionLostOnly() => ConnectionLost?.Invoke();
 	public void RaiseFaulted(string message) => Faulted?.Invoke(message);
 	public void RaiseOcrTimedOut() => OcrTimedOut?.Invoke();
+	public void RaiseFrameFailed(string code) => FrameFailed?.Invoke(code);
 	public void RaiseOverlayFailed(string message) => OverlayFailed?.Invoke(new OverlayFailure(message));
 	/// <summary>直近に開始したsessionの結果として発火する。</summary>
 	public void Present(ulong generation, params OverlayRegion[] regions) => TranslationsPresented?.Invoke(Starts[^1].Session, generation, regions);

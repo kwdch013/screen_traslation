@@ -114,4 +114,48 @@ public sealed class ClientScenarioRealServerTests
 			}
 		}
 	}
+
+	/// <summary>
+	/// 実サーバーが1フレームの処理失敗(PROCESSING_FAILED)をerrorで通知しても、通信は閉じず、
+	/// 復旧後の次のフレームが同じ接続・同じ世代で翻訳される (Issue #226)。失敗はサーバーのOCRに注入する(試験専用の待受)。
+	/// </summary>
+	[RealServerFaultFact]
+	public async Task ProcessingFailure_OfOneFrame_DoesNotCloseTheStreamAndTheNextFrameIsTranslated_AgainstTheRealServer()
+	{
+		var faultFile = Environment.GetEnvironmentVariable("REAL_SERVER_FAULT_FILE")!;
+		using var device = new RealServerClient(Url, Env.Token("device-a"), Env.CaPem);
+		var surface = new FakeOverlaySurface();
+		FakeCaptureSessionFactory? factory = null;
+		var host = new TranslationSessionHost(device.Transport, sink => factory = new FakeCaptureSessionFactory(sink), surface, new TranslationSessionOptions(2, 2));
+		await using var model = new OperationsViewModel(host, device.Sessions, new Selector(), null);
+		await Completed(model, model.ConnectAsync());
+		await Completed(model, model.SelectTargetAsync(ScenarioRig.Display));
+		await Completed(model, model.ReselectRegionAsync());
+		await Completed(model, model.StartAsync());
+		Assert.Equal("訳:Hello", await TranslateAsync(model, factory!, surface, 0, 1));
+
+		File.WriteAllText(faultFile, "inject");
+		try
+		{
+			var clock = Stopwatch.StartNew();
+			for (var seed = 100; model.Snapshot.Message != OperationMessages.ProcessingFailed; seed++)
+			{
+				Assert.True(clock.Elapsed < Watchdog, $"処理失敗の通知が出ませんでした。状態={model.Snapshot.Phase} / {model.Snapshot.Message}");
+				factory!.Sessions[^1].Emit(() => TestScreens.Capture(ScenarioRig.Display.Bounds, Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency), seed));
+				await Task.Delay(300);
+			}
+		}
+		finally
+		{
+			File.Delete(faultFile);
+		}
+
+		// 通信は閉じられておらず、同じsession・世代のまま、復旧後の次のフレームが翻訳される
+		Assert.Equal(OperationPhase.Streaming, model.Snapshot.Phase);
+		Assert.True(host.IsConnected);
+		Assert.Equal("訳:Hello", await TranslateAsync(model, factory!, surface, surface.Rendered.Count, 3000));
+		Assert.Equal(1ul, host.Generation);
+		Assert.Equal(OperationPhase.Streaming, model.Snapshot.Phase);
+		await Completed(model, model.StopAsync());
+	}
 }

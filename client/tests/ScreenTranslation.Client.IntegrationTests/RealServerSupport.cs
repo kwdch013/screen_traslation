@@ -40,6 +40,16 @@ public sealed class RealServerFactAttribute : FactAttribute
 	}
 }
 
+/// <summary>処理失敗の注入先(REAL_SERVER_FAULT_FILE)がないときはスキップする(実サーバー側が注入に対応する構成でだけ実行する)。</summary>
+public sealed class RealServerFaultFactAttribute : FactAttribute
+{
+	public RealServerFaultFactAttribute()
+	{
+		if (RealServerEnvironment.FromEnvironment() is null || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("REAL_SERVER_FAULT_FILE")))
+			Skip = "REAL_SERVER_FAULT_FILE などが未設定のためスキップ(client/compose.real-server.ymlで実行します)。";
+	}
+}
+
 /// <summary>
 /// 試験用CAだけを信頼してサーバー証明書を検証する(OSの信頼ストアは変更しない)。
 /// チェーン・サーバー認証用途・SAN・ホスト名を検証し、緩める経路は持たない。

@@ -63,6 +63,7 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 		host.OverlayFailed += OnOverlayFailed;
 		host.ConnectionLost += OnConnectionLost;
 		host.OcrTimedOut += OnOcrTimedOut;
+		host.FrameFailed += OnFrameFailed;
 		host.TranslationsPresented += OnTranslationsPresented;
 		history.Changed += Publish;
 	}
@@ -548,6 +549,7 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 		host.SessionEnded -= OnSessionEnded;
 		host.Faulted -= OnFaulted;
 		host.OcrTimedOut -= OnOcrTimedOut;
+		host.FrameFailed -= OnFrameFailed;
 		host.OverlayFailed -= OnOverlayFailed;
 		host.ConnectionLost -= OnConnectionLost;
 		host.TranslationsPresented -= OnTranslationsPresented;

@@ -110,7 +110,28 @@ HTTPSの4xx/5xx本文は[`error.schema.json`](schemas/error.schema.json)の次�
 | 503 | `MODEL_NOT_READY` | readyを再確認し、明示操作で再試行 | true |
 | 500 | `INTERNAL_ERROR` | correlation_idを添えて運用者へ報告 | false |
 
-WSSではUpgrade前は同じJSONエラーをHTTP応答として返し、Upgrade後はRFC 6455 closeを使います。1008は認証/所有権/契約違反、1009は上限超過、1011は内部処理障害です。Close reasonにはtoken・入力値・tracebackを載せず、UTF-8で123 bytes以下にします。Reasonは`AUTHENTICATION_FAILED`, `SESSION_MISMATCH`, `PROTOCOL_VIOLATION`, `MESSAGE_TOO_LARGE`, `PROCESSING_FAILED`に限定します。Upgrade後のserver-to-client textは[`stream-message.schema.json`](schemas/stream-message.schema.json)で検証し、`state`, `heartbeat`, `result`, `error`の各messageにUUID `correlation_id`とsession/generation/frame/revisionを持たせます。frame未割当のstate/heartbeatは`frame_id: null`、frame起因のresult/errorは実frame IDを使います。`error`は`code`を含み、入力本文・例外詳細を返しません。`code`は`PROCESSING_FAILED`に加え、OCRが時間予算で打ち切られたframeだけ`OCR_TIMEOUT`を使います(#223)。`OCR_TIMEOUT`はframe単位の通知でstreamを閉じず、`message`などの追加fieldを持ちません。clientは自分が送信済みで現在のsession・generation・revision・失効期限(5秒)内のframeに対するものだけを採用し、同じframeの重複は1回だけ扱います。位置を特定できないregionは`rect: null`、文字なしは`status: empty`と空の`regions`で表し、互いに読み替えません。購読者ごとのqueueは最大8件、送信期限は1秒です。上限超過時は最古イベントを破棄し、送信期限超過時は購読を閉じます。破棄/timeout診断には本文を含めません。
+WSSではUpgrade前は同じJSONエラーをHTTP応答として返し、Upgrade後はRFC 6455 closeを使います。1008は認証/所有権/契約違反、1009は上限超過、1011は内部処理障害です。Close reasonにはtoken・入力値・tracebackを載せず、UTF-8で123 bytes以下にします。Reasonは`AUTHENTICATION_FAILED`, `SESSION_MISMATCH`, `PROTOCOL_VIOLATION`, `MESSAGE_TOO_LARGE`, `PROCESSING_FAILED`に限定します。Upgrade後のserver-to-client textは[`stream-message.schema.json`](schemas/stream-message.schema.json)で検証し、`state`, `heartbeat`, `result`, `error`の各messageにUUID `correlation_id`とsession/generation/frame/revisionを持たせます。frame未割当のstate/heartbeatは`frame_id: null`、frame起因のresult/errorは実frame IDを使います。`error`は`code`を含み、入力本文・例外詳細を返しません。`code`ごとの扱い(致命/非致命・再試行)は次の「WSS errorのcodeごとの扱い」を正本とします。`OCR_TIMEOUT`はOCRが時間予算で打ち切られたframeだけに使います(#223)。frame単位のerrorは`message`などの追加fieldを持ちません。位置を特定できないregionは`rect: null`、文字なしは`status: empty`と空の`regions`で表し、互いに読み替えません。購読者ごとのqueueは最大8件、送信期限は1秒です。上限超過時は最古イベントを破棄し、送信期限超過時は購読を閉じます。破棄/timeout診断には本文を含めません。
+
+### WSS errorのcodeごとの扱い
+
+Upgrade後の`error` messageは、`code`によって**streamを閉じるか(致命)**、**閉じずに採用または破棄するか(非致命)**が決まります(#226)。機械可読な正本は[`fixtures/stream-error-handling.json`](fixtures/stream-error-handling.json)で、serverとclientの両方がこの一覧とschemaの`code`列挙の一致、各codeの扱いを試験で確認します。
+
+| `code` | 扱い | 再試行 | 意味・client動作 |
+|---|---|---|---|
+| `PROCESSING_FAILED` | 非致命 | 次のframe | 1frameの処理失敗。streamを閉じない。利用者へ固定文言で通知(同種は10秒に1回まで) |
+| `OCR_TIMEOUT` | 非致命 | 次のframe | 文字認識が時間予算を超えた。領域を狭めて選び直す案内を固定文言で表示(#223) |
+| `MODEL_NOT_READY` | 非致命 | 次のframe | 準備前・停止中でframeを破棄した(#199)。接続を維持して固定文言で通知する。送信の一時停止・ready再確認・再開は#202 |
+| `INVALID_IMAGE` | 非致命 | 次のframe | serverのパイプライン上限(寸法・頻度・容量)に達したframeの通知。形式不正のbinaryは通知なしに1008で閉じる |
+| `AUTHENTICATION_FAILED` | 致命 | なし | 認証失効・拒否。streamを閉じて再認証(serverはcloseのreasonに使い、error messageとしては送らない) |
+| `SESSION_MISMATCH` | 致命 | なし | session所有権の不一致。streamを閉じる(同上) |
+| `PROTOCOL_VIOLATION` | 致命 | なし | 契約違反。streamを閉じる(同上) |
+| `MESSAGE_TOO_LARGE` | 致命 | なし | 上限超過。streamを閉じる(同上) |
+| 上記以外(未知) | 致命 | なし | 安全側で閉じる。新しい意味のerrorを黙って無視して、致命的な違反を見逃さないため。schemaの`code`列挙に無い値はtextの契約検査で拒否され、これも閉じる |
+
+- 再試行「次のframe」は、**同じframeを再送しない**ことを意味します。次に取得するframeが通常どおり処理され、clientが自動で送信を止めることもありません。
+- 非致命のerrorは、現在のsession・generation・dictionary_revisionに一致し、**送信済みで未採用のframe_id**に対する、取得から**5秒以内**のものだけを採用します。別session・古い世代・別revision・未送信のframe・期限切れ・同じframeの重複は、streamを閉じずに捨てます(偽のerrorで利用者へ通知を出させない)。
+- 利用者向けの通知はclientの固定の日本語文言で、serverの`message`は表示しません。同じ種類の通知は10秒に1回までに抑えます。
+- 互換性: 非致命のcodeは、旧clientでは契約違反として`InvalidDataException`相当でstreamを閉じていました(`OCR_TIMEOUT`以外)。v1.0は未リリースのため、client/serverを同時更新して反映します。`code`列挙・wire形式は変えないため、server側の変更はありません。
 
 ### クライアント→サーバーのtext（生存通知）
 

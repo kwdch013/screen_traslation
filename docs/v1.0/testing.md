@@ -241,11 +241,11 @@ dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTransla
 
 ### 未解決事項 (この通しで見つかった・確認できていない項目)
 
-次は**現行クライアントが期待どおりでない**(または未実装の)項目です。通ったことにはしません。(解決済み: 再選択後の新sessionで履歴が記録されない不具合は #242 で解決し、`KnownGap_HistoryOfANewSessionStartedAfterReselect_IsNotRecorded`は`HistoryOfANewSessionStartedAfterReselect_IsRecorded`として仕様の期待へ書き換えた。下の履歴の行を参照)(解決済み: 実行中sessionへの辞書revision適用は #241 で解決し、`KnownGap_DictionaryUpdateDuringStreaming_...`は仕様の期待へ書き換えた。下の「実行中sessionへの辞書revision適用 (Issue #241)」を参照)試験は現行の挙動を「既知の未解決(`KnownGap_`)」として固定してあり、修正されると落ちるので、期待を仕様へ改めてこの表から外してください。
+次は**現行クライアントが期待どおりでない**(または未実装の)項目です。通ったことにはしません。(解決済み: フレーム単位の非致命エラーで通信全体が閉じる不具合は #226 で解決し、`KnownGap_FrameLevelError_CurrentlyClosesTheWholeStream`は`FrameLevelError_KeepsTheStreamOpenNotifiesAndTheNextFrameIsTranslated`として仕様の期待へ書き換えた。下の「フレーム単位の非致命エラー (#226)」を参照)(解決済み: 再選択後の新sessionで履歴が記録されない不具合は #242 で解決し、`KnownGap_HistoryOfANewSessionStartedAfterReselect_IsNotRecorded`は`HistoryOfANewSessionStartedAfterReselect_IsRecorded`として仕様の期待へ書き換えた。下の履歴の行を参照)(解決済み: 実行中sessionへの辞書revision適用は #241 で解決し、`KnownGap_DictionaryUpdateDuringStreaming_...`は仕様の期待へ書き換えた。下の「実行中sessionへの辞書revision適用 (Issue #241)」を参照)試験は現行の挙動を「既知の未解決(`KnownGap_`)」として固定してあり、修正されると落ちるので、期待を仕様へ改めてこの表から外してください。
 
 | 項目 | 現行の挙動(試験で確認) | 関連 |
 | --- | --- | --- |
-| フレーム単位の非致命エラー | WSSで`MODEL_NOT_READY`・`PROCESSING_FAILED`を受けると通信全体を閉じて停止する(`KnownGap_FrameLevelError_CurrentlyClosesTheWholeStream`)。`MODEL_NOT_READY`後に待機・ready確認・再開する挙動は未実装 | #226 / #202(未実装) |
+| WSSの`MODEL_NOT_READY`後の待機・ready確認・再開 | 接続を維持して通知するまでは #226 で実装。送信の一時停止・ready再確認・再開は未実装 | #202(未実装) |
 | 通信部品の分割・開き直し競合試験 | 未着手(`StreamTransportClient.cs`は500行超) | #222 |
 | 全画面の複雑背景のOCR予算 | Owner判断待ち。この通しでは検証していない | #224 |
 
@@ -581,6 +581,17 @@ OCRが時間予算で打ち切られたframeを、契約の`error` `code=OCR_TIM
 - クライアント(`TransportFrameErrorTests`・`OcrTimeoutNoticeTests`): 送信済み・現在のsession/世代/revision・5秒以内のframeだけ採用し、重複・未送信・古い世代・期限切れは捨てること。stream受信は継続し(他のerrorは従来どおり契約違反で切断)、翻訳中だけ固定文言を10秒に1回まで表示すること。サーバーのmessageは表示に使いません。
 - mutation確認: サーバーのcode判定を別の型へ差し替えるとサーバー単体2件、通知の抑制を外す・clientのcode判定を`PROCESSING_FAILED`へ替えるとclient試験1件ずつが失敗することを確認しました。
 - 未検証: Windows実機でのクライアント通し(#108)。`client/compose.real-server.yml`の実サーバー通しへは打ち切りケースを足していません(client側はスタブ、server側は実Tesseract結合で分けて確認)。
+
+### フレーム単位の非致命エラー (#226)
+
+WSSの`error`は、`code`ごとに致命(streamを閉じる)か非致命(閉じない)かを契約で定めます。正本は`contracts/fixtures/stream-error-handling.json`と[契約README](../../contracts/README.md#wss-errorのcodeごとの扱い)です。非致命は`PROCESSING_FAILED`・`OCR_TIMEOUT`・`MODEL_NOT_READY`・`INVALID_IMAGE`、致命は`AUTHENTICATION_FAILED`・`SESSION_MISMATCH`・`PROTOCOL_VIOLATION`・`MESSAGE_TOO_LARGE`と未知のcodeです。
+
+- 契約(Python `server/tests/contracts/test_stream_error_handling.py`、C# `StreamErrorPolicyTests`): fixtureとschemaの`code`列挙が一致し、各codeの扱いをクライアントの分類が満たす。サーバーが送るcodeは非致命に限る。未知のcodeは致命。
+- クライアント単体(`TransportFrameErrorTests`・`FrameFailureNoticeTests`): 非致命codeは世代・session・revision・送信済みframe・5秒以内を照合して採用し、偽・古い世代・未送信・重複は捨てて受信ループを止めない。致命codeと未知のcodeは従来どおり閉じる。通知は固定文言で、同種は10秒に1回まで(種類ごと)。
+- 契約サーバー結合(`ClientScenarioFaultTests`): `PROCESSING_FAILED`・`MODEL_NOT_READY`・`INVALID_IMAGE`で通信が切れず、次のフレームが同じ接続で表示される。偽のerrorは採用されない。`PROTOCOL_VIOLATION`・`MESSAGE_TOO_LARGE`は従来どおり閉じる。
+- 実サーバー結合(`ClientScenarioRealServerTests.ProcessingFailure_...`、Linuxコンテナ): 試験専用の待受のOCRに処理失敗を注入し、実サーバーが送る`PROCESSING_FAILED`で通信が閉じず、復旧後の次のフレームが同じ世代で翻訳される。
+- 境界: `MODEL_NOT_READY`は接続を維持して通知するまで。送信の一時停止・ready再確認・再開は#202。
+- 未検証: Windows実機での通し(#108)。
 
 ### 未解決事項 (製品側)
 

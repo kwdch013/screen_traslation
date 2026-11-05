@@ -100,6 +100,8 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 	public event Action<JsonElement>? MessageReceived;
 	/// <summary>サーバーが文字認識の期限超過(OCR_TIMEOUT)を通知した(現在のsessionのものだけ)。</summary>
 	public event Action? OcrTimedOut;
+	/// <summary>OCR_TIMEOUT以外のフレーム単位の非致命error(PROCESSING_FAILED等)を、codeだけ渡して通知する(現在のsessionのものだけ)。</summary>
+	public event Action<string>? FrameFailed;
 
 	/// <summary>WSSへ接続し、受信ループを始める。接続しただけでは画像を送らない。</summary>
 	public async Task ConnectAsync(CancellationToken cancellationToken = default)

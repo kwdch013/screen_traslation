@@ -182,8 +182,10 @@ public sealed partial class TranslationSessionHost
 	private Task OnMessageAsync(JsonElement message)
 	{
 		var kind = message.TryGetProperty("type", out var type) ? type.GetString() : null;
+		var errorCode = kind == "error" && message.TryGetProperty("code", out var code) ? code.GetString() : null;
 		if (kind == "result") overlay.HandleResult(message);
-		else if (kind == "error" && message.TryGetProperty("code", out var code) && code.GetString() == "OCR_TIMEOUT") OcrTimedOut?.Invoke();
+		else if (errorCode == "OCR_TIMEOUT") OcrTimedOut?.Invoke();
+		else if (errorCode is not null && StreamErrorPolicy.IsNonFatal(errorCode)) FrameFailed?.Invoke(errorCode);
 		else MessageReceived?.Invoke(message);
 		return Task.CompletedTask;
 	}
