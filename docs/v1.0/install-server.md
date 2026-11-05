@@ -66,7 +66,7 @@ docker compose -f server/compose.yml --profile model run --rm prepare-model
 ```
 
 - `prepare-model` はArgosの英日モデル（`server/deploy/model-manifest.json`）と、Stanzaの文分割資源（`server/deploy/stanza-manifest.json`）を導入します。取得済みなら再取得せず検証だけを行うため、再実行しても安全です。
-- manifestの `license_accepted` は、運用者・Ownerがライセンスを確認した証跡です。確認前に導入しないでください。ライセンスの最終確認は **Owner判断待ち** です（[licenses.md](licenses.md)）。
+- manifestの `license_accepted` は、サーバーが取得前に要求する運用上の導入ゲートで、`false` だと導入を拒否します。**Ownerの最終確認の代わりではありません。** 現在 `true` ですが、ライセンスの最終確認は **Owner判断待ち** で未実施です（[licenses.md](licenses.md)）。
 - モデルが未導入・破損のときは、サーバーはreadyにならず翻訳を受け付けません（[モデル未準備](operations.md#障害の切り分け)）。
 
 ## 資格情報と起動
@@ -77,7 +77,7 @@ docker compose -f server/compose.yml --profile model run --rm prepare-model
 docker compose -f server/compose.yml --profile admin run --rm admin init-admin --expires-at '<期限日時>'
 ```
 
-起動し、readyを待ちます。トークンはファイルで渡し、コマンド引数や環境変数へ値を書きません。
+表示された管理トークンは、この一度しか表示されません。次の[管理トークンの保存](#管理トークンの保存)に従い、ファイルへ安全に保存してから、起動してreadyを待ちます。トークンはファイルで渡し、コマンド引数や環境変数へ値を書きません。
 
 ```sh
 docker compose -f server/compose.yml up -d
@@ -85,6 +85,22 @@ server/deploy/wait-ready.sh <端末または管理トークンのファイル>
 ```
 
 導入済みモデルのreadyは目標120秒以内、空のモデル領域からは最大1800秒です。`docker compose ps` の `healthy` は生存（health）であり、readyではありません。続けて端末トークンを発行し、[Windowsクライアントの設定](install-client.md#windowsクライアントの設定)へ進みます。
+
+### 管理トークンの保存
+
+`init-admin` は `管理資格情報 (この一度だけ表示): <トークン>` の形で表示します。`wait-ready.sh` に渡すファイルには、**トークンの文字列だけ**を入れます（先頭の説明文は入れません）。
+
+```sh
+umask 077
+read -r -s -p '管理トークン: ' ADMIN_TOKEN_INPUT < /dev/tty && echo
+cat > <トークンファイル> <<< "$ADMIN_TOKEN_INPUT"
+unset ADMIN_TOKEN_INPUT
+chmod 600 <トークンファイル>
+```
+
+- 権限は所有者のみ読み書きの `0600` にします。保存先はリポジトリの外で、バックアップやログ収集の対象にならない場所にします。
+- トークンの値を `echo`・`printf`・コマンド引数・環境変数で渡しません。シェルの履歴（`history`）に残るためです。上の `read -s` は画面にも履歴にも値を出しません。`init-admin` の表示をリダイレクトやログ収集で保存することも避けます。
+- 不要になったら、ファイルを削除します。漏れた疑いがあるときは、[一覧・失効](operations.md#一覧失効)で失効して発行し直します。
 
 ## 日常操作
 
@@ -138,7 +154,7 @@ docker compose -f server/compose.yml down
    ```
 
 3. ソースも戻す場合は、`git switch --detach <前の版のコミット>` のあと、`SERVER_IMAGE` の指定を外して `build` と `up -d` を行います。
-4. 旧版が新版の書いたデータを読めない場合は、更新前のバックアップを [復元](operations.md#設定辞書のバックアップと復元) します。モデル・資源の取得元が変わって準備に失敗する場合は [manifestのロールバック](operations.md#5-ロールバック) を参照します。
+4. 旧版が新版の書いたデータを読めない場合は、更新前のバックアップを [復元](operations.md#設定辞書のバックアップと復元) します。復元はバックアップ内のファイルを既存のファイルへ上書きするだけで、バックアップに無い余分なファイルは消えません。モデル・資源の取得元が変わって準備に失敗する場合は [manifestのロールバック](operations.md#5-ロールバック) を参照します。
 
 ## 旧Web版
 
