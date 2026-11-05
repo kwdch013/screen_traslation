@@ -25,6 +25,11 @@ public interface ITranslationTransport : IFrameTransport
 	/// </summary>
 	void ExpectServerClose(TimeSpan window);
 	void ActivateSession(Guid sessionId, ulong generation, ulong dictionaryRevision);
+	/// <summary>
+	/// 実行中のsessionの辞書revisionを更新する(辞書の保存成功時)。送信するフレームの検査値と、結果・errorの採否の基準を新revisionへ移し、
+	/// 旧revisionの結果は以降採用しない。generationとframe_idは変えない。有効なsessionが無ければ<see cref="InvalidOperationException"/>。
+	/// </summary>
+	void UpdateDictionaryRevision(ulong dictionaryRevision);
 	Task RunReceiveLoopAsync(Func<JsonElement, Task> onMessage, CancellationToken cancellationToken = default);
 	Task DisconnectAsync();
 }

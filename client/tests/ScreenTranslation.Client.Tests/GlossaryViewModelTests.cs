@@ -215,4 +215,45 @@ public sealed class GlossaryViewModelTests
 		Assert.Equal(51, model.Snapshot.Draft.Count);
 		Assert.Equal(51, model.Snapshot.Draft.Select(entry => entry.Source).Distinct(StringComparer.OrdinalIgnoreCase).Count());
 	}
+
+	[Fact]
+	public async Task Save_RaisesSavedWithTheNewServerRevisionBeforeReturning()
+	{
+		using var model = await LoadedAsync();
+		var saved = new List<ulong>();
+		model.Saved += saved.Add;
+		Assert.True(model.Add("Save", "保存"));
+
+		Assert.Equal(EditorOutcome.Completed, await model.SaveAsync());
+
+		Assert.Equal([8ul], saved);
+	}
+
+	[Fact]
+	public async Task FailedOrConflictedSave_DoesNotRaiseSaved()
+	{
+		using var model = await LoadedAsync();
+		var saved = new List<ulong>();
+		model.Saved += saved.Add;
+		api.OnUpdateGlossary = (_, _, _) => Task.FromException<Revisioned<IReadOnlyList<GlossaryEntry>>>(new ControlApiException(ControlApiFailure.RevisionConflict, System.Net.HttpStatusCode.Conflict));
+		Assert.True(model.Add("Save", "保存"));
+
+		Assert.Equal(EditorOutcome.Failed, await model.SaveAsync());
+
+		Assert.Empty(saved);
+	}
+
+	[Fact]
+	public async Task ASubscriberFailure_DoesNotTurnTheCommittedSaveIntoAFailedOne()
+	{
+		using var model = await LoadedAsync();
+		model.Saved += _ => throw new InvalidOperationException("購読側の失敗");
+		Assert.True(model.Add("Save", "保存"));
+
+		await Assert.ThrowsAsync<InvalidOperationException>(model.SaveAsync);
+
+		// 保存は確定済み。編集内容は保存済みとして扱い、再保存で二重に更新しない
+		Assert.Equal((8ul, false), (model.Snapshot.Revision, model.Snapshot.HasUnsavedChanges));
+		Assert.Equal(EditorPhase.Ready, model.Snapshot.Phase);
+	}
 }

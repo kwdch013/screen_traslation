@@ -51,6 +51,18 @@ internal sealed class FakeTransport : ITranslationTransport
 		Activations.Add(active.Value);
 	}
 
+	/// <summary>辞書revisionの更新の呼び出し(実際のStreamTransportClientと同じく、有効なsessionが無ければ失敗する)。</summary>
+	public List<ulong> RevisionUpdates { get; } = [];
+	public Exception? FailRevisionUpdate;
+
+	public void UpdateDictionaryRevision(ulong dictionaryRevision)
+	{
+		if (FailRevisionUpdate is not null) throw FailRevisionUpdate;
+		if (active is not { } a) throw new InvalidOperationException("有効なsessionがありません。");
+		active = (a.Session, a.Generation, dictionaryRevision);
+		RevisionUpdates.Add(dictionaryRevision);
+	}
+
 	public async Task SendFrameAsync(FrameMetadata metadata, ReadOnlyMemory<byte> imageBytes, long capturedMonotonicNanoseconds, CancellationToken cancellationToken = default)
 	{
 		if (active is not { } a || metadata.SessionId != a.Session || metadata.Generation != a.Generation || metadata.DictionaryRevision != a.Revision)
@@ -150,8 +162,8 @@ internal sealed class HostFixture : IAsyncDisposable
 	public CapturePipelineOutcome? EmitFrame(int seed = 0) =>
 		Session.Emit(() => TestScreens.Capture(Display.Bounds, Interlocked.Read(ref Now), seed));
 
-	public string ResultJson(ulong generation, ulong frameId, int width = 640, int height = 320) => $$"""
-		{"type":"result","session_id":"{{SessionId}}","generation":{{generation}},"frame_id":{{frameId}},"dictionary_revision":1,
+	public string ResultJson(ulong generation, ulong frameId, int width = 640, int height = 320, ulong revision = 1) => $$"""
+		{"type":"result","session_id":"{{SessionId}}","generation":{{generation}},"frame_id":{{frameId}},"dictionary_revision":{{revision}},
 		 "correlation_id":"{{Guid.NewGuid()}}","status":"ok","image_width":{{width}},"image_height":{{height}},
 		 "regions":[{"rect":{"left":10,"top":20,"right":110,"bottom":60},"source":"src","translation":"訳文","confidence":0.9}],"server_processing_ms":1}
 		""";

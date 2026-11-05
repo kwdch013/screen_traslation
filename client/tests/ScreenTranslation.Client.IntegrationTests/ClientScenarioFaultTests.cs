@@ -103,26 +103,53 @@ public sealed class ClientScenarioFaultTests
 	}
 
 	/// <summary>
-	/// 既知の未実装の記録(新規Issue案: 実行中のsessionへ辞書revisionを適用する)。契約は「保存成功で新revisionを即時activeにし、
-	/// 次のframeから新revisionを付ける」だが、現行クライアントは実行中のsessionのrevisionを更新しない(<c>UpdateDictionaryRevision</c>の呼び出し元が無い)。
-	/// 辞書を保存した後も旧revisionのフレームを送り続け、サーバーが破棄するため、停止して開始し直すまで新しい訳文は表示されない。
-	/// 修正されたらこの試験は落ちるので、期待を契約どおりへ改めること。
+	/// 契約: 辞書の保存成功で新revisionを即時activeにし、次に取得するframeから新revisionを付ける(generation・frame_idは維持)。
+	/// 旧revisionのフレームをサーバーに破棄させ続けたり、通信を切ったりしない。(#241 / 旧 KnownGap_ 試験を仕様の期待へ改めたもの)
 	/// </summary>
 	[Fact]
-	public async Task KnownGap_DictionaryUpdateDuringStreaming_IsNotAppliedToTheRunningSession()
+	public async Task DictionaryUpdateDuringStreaming_IsAppliedFromTheNextFrame_AndTheNewTranslationIsShown()
 	{
 		await using var server = await ScenarioContractServer.StartAsync();
 		await using var rig = await ScenarioRig.CreateAsync(server);
 		await rig.StartStreamingAsync();
-		await rig.EmitAndReceiveAsync(seed: 1);
+		var before = await rig.EmitAndReceiveAsync(seed: 1);
 		await rig.WaitRenderedAsync();
 
 		Assert.Equal(2ul, await rig.AddGlossaryEntryAsync("Start", "開始"));
 		var after = await rig.EmitAndReceiveAsync(seed: 2);
+		await rig.WaitRenderedAsync();
 
-		Assert.Equal(1ul, after.Metadata.DictionaryRevision);
-		await ScenarioRig.EventuallyAsync(() => server.StaleDropped == 1, "旧revisionのフレームの破棄");
-		Assert.Equal(["訳1"], rig.RenderedTexts());
+		Assert.Equal(1ul, before.Metadata.DictionaryRevision);
+		Assert.Equal((1ul, 2ul, 2ul), (after.Metadata.Generation, after.Metadata.FrameId, after.Metadata.DictionaryRevision));
+		Assert.Equal(0, server.StaleDropped);
+		Assert.Equal(["訳1", "訳2"], rig.RenderedTexts());
+		// 通信は切れず、開始し直しも不要
+		Assert.Equal(OperationPhase.Streaming, rig.Model.Snapshot.Phase);
+		Assert.Empty(rig.Ended);
+		Assert.Empty(rig.Faults);
+		Assert.Equal(0, server.DeleteCount);
+	}
+
+	/// <summary>更新前に送ったフレーム(旧revision)の結果は、更新後に届いても表示しない。次のフレームの結果は表示する。</summary>
+	[Fact]
+	public async Task DictionaryUpdateWhileAFrameIsInFlight_DoesNotDisplayTheOldRevisionResult()
+	{
+		await using var server = await ScenarioContractServer.StartAsync();
+		await using var rig = await ScenarioRig.CreateAsync(server);
+		await rig.StartStreamingAsync();
+		server.AutoRespond = false;
+		var inFlight = await rig.EmitAndReceiveAsync(seed: 1);
+
+		Assert.Equal(2ul, await rig.AddGlossaryEntryAsync("Start", "開始"));
+		await server.SendResultAsync(inFlight, "旧revisionの訳");
+		var next = await rig.EmitAndReceiveAsync(seed: 2);
+		await server.SendResultAsync(next, "新revisionの訳");
+		await rig.WaitRenderedAsync();
+
+		Assert.Equal(2ul, next.Metadata.DictionaryRevision);
+		Assert.Equal(["新revisionの訳"], rig.RenderedTexts());
+		Assert.Equal(OperationPhase.Streaming, rig.Model.Snapshot.Phase);
+		Assert.Equal(0, server.StaleDropped);
 	}
 
 	[Fact]

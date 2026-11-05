@@ -417,4 +417,17 @@ public sealed class OperationTests
 			Assert.DoesNotContain(f.Grants.Issued[0].ToString(), text);
 		}
 	}
+
+	[Fact]
+	public async Task ApplyDictionaryRevision_IsPassedToTheHost_AndReportsWhetherItWasApplied()
+	{
+		await using var f = new OperationFixture();
+		f.Host.ApplyDictionaryRevisionResult = false;
+
+		Assert.False(f.Vm.ApplyDictionaryRevision(3));
+		f.Host.ApplyDictionaryRevisionResult = true;
+		Assert.True(f.Vm.ApplyDictionaryRevision(4));
+
+		Assert.Equal([3ul, 4ul], f.Host.AppliedRevisions);
+	}
 }

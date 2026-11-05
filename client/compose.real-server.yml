@@ -17,6 +17,8 @@ services:
       # 起動のたびに生成する一時CA・端末資格情報の受け渡し先(リポジトリへ秘密を置かない)
       - shared:/shared
       - ./tests/real-server:/harness:ro
+    environment:
+      REAL_SERVER_DISCONNECT_TIMEOUT: "3.0"
     command: [python, -B, /harness/serve.py, /shared]
     healthcheck:
       test: [CMD, test, -f, /shared/ready]

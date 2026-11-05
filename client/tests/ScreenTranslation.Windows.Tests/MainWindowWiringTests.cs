@@ -131,4 +131,27 @@ public sealed class MainWindowWiringTests
 				"管理用の資格情報の保存");
 		}, Saved);
 	}
+
+	[Fact]
+	public void GlossarySave_ReachesTheRunningSessionAsTheNewRevision()
+	{
+		MainWindowHarness.Run(harness =>
+		{
+			var input = harness.Part<TextBox>("ServerUriInput");
+			MainWindowHarness.PumpUntil(() => input.Text.Length > 0, "保存済み設定の読み込み");
+			MainWindowHarness.Click(harness.Part<Button>("Operations", "ConnectButton"));
+			MainWindowHarness.PumpUntil(() => harness.Host.ConnectCount == 1, "接続の完了");
+			MainWindowHarness.Click(harness.Part<Button>("ServerSettings", "SettingsLoadButton"));
+			MainWindowHarness.PumpUntil(() => harness.Api.GlossaryLoads == 1, "用語辞書の読み込み");
+
+			harness.Part<TextBox>("ServerSettings", "SourceInput").Text = "Save";
+			harness.Part<TextBox>("ServerSettings", "TargetInput").Text = "保存";
+			MainWindowHarness.Click(harness.Part<Button>("ServerSettings", "AddButton"));
+			MainWindowHarness.Click(harness.Part<Button>("ServerSettings", "GlossarySaveButton"));
+
+			// 辞書の保存成功(サーバーが返した新revision)が、操作モデル経由で実行中のホストへ届く
+			MainWindowHarness.PumpUntil(() => harness.Host.AppliedRevisions.Count == 1, "辞書revisionのホストへの反映");
+			Assert.Equal([8ul], harness.Host.AppliedRevisions);
+		}, Saved);
+	}
 }

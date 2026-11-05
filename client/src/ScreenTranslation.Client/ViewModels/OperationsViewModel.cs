@@ -43,6 +43,9 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 	private Guid? currentSession;
 	private Task? disposeTask;
 
+	/// <summary>辞書の保存成功(新revision)を実行中のsessionへ反映する。反映したらtrue。</summary>
+	public bool ApplyDictionaryRevision(ulong dictionaryRevision) => host.ApplyDictionaryRevision(dictionaryRevision);
+
 	public OperationsViewModel(ISessionOperations host, ISessionGrantProvider grants, IRegionSelector selector, IHotkeyRegistrar? hotkeys = null, TimeProvider? timeProvider = null)
 	{
 		this.host = host ?? throw new ArgumentNullException(nameof(host));

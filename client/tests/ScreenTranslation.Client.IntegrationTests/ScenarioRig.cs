@@ -127,10 +127,12 @@ internal sealed class ScenarioRig : IAsyncDisposable
 		lock (Surface.Rendered) return [.. Surface.Rendered.SelectMany(snapshot => snapshot.Placed).Select(region => region.Text)];
 	}
 
-	/// <summary>辞書に1語を足して保存する(管理用の資格情報での設定API。保存で辞書revisionが進む)。</summary>
+	/// <summary>辞書に1語を足して保存する(管理用の資格情報での設定API。保存で辞書revisionが進み、実行中のsessionへ反映される)。</summary>
 	public async Task<ulong> AddGlossaryEntryAsync(string source, string target)
 	{
 		using var glossary = new GlossaryViewModel(ServerSettings);
+		// 製品(MainWindow)と同じ配線: 辞書の保存成功を実行中のsessionへ反映する
+		glossary.Saved += revision => Model.ApplyDictionaryRevision(revision);
 		Assert.Equal(EditorOutcome.Completed, await glossary.LoadAsync().WaitAsync(Watchdog));
 		Assert.True(glossary.Add(source, target));
 		Assert.Equal(EditorOutcome.Completed, await glossary.SaveAsync().WaitAsync(Watchdog));

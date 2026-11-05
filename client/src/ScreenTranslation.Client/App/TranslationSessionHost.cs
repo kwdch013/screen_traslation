@@ -207,7 +207,7 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 		}
 	}
 
-	private async Task<StartResult> StartCoreAsync(Guid newSessionId, ulong newDictionaryRevision, CancellationToken cancellationToken)
+	private async Task<StartResult> StartCoreAsync(Guid newSessionId, ulong grantedDictionaryRevision, CancellationToken cancellationToken)
 	{
 		lock (sync)
 		{
@@ -232,6 +232,8 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 		{
 			if (active) return StartResult.AlreadyRunning;
 			if (target is null || physicalRoi is not { } roi || !TryToLocal(roi, windowBounds, out var local)) return StartResult.RegionNotSelected;
+			// 取得から有効化までの間に辞書が保存されていたら、より新しいrevisionで始める(旧revisionのまま送り続けると全て破棄される)
+			var newDictionaryRevision = Math.Max(grantedDictionaryRevision, knownDictionaryRevision);
 			// 契約: 新しいsessionの世代は1から(再選択は解放→新規取得で、世代は1に戻る)。移動・ROI切替でだけ進む
 			const ulong next = 1;
 			try

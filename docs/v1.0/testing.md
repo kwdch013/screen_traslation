@@ -223,7 +223,7 @@ R3の各Phase(画面取得・領域選択・送信・結果の重畳・操作と
 
 | 区分 | 場所・分類 | 相手・環境 | 確認すること |
 | --- | --- | --- | --- |
-| 契約に基づくテスト用サーバーとの通し | `client/tests/ScreenTranslation.Client.IntegrationTests/ClientScenarioTests.cs`・`ClientScenarioFaultTests.cs`(土台は`ScenarioContractServer.cs`・`ScenarioRig.cs`)。`Category=ClientScenarioIntegration`と`Category=ClientIntegration` | 実TLSのHTTPS制御API・WSSを契約どおりに話す**テスト用サーバー**(Kestrel。OCR・翻訳エンジンは無い)。Linuxコンテナ(`client/compose.test.yml`)と`windows-client` CI(solution全体)の両方で実行 | 保存済み設定から接続→POST→WSS開き直し→PNG送信(負座標・DPI192のROI左上の画素)→結果→重畳の物理座標→履歴→辞書保存でrevisionが進む→再選択でDELETE・表示と履歴の消去→再開始(新session・世代1・新revision)→停止。遅れた結果(旧世代・別session・旧revision・未送信frame・取得から5秒超過)が表示にも履歴にも混入しない/表示の5秒失効/切断(表示消去・送信停止・切断中の停止は何もしない)/`OCR_TIMEOUT`の案内と通信維持/503 `MODEL_NOT_READY`(POST)の案内と回復/除外を確認できないときの非送信・非取得/表示直前の除外喪失/DPI変更通知での停止/ホットキーの競合表示とキーでの開始・停止/応答が飛んでいる最中の終了 |
+| 契約に基づくテスト用サーバーとの通し | `client/tests/ScreenTranslation.Client.IntegrationTests/ClientScenarioTests.cs`・`ClientScenarioFaultTests.cs`(土台は`ScenarioContractServer.cs`・`ScenarioRig.cs`)。`Category=ClientScenarioIntegration`と`Category=ClientIntegration` | 実TLSのHTTPS制御API・WSSを契約どおりに話す**テスト用サーバー**(Kestrel。OCR・翻訳エンジンは無い)。Linuxコンテナ(`client/compose.test.yml`)と`windows-client` CI(solution全体)の両方で実行 | 保存済み設定から接続→POST→WSS開き直し→PNG送信(負座標・DPI192のROI左上の画素)→結果→重畳の物理座標→履歴→辞書保存でrevisionが進み実行中のsessionへ反映(次のフレームから新revision・世代とframe_idは維持・通信は切れない・保存前に送ったフレームの旧い結果は表示しない)→再選択でDELETE・表示と履歴の消去→再開始(新session・世代1・新revision)→停止。遅れた結果(旧世代・別session・旧revision・未送信frame・取得から5秒超過)が表示にも履歴にも混入しない/表示の5秒失効/切断(表示消去・送信停止・切断中の停止は何もしない)/`OCR_TIMEOUT`の案内と通信維持/503 `MODEL_NOT_READY`(POST)の案内と回復/除外を確認できないときの非送信・非取得/表示直前の除外喪失/DPI変更通知での停止/ホットキーの競合表示とキーでの開始・停止/応答が飛んでいる最中の終了 |
 | 本物のサーバーアプリとの通し | `ClientScenarioRealServerTests.cs`(`Category=RealServerIntegration`) | `client/compose.real-server.yml`(Linuxコンテナの本物のサーバー。OCR・翻訳だけ固定の代替)。接続先は環境変数で受け取り、**未設定ならskip(合格として数えない)** | 接続→開始→翻訳(`訳:Hello`)→管理資格情報で辞書保存→再選択→再開始→翻訳→停止→別端末が開始できる |
 | Windows実ウィンドウ・実HWND・実RegisterHotKey | `client/tests/ScreenTranslation.Windows.Tests/ClientScenarioWindowsTests.cs`(土台は`WindowsScenarioChain.cs`)。`Category=ClientIntegration`、WPF試験なので`[Collection("WpfSta")]` | `windows-client` CI(Windows hosted runner)。画面取得・ネットワーク・キャプチャ除外APIは代替 | 実`MainWindow`のボタン操作→実操作モデル→実セッションホスト→実`StreamTransportClient`(WSSは台本の代替ソケット)→実HWNDのオーバーレイ窓の表示・消去・破棄。実`RegisterHotKey`の競合が画面に出てボタンで開始できること。除外を確認できない実オーバーレイ窓では取得も送信もしないこと。DPI/画面構成の変化通知で選択が無効になる案内 |
 
@@ -241,12 +241,11 @@ dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTransla
 
 ### 未解決事項 (この通しで見つかった・確認できていない項目)
 
-次は**現行クライアントが期待どおりでない**(または未実装の)項目です。通ったことにはしません。試験は現行の挙動を「既知の未解決(`KnownGap_`)」として固定してあり、修正されると落ちるので、期待を仕様へ改めてこの表から外してください。
+次は**現行クライアントが期待どおりでない**(または未実装の)項目です。通ったことにはしません。(解決済み: 実行中sessionへの辞書revision適用は #241 で解決し、`KnownGap_DictionaryUpdateDuringStreaming_...`は仕様の期待へ書き換えた。下の「実行中sessionへの辞書revision適用 (Issue #241)」を参照)試験は現行の挙動を「既知の未解決(`KnownGap_`)」として固定してあり、修正されると落ちるので、期待を仕様へ改めてこの表から外してください。
 
 | 項目 | 現行の挙動(試験で確認) | 関連 |
 | --- | --- | --- |
 | フレーム単位の非致命エラー | WSSで`MODEL_NOT_READY`・`PROCESSING_FAILED`を受けると通信全体を閉じて停止する(`KnownGap_FrameLevelError_CurrentlyClosesTheWholeStream`)。`MODEL_NOT_READY`後に待機・ready確認・再開する挙動は未実装 | #226 / #202(未実装) |
-| 実行中sessionへの辞書revision適用 | 辞書を保存しても実行中のsessionのrevisionを更新しない(`UpdateDictionaryRevision`の呼び出し元が無い)。旧revisionのフレームはサーバーに破棄され、停止して開始し直すまで新しい訳文が出ない(`KnownGap_DictionaryUpdateDuringStreaming_IsNotAppliedToTheRunningSession`)。本物のサーバー相手では、更新後に表示が止まり、観測した実行では通信も切れた(切れ方は処理中フレームの有無で変わり得る。原因の特定は未実施)。契約は「保存成功で即時active」 | #241 |
 | 再選択後の新sessionの履歴 | 履歴の最小世代が単調に増えるが世代は新sessionで1に戻るため、再選択を経たsessionの結果が履歴に記録されない(`KnownGap_HistoryOfANewSessionStartedAfterReselect_IsNotRecorded`)。REQ-F-007(履歴の閲覧)に反する | #242 |
 | 通信部品の分割・開き直し競合試験 | 未着手(`StreamTransportClient.cs`は500行超) | #222 |
 | 全画面の複雑背景のOCR予算 | Owner判断待ち。この通しでは検証していない | #224 |
@@ -259,7 +258,43 @@ hosted runnerで再現できない項目です。担当: Owner。**結果: 未�
 2. 混在DPI(100%と150%以上)・複数モニター・負座標のディスプレイで、同じ流れを通し、ROIと字幕の位置がずれないこと。ウィンドウを別DPIのモニターへ移したとき、停止して選び直しの案内が出ること。
 3. ホットキーを他アプリと競合させ、理由と代替のボタン操作が表示されること。実際のキー入力で開始・停止すること。
 4. 翻訳中にネットワークを切る/サーバーを止め、1秒以内に字幕が消え、再接続しても自動では再開しないこと。アプリを閉じる操作を応答の途中で行っても固まらず、サーバーのsessionが残らないこと。
-5. 辞書を保存した直後の翻訳の表示を確認し、上の「実行中sessionへの辞書revision適用」の現象(表示が止まる)を記録する。
+5. 翻訳中に辞書を保存し、開始し直さずに、保存後に取得したフレームから辞書の訳語で字幕が更新され、通信が切れず、保存前に送ったフレームの旧い訳が保存後に表示されないことを確認する(「実行中sessionへの辞書revision適用 (Issue #241)」)。
+
+## 実行中sessionへの辞書revision適用 (Issue #241)
+
+辞書の保存成功(`PUT /api/v1/glossary`の200の新revision)を、実行中のsessionへ反映する。契約(`contracts/session-state.md`「設定・辞書更新」): 保存成功で新revisionを即時activeにし、**次に取得するframeから**新revisionを付ける。generationとframe_idはrevision変更だけでは戻さない。旧revisionの結果は新revision適用後に表示しない。
+
+### 経路と規則
+
+`GlossaryViewModel.Saved`(保存成功の新revision) → `OperationsViewModel.ApplyDictionaryRevision` → `TranslationSessionHost.ApplyDictionaryRevision`(`MainWindow.ServerSettings.cs`が配線)。ホストは`sync`の下で、送信側(`FrameSender`)・通信部品(`StreamTransportClient`)・表示側の結果採否(`ResultAcceptanceTracker`)・ホスト自身の値を同時に新revisionへ移す。
+
+| 場面 | 規則 |
+| --- | --- |
+| 更新後に取得するフレーム | 新revisionで送る。generation・frame_idは維持。静止画面(変化なし)は再送しない |
+| 更新時に待機中の画像(まだ送っていない) | 破棄しない。送信時に組み立てるメタデータが新revisionになるため、新revisionで送る(旧revisionで送って破棄されることがない) |
+| 更新時に通信中・送信済みのフレーム | 旧revisionのまま。その結果は採用しない(表示にも履歴にも出さない) |
+| 旧revisionで組み立てた直後に更新が割り込んだフレーム | 通信部品の照合で取り下げる(送信失敗として停止しない) |
+| 古い・同じrevision、停止中、破棄後 | 何もしない(逆行しない)。停止中の通知は覚えておき、次の開始で取得時より新しければそのrevisionで始める(取得から開始までの間の保存を取りこぼさない) |
+| 反映に失敗した | 旧revisionを送り続けないよう停止して案内する |
+| 翻訳設定(取得頻度)の保存 | **sessionのrevisionを更新しない**。サーバーの設定と辞書は別系列のrevisionで、sessionのrevisionを動かすのは辞書の保存だけのため(`GlossaryViewModel`だけが`Saved`を持つ) |
+
+### サーバーの挙動(コードを読んで確認した事実)
+
+- 旧(より小さい)revisionのフレームは、WSSを閉じず、処理せず破棄する(`app.py`の`stale_revision`、観測は`stale_dictionary_revision`)。応答は無い。処理中に旧revisionになった結果・errorも配信直前の`is_frame_current`で破棄される(`result_delivery.py`)。契約と一致する。
+- sessionより**大きい**revisionのフレームは、WSSをcode 1008で閉じる(`app.py`)。クライアントが先走って新revisionを使うと切断される。辞書のPUTは保存確定と同じtickで`set_dictionary_revision`を呼んでから200を返すため、200を受けた後に新revisionを送るのは安全。設定のrevisionを辞書revisionとして適用すると、この経路で切断される(上の表のとおり適用しない)。
+- サーバーはsessionの生存を**フレームの受信でだけ**更新する(`SessionManager.heartbeat`の呼び出し元は`app.py`のフレーム受信のみ。クライアントは生存通知を送らない)。無通信が`disconnect_timeout`(製品の既定5秒)を超えるとsessionを解放し、結び付いたWSSも閉じ得る(コードを読んだ範囲の事実)。#94の「静止画面は再送しない」と組み合わさると、字幕を読むために画面を動かさない場合にsessionが切れる懸念がある。実機・実サーバーでは未確認のため、別Issue案として報告する(本Taskでは扱わない)。実サーバー結合の試験用サーバーは検知を速くするため既定1秒で動かしていたが、開始直後の最初のフレームが1秒を超えると切れて試験が不定期に失敗したため、`client/compose.real-server.yml`の`REAL_SERVER_DISCONNECT_TIMEOUT`で3秒にした(コードの切断検知の仕様は変えていない)。
+- #100・#241の起票時の「更新後に表示が止まり、通信も切れた」の切れ方は、旧revisionのフレームを受けたことによるものではない(サーバーは旧revisionで切断しない)。原因は特定していない(推測: 更新直後の処理中フレームでの`PROCESSING_FAILED`をクライアントが通信全体の切断として扱う #226 / #202。確認していない)。サーバーが契約と食い違う挙動は見つかっていない。
+
+### 試験
+
+| 区分 | 場所 | 内容 |
+| --- | --- | --- |
+| 単体(決定的) | `client/tests/ScreenTranslation.Client.Tests/HostDictionaryRevisionTests.cs`・`CaptureSendPipelineTests`・`GlossaryViewModelTests`・`OperationTests` | 次のフレームの新revision・generation/frame_id維持・静止画面の非再送・旧revisionの結果の拒否・待機画像・更新が割り込むフレーム(`BeforeSendProbe`で順序を固定)・古い/同じrevision・停止/破棄との交差(`Barrier`)・領域切替後も新revision・停止中の通知の持ち越し・反映失敗時の停止・`Saved`の発火条件 |
+| 契約サーバー結合 | `ClientScenarioFaultTests`(`DictionaryUpdateDuringStreaming_*`) | 旧`KnownGap_`試験を仕様の期待へ書き換え。更新後のフレームは新revision・サーバーの破棄数0・訳が表示され・通信は切れない。送信中のフレームの旧い結果は表示されない |
+| 実サーバー結合 | `ClientScenarioRealServerTests`(`client/compose.real-server.yml`。固定の翻訳を`GlossaryRuntime`経由にして辞書の訳語を反映) | 開始し直さずに、辞書の訳語(`Hello`→`こんにちは`)が表示され、世代は1のまま通信が維持される。辞書を戻すと元の訳に戻る |
+| Windows配線 | `MainWindowWiringTests.GlossarySave_ReachesTheRunningSessionAsTheNewRevision`(`windows-client` CI) | 実`MainWindow`で辞書を保存すると、操作モデル経由でホストへ新revisionが届く |
+
+未検証: 別の端末・別の管理操作が先に辞書を更新した場合(このクライアントが保存していない新revision)は、サーバーのsessionのrevisionだけが進み、このクライアントは旧revisionのまま送り続けて破棄される。サーバーはstate/heartbeatに現在のrevisionを載せるため検知は可能だが、本Taskでは扱わない。
 
 ## セッション取得・解放のHTTPSクライアント (Issue #210)
 

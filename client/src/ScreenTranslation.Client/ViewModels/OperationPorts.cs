@@ -27,6 +27,11 @@ public interface ISessionOperations : IAsyncDisposable
 	Task ConnectAsync(CancellationToken cancellationToken = default);
 	ValueTask SelectTargetAsync(CaptureTarget target, CancellationToken cancellationToken = default);
 	bool SelectRegion(Rect2D physical);
+	/// <summary>
+	/// 辞書の保存が成功した(新revision)ことを、実行中のsessionへ反映する。次に取得するフレームから新revisionで送り、
+	/// 旧revisionの結果は表示しない。反映したらtrue(停止中・古い/同じrevisionなら何もせずfalse)。
+	/// </summary>
+	bool ApplyDictionaryRevision(ulong dictionaryRevision);
 	Task<StartResult> StartAsync(Guid sessionId, ulong dictionaryRevision, CancellationToken cancellationToken = default);
 	ValueTask StopAsync(CancellationToken cancellationToken = default);
 

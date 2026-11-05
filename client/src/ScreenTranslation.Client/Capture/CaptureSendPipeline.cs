@@ -65,6 +65,22 @@ public sealed class CaptureSendPipeline
 		}
 	}
 
+	/// <summary>
+	/// 辞書revisionの確定。generationとframe_idは変えず、待機画像も破棄しない(静止画面は再送しない)。
+	/// 次に送る画像から新revisionを付ける。sessionが無ければ<see cref="InvalidOperationException"/>。
+	/// </summary>
+	public void UpdateDictionaryRevision(ulong newDictionaryRevision)
+	{
+		lock (sync)
+		{
+			if (!active)
+			{
+				throw new InvalidOperationException("有効なsessionが必要です。");
+			}
+			sender.UpdateDictionaryRevision(newDictionaryRevision);
+		}
+	}
+
 	/// <summary>停止・対象終了・取得不可。以降のフレームは処理せず、旧画像も送らない。</summary>
 	public void EndSession()
 	{
