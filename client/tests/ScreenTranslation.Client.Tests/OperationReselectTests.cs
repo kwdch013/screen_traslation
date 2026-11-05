@@ -135,7 +135,7 @@ public sealed class OperationReselectTests
 	public async Task Reselect_OutsideTarget_IsRejectedWithExplanation_AndKeepsHistory()
 	{
 		await using var f = new OperationFixture();
-		await f.ReadyAsync();
+		await f.StreamingAsync(); // 履歴はsessionに結び付くため、開始済みのsessionの結果として記録する
 		f.Host.Present(1, Placed("a", "訳"));
 		f.Host.SelectRegionResult = false;
 
@@ -177,7 +177,7 @@ public sealed class OperationReselectTests
 	public async Task SelectTarget_SameTarget_KeepsRegionAndHistory()
 	{
 		await using var f = new OperationFixture();
-		await f.ReadyAsync();
+		await f.StreamingAsync(); // 履歴はsessionに結び付くため、開始済みのsessionの結果として記録する
 		f.Host.Present(1, Placed("a", "訳"));
 
 		await T(f.Vm.SelectTargetAsync(Target));

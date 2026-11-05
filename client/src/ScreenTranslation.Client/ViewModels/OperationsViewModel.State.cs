@@ -72,8 +72,8 @@ public sealed partial class OperationsViewModel
 		return result;
 	}
 
-	private void OnTranslationsPresented(ulong generation, IReadOnlyList<OverlayRegion> regions) =>
-		history.AddResult(generation, regions);
+	private void OnTranslationsPresented(Guid sessionId, ulong generation, IReadOnlyList<OverlayRegion> regions) =>
+		history.AddResult(sessionId, generation, regions);
 
 	private void OnSessionEnded(OverlayClearReason reason)
 	{

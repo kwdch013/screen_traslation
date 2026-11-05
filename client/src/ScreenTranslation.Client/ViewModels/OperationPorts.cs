@@ -21,8 +21,8 @@ public interface ISessionOperations : IAsyncDisposable
 	event Action? ConnectionLost;
 	/// <summary>文字認識が期限を超えて打ち切られた(現在のsessionのフレーム)。領域を狭めての再選択を案内する契機。</summary>
 	event Action? OcrTimedOut;
-	/// <summary>採用・表示した結果(世代と領域)。履歴の記録元。</summary>
-	event Action<ulong, IReadOnlyList<OverlayRegion>>? TranslationsPresented;
+	/// <summary>採用・表示した結果(session・世代・領域)。履歴の記録元。</summary>
+	event Action<Guid, ulong, IReadOnlyList<OverlayRegion>>? TranslationsPresented;
 
 	Task ConnectAsync(CancellationToken cancellationToken = default);
 	ValueTask SelectTargetAsync(CaptureTarget target, CancellationToken cancellationToken = default);
