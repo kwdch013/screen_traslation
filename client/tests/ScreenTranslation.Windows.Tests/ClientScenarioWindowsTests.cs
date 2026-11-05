@@ -76,7 +76,7 @@ public sealed class ClientScenarioWindowsTests
 			PumpUntil(() => Phase(harness) == "待機中" && !connected.OverlayVisible, "停止の完了と表示の消去");
 			Assert.Equal(connected.Grants.Issued, connected.Grants.Released);
 			Assert.Null(connected.Emit(seed: 2));
-			Assert.Equal(1, harness.Part<ItemsControl>("Operations", "HistoryList").Items.Count);
+			Assert.Single(harness.Part<ItemsControl>("Operations", "HistoryList").Items);
 
 			// ウィンドウを閉じると、ホスト・オーバーレイ窓・ホットキーまで片付く
 			harness.Window.Close();
