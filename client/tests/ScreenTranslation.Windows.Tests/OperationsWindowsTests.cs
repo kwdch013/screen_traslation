@@ -17,6 +17,7 @@ namespace ScreenTranslation.Windows.Tests;
 /// 実キー入力・他アプリとの実競合・見た目はOwner実機手順(docs/v1.0/testing.md)で確認する。
 /// </summary>
 [Trait("Category", "Operations")]
+[Collection("WpfSta")]
 public sealed class OperationsWindowsTests
 {
 	// 通常のアプリが使わない割り当てを試験に使う

@@ -213,7 +213,9 @@ dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windo
 
 **意図的に壊したときに試験が落ちること(mutation)**: `MainWindow`から`InitializeOperations()`または`InitializeServerSettings()`の呼び出しを除く、`ConnectRequested`などのパネルのイベント購読を除く、のいずれでも、購読の検査と操作の到達の試験が落ちる。確認方法と結果はPR #231の本文に記録する。
 
-**WPF試験の直列化**: `MainWindow`を生成する試験を既存のWPF試験(`ServerSettingsPanelTests`・`OverlayWindowsTests`)と並列に実行すると、`windows-client`で複数のSTA試験が応答しなくなったため、WPFを生成する試験クラスは`[Collection("WpfSta")]`で直列に実行する。新しいWPF試験クラスを足すときも同じコレクションに入れる。
+**WPF試験の直列化**: `MainWindow`を生成する試験を既存のWPF試験(`ServerSettingsPanelTests`・`OverlayWindowsTests`)と並列に実行すると、`windows-client`で複数のSTA試験が応答しなくなったため、WPFを生成する試験クラスは`[Collection("WpfSta")]`で直列に実行する。新しいWPF試験クラスを足すときも同じコレクションに入れる。付け忘れは`WpfSerializationTests`(`windows-client`)が検出する。Windows.Testsの全試験クラスについて、メタデータとILから`WindowsBase`・`PresentationCore`・`PresentationFramework`・`System.Xaml`の型(派生型を含む)を使う試験クラスを、補助クラス経由も含めて洗い出し、`[Collection("WpfSta")]`が無ければ型名付きで落とす。WPFを使っても直列化が不要な型は、`WpfSerializationTests`の許可リストに理由付きで載せる(理由が空白だと落ちる。`EventWiringInspector`の許可リストも同様)。判定ロジックはOS非依存で`WpfSerializationInspectorTests`が検証する。並列で応答しなくなる根本機構(STAスレッド・Dispatcher・`Application`・ハンドルのどれか)は**未特定**のため、直列化を不要にする判断はしていない。`OperationsWindowsTests`も`Dispatcher`を生成するため、このコレクションに入れた。
+
+**接続設定が不正なときの表示**: `OperationsComposition.Create`が投げる`ArgumentException`は、`MainWindow`が「接続設定が正しくありません」と表示して操作モデルを付けない。組み立て中の他の引数不正も同じ文言になるが、利用者が取れる対処(接続先と指紋の確認・保存し直し)は同じため許容し、`MainWindowWiringTests`で固定する。
 
 **この試験が検証しないこと(未実施)**: 見た目、実際のマウス・キー入力、混在DPI・複数モニター、実WGC・実サーバーとの通し。これらは上記のOwner実機手順で確認する。フィールド型でないイベント(`add`/`remove`を自前実装したもの)は購読の有無を調べられないため、許可リストに理由を書かない限り不合格にする。
 

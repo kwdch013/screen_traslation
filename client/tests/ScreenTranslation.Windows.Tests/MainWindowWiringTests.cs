@@ -99,6 +99,23 @@ public sealed class MainWindowWiringTests
 	}
 
 	[Fact]
+	public void Connect_WithAnInvalidConnection_ShowsTheConnectionSettingsMessage_AndDoesNotAttachOperations()
+	{
+		// 操作モデルの組み立てが ArgumentException を投げる(接続設定が不正)場合の表示を固定する
+		MainWindowHarness.Run(harness =>
+		{
+			var input = harness.Part<TextBox>("ServerUriInput");
+			MainWindowHarness.PumpUntil(() => input.Text == "https://service.example", "保存済み設定の読み込み");
+
+			MainWindowHarness.Click(harness.Part<Button>("Operations", "ConnectButton"));
+			MainWindowHarness.PumpUntil(() => harness.Part<TextBlock>("StatusText").Text.Contains("接続設定が正しくありません"), "不正な接続設定の表示");
+
+			Assert.Contains("確認して保存し直してください", harness.Part<TextBlock>("StatusText").Text);
+			Assert.Equal(0, harness.Host.ConnectCount);
+		}, Saved, operations: _ => throw new ArgumentException("不正な接続設定"));
+	}
+
+	[Fact]
 	public void SaveSettings_ReachesTheSettingsStore()
 	{
 		MainWindowHarness.Run(harness =>
