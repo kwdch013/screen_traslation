@@ -3,27 +3,31 @@ using System.Windows;
 using ScreenTranslation.Client.Hotkeys;
 using ScreenTranslation.Client.Security;
 using ScreenTranslation.Client.Settings;
-using ScreenTranslation.Windows.Security;
-using ScreenTranslation.Windows.Capture;
 
 namespace ScreenTranslation.Windows;
 
 public partial class MainWindow : Window
 {
-	private readonly SettingsStore _settingsStore = new(ClientStoragePaths.SettingsFile);
-	private readonly ProtectedCredentialStore _credentialStore = new(
-		ClientStoragePaths.CredentialFile, new DpapiCredentialProtector());
+	private readonly MainWindowServices _services;
+	private readonly SettingsStore _settingsStore;
+	private readonly ProtectedCredentialStore _credentialStore;
 	// 設定・用語辞書の更新に使う管理用の資格情報。端末資格情報とは別ファイルに保護保存する
-	private readonly ProtectedCredentialStore _adminCredentialStore = new(
-		ClientStoragePaths.AdminCredentialFile, new DpapiCredentialProtector());
+	private readonly ProtectedCredentialStore _adminCredentialStore;
 
-    public MainWindow()
-    {
-        InitializeComponent();
+	public MainWindow() : this(MainWindowServices.CreateDefault())
+	{
+	}
+
+	/// <summary>部品を差し替えられる入口。試験が実際のウィンドウを生成して配線を検証するために使う(製品は既定の構成)。</summary>
+	internal MainWindow(MainWindowServices services)
+	{
+		_services = services;
+		(_settingsStore, _credentialStore, _adminCredentialStore) = (services.Settings, services.Credentials, services.AdminCredentials);
+		InitializeComponent();
 		InitializeOperations();
 		InitializeServerSettings();
 		_ = LoadSettingsAsync();
-    }
+	}
 
 	private async void SaveSettings_Click(object sender, RoutedEventArgs e)
 	{

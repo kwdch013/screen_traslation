@@ -1,4 +1,3 @@
-using ScreenTranslation.Client.Api;
 using ScreenTranslation.Client.Settings;
 using ScreenTranslation.Client.ViewModels.Settings;
 
@@ -7,7 +6,7 @@ namespace ScreenTranslation.Windows;
 /// <summary>サーバー設定・用語辞書の編集モデルを、接続設定と管理用の資格情報から組み立てて画面へ渡す。</summary>
 public partial class MainWindow
 {
-	private ServerSettingsApiClient? _serverSettingsApi;
+	private IServerSettingsApi? _serverSettingsApi;
 	private TranslationSettingsViewModel? _translationSettings;
 	private GlossaryViewModel? _glossary;
 	private ConnectionSettings? _serverSettingsConnection;
@@ -41,7 +40,7 @@ public partial class MainWindow
 		try
 		{
 			// 管理操作には管理用の資格情報を使う(端末資格情報とは別に保護保存。画面・ログには出さない)
-			_serverSettingsApi = new ServerSettingsApiClient(settings.Connection, _adminCredentialStore);
+			_serverSettingsApi = _services.CreateServerSettingsApi(settings.Connection);
 		}
 		catch (ArgumentException)
 		{
@@ -70,7 +69,7 @@ public partial class MainWindow
 		ServerSettings.Attach(null, null);
 		_translationSettings?.Dispose();
 		_glossary?.Dispose();
-		_serverSettingsApi?.Dispose();
+		(_serverSettingsApi as IDisposable)?.Dispose();
 		(_translationSettings, _glossary, _serverSettingsApi, _serverSettingsConnection) = (null, null, null, null);
 	}
 

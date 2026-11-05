@@ -1,9 +1,5 @@
-using System.Windows;
-using ScreenTranslation.Client.Api;
 using ScreenTranslation.Client.Settings;
 using ScreenTranslation.Client.ViewModels;
-using ScreenTranslation.Windows.Hotkeys;
-using ScreenTranslation.Windows.Operations;
 
 namespace ScreenTranslation.Windows;
 
@@ -47,11 +43,10 @@ public partial class MainWindow
 		}
 
 		await DisposeOperationsAsync();
-		SessionApiClient grants;
+		OperationsParts parts;
 		try
 		{
-			// 保存済みの接続設定(HTTPSのみ・指紋の形式)が不正なら、通信部品を作れない
-			grants = new SessionApiClient(settings.Connection, _credentialStore);
+			parts = _services.CreateOperations(settings, Dispatcher);
 		}
 		catch (ArgumentException)
 		{
@@ -59,12 +54,8 @@ public partial class MainWindow
 			return;
 		}
 		_composedConnection = settings.Connection;
-		var app = (App)Application.Current;
-		var registrar = new WindowsHotkeyRegistrar();
-		// 操作モデルが終了時にgrantsを片付ける(解放の通信を待ってから)
-		_operations = OperationsComposition.Create(
-			app.CaptureRuntime, settings, _credentialStore, Dispatcher, grants, registrar);
-		Operations.Attach(_operations, app.CaptureRuntime.Targets);
+		_operations = parts.Model;
+		Operations.Attach(_operations, parts.Targets);
 		_operations.ApplyHotkeys(settings.Hotkeys);
 		await _operations.ConnectAsync();
 	}

@@ -14,6 +14,7 @@ namespace ScreenTranslation.Windows.Tests;
 /// 見た目・実際のキー入力・混在DPIはOwner実機手順(docs/v1.0/testing.md)で確認する。
 /// </summary>
 [Trait("Category", "SettingsApi")]
+[Collection("WpfSta")]
 public sealed class ServerSettingsPanelTests
 {
 	private static void OnStaThread(Action body)

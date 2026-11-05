@@ -13,6 +13,7 @@ namespace ScreenTranslation.Windows.Tests;
 /// 実際の画面取得への自己混入・見た目・混在DPIはOwner実機手順(docs/v1.0/testing.md)で確認する。
 /// </summary>
 [Trait("Category", "Overlay")]
+[Collection("WpfSta")]
 public sealed class OverlayWindowsTests
 {
 	private static readonly Rect2D Roi = new(200, 200, 840, 520);
