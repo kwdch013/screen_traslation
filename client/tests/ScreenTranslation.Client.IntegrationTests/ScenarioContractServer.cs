@@ -44,6 +44,9 @@ internal sealed class ScenarioContractServer : IAsyncDisposable
 	public string AuthorityPem { get; }
 	public string BaseUri { get; private set; } = string.Empty;
 	public ChannelReader<ReceivedFrame> Frames => frames.Reader;
+	private int keepaliveCount;
+	/// <summary>受け付けた生存通知の数。</summary>
+	public int KeepaliveCount => Volatile.Read(ref keepaliveCount);
 	/// <summary>設定すると、sessionの取得(POST)をこの失敗で断る(契約のエラー本文)。nullで通常動作。</summary>
 	public (int Status, string Code, bool Retryable)? PostFailure { get; set; }
 	/// <summary>trueなら、受け取ったフレームごとに契約どおりの結果を返す。falseなら試験が<see cref="SendResultAsync"/>で返す。</summary>
@@ -248,6 +251,18 @@ internal sealed class ScenarioContractServer : IAsyncDisposable
 				message.Write(buffer, 0, result.Count);
 			}
 			while (!result.EndOfMessage);
+
+			if (result.MessageType == WebSocketMessageType.Text)
+			{
+				// 生存通知(keepalive)は契約に適合するものだけ受け付ける。フレームではないので採番や照合の対象にしない
+				if (!TransportProtocol.IsValidClientTextMessage(Encoding.UTF8.GetString(message.ToArray())))
+				{
+					await connection.CloseAsync(WebSocketCloseStatus.PolicyViolation);
+					return;
+				}
+				Interlocked.Increment(ref keepaliveCount);
+				continue;
+			}
 
 			FrameMetadata metadata;
 			try
