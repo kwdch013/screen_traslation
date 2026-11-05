@@ -3,10 +3,13 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import os
+import subprocess
+import sys
 import unittest
 import zipfile
 
-from support import ENTRY_POINT, write_notices, write_publish_tree
+from support import ENTRY_POINT, SCRIPTS_DIRECTORY, write_notices, write_publish_tree
 
 import package_client
 from package_client import PackageError
@@ -168,6 +171,31 @@ class VerifyPackageTest(PackageTestCase):
 
 		with self.assertRaisesRegex(PackageError, "設定・資格情報"):
 			package_client.verify_package(self.output, "1.2.3")
+
+
+class CommandLineTest(PackageTestCase):
+	def run_cli(self, *arguments: str) -> subprocess.CompletedProcess:
+		# 出力の符号化がASCIIしか扱えない環境(Windowsの既定コンソール相当)でも日本語を出力できること
+		environment = {**os.environ, "PYTHONIOENCODING": "ascii:strict"}
+		return subprocess.run(
+			[sys.executable, "-B", str(SCRIPTS_DIRECTORY / "package_client.py"), *arguments],
+			capture_output=True, env=environment, check=False,
+		)
+
+	def test_package_and_verify_commands_succeed_with_ascii_console(self) -> None:
+		common = ["--output-dir", str(self.output), "--version", "1.2.3"]
+		built = self.run_cli("package", "--publish-dir", str(self.publish), "--notices", str(self.notices), *common)
+		verified = self.run_cli("verify", *common)
+
+		self.assertEqual((0, 0), (built.returncode, verified.returncode), built.stderr + verified.stderr)
+
+	def test_failure_returns_nonzero_and_explains_in_japanese(self) -> None:
+		(self.publish / ENTRY_POINT).unlink()
+		result = self.run_cli("package", "--publish-dir", str(self.publish), "--notices", str(self.notices),
+			"--output-dir", str(self.output), "--version", "1.2.3")
+
+		self.assertEqual(1, result.returncode)
+		self.assertIn("起動入口".encode("utf-8"), result.stderr)
 
 
 if __name__ == "__main__":

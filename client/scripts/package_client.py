@@ -180,6 +180,9 @@ def _verify_inner(contents: dict[str, bytes], version: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+	# Windowsの既定コンソール(cp1252等)では日本語の出力で例外になるため、出力をUTF-8へ固定する
+	for stream in (sys.stdout, sys.stderr):
+		stream.reconfigure(encoding="utf-8")
 	parser = argparse.ArgumentParser(description=__doc__)
 	sub = parser.add_subparsers(dest="command", required=True)
 	build = sub.add_parser("package", help="publish出力から配布物を作る")
