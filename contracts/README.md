@@ -82,7 +82,7 @@ APIの完全なmethod/path/request/response/security定義は[`openapi.yaml`](op
 | `DELETE /api/v1/admin/credentials/{credential_id}` | admin | 204 | 401 / 403 / 404 |
 | `GET /api/v1/stream` (WSS Upgrade) | device | 101 | 400 / 401 / 403 / 409 |
 
-Settingsとglossaryは独立したrevisionを持ちます。GET応答のrevisionを`If-Match: "<revision>"`に指定してPUTします。保存は原子的に行い、成功時だけ該当revisionを1増やします。競合409 `REVISION_CONFLICT`では本文を保存せず、`ETag: "<current_revision>"`にサーバーの最新revisionを返すため、clientは再GETして競合を表示します。設定または辞書更新はgeneration/frame連番をリセットしません。成功したrevisionは次の新規frameから使い、旧revisionの結果を表示しません。
+Settingsとglossaryは独立したrevisionを持ちます(別系列で、片方のPUTは他方のrevisionを動かしません)。sessionのframe照合に使う`dictionary_revision`は**辞書**のrevisionだけで、設定のPUT成功はsessionのrevisionを動かさず、設定のrevisionをsessionへ適用してはなりません(現在値より大きいrevisionのframeとして1008で切断されます)。設定の`capture_fps`は保存確定後、サーバーが実行中の受信レート制限へ即時反映し、クライアントも実行中の取得・送信頻度を即時更新します。GET応答のrevisionを`If-Match: "<revision>"`に指定してPUTします。保存は原子的に行い、成功時だけ該当revisionを1増やします。競合409 `REVISION_CONFLICT`では本文を保存せず、`ETag: "<current_revision>"`にサーバーの最新revisionを返すため、clientは再GETして競合を表示します。設定または辞書更新はgeneration/frame連番をリセットしません。成功したrevisionは次の新規frameから使い、旧revisionの結果を表示しません。
 
 ## 共通エラー
 

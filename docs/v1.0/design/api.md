@@ -94,7 +94,7 @@ Metadata項目:
 | `session_id` | UUID string | HTTPS開始応答のID |
 | `generation` | uint64 | #63に従いclient管理。session内で再利用しない |
 | `frame_id` | uint64 | #63に従い(session,generation)内で単調増加 |
-| `dictionary_revision` | uint64 | server所有。GET/開始/成功更新で取得 |
+| `dictionary_revision` | uint64 | server所有の**辞書**revision。GET glossary/開始/辞書の成功更新で取得。設定のrevisionは別系列でsession照合に使わない |
 | `image_width` / `image_height` | integer px | 64～1,920 / 32～1,080 |
 | `content_type` | enum | `image/png`, `image/jpeg` |
 | `image_length` | uint32相当 | 1～4,194,304、実byte数と一致 |
@@ -131,6 +131,7 @@ serverからclientへのtext JSONは[`stream-message.schema.json`](../../../cont
 - 現revisionと違えば409 `REVISION_CONFLICT`、bodyは未更新、`ETag: "<current revision>"`を返します。ClientはGETで再読込し、他者の値を上書きせず編集を再適用します。
 - 永続化失敗は500 `INTERNAL_ERROR`、revision/active値とも直前確定状態を保ちます。別種の設定と辞書は個別にcommitします。
 - 200応答は`ETag: "<新revision>"`と`X-Effective-From: next-frame`を返し、反映が次の新規frameからであることを示します。権限不足のPUTは403、If-Matchの欠落・不正形式は422です。辞書の登録・削除は`entries`全置換のPUTで行います。
+- revisionは設定と辞書で別系列です。sessionのframe照合に使う`dictionary_revision`を進めるのは辞書のPUTだけで、設定のPUTは進めません(設定のrevisionをsessionへ適用すると、現在値より大きいrevisionとして切断されます)。設定の`capture_fps`はサーバーが保存確定後に実行中の受信レート制限へ即時反映し、クライアントも保存成功で実行中の取得・送信頻度を即時更新します(sessionのrevisionは変えません)。
 - 辞書更新ではサーバーが翻訳キャッシュを失効させ、sessionの辞書revisionを進めます。更新前に送られた旧revisionのframeは切断せず破棄します。
 - 確定revisionは次の新規frameから用い、旧revision結果は表示しません。generation/frame連番をrevision更新だけで戻しません。
 
