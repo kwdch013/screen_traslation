@@ -55,7 +55,7 @@ class ContentRulesTest(unittest.TestCase):
 			self.build()
 
 	def test_rejects_private_network_address_in_own_binaries_ascii_and_utf16(self) -> None:
-		for address in ("192.168.0.26", "10.1.2.3", "10.0.0.5", "172.16.5.4", "172.31.255.1"):
+		for address in ("192.168.12.34", "10.1.2.3", "10.0.0.5", "172.16.5.4", "172.31.255.1"):
 			for encoded in (address.encode(), utf16(address)):
 				with self.subTest(address=address, utf16=encoded != address.encode()):
 					self.add("ScreenTranslation.Client.dll", b"MZ " + encoded)
@@ -64,14 +64,14 @@ class ContentRulesTest(unittest.TestCase):
 		self.add("ScreenTranslation.Client.dll", b"MZ client")
 
 	def test_allows_non_private_look_alikes_in_own_binaries(self) -> None:
-		for text in (b"172.32.0.1", b"1.192.168.0.1x", b"11.0.0.1", b"10.0.0.0", b"windows10.0.26100.0", b"10.0.14.0", b"x10.1.2.3", b"10.256.1.1"):
+		for text in (b"172.32.0.1", b"1.192.168.9.8x", b"11.0.0.1", b"10.0.0.0", b"windows10.0.26100.0", b"10.0.14.0", b"x10.1.2.3", b"10.256.1.1"):
 			with self.subTest(text=text):
 				self.add("ScreenTranslation.Client.dll", b"MZ " + text)
 				self.build()
 
 	def test_framework_binaries_may_contain_address_like_text(self) -> None:
 		# 配布するruntime側の文字列は我々の混入ではないため、アドレス検査の対象外
-		self.add("System.Private.CoreLib.dll", b"MZ 192.168.0.1 sample")
+		self.add("System.Private.CoreLib.dll", b"MZ 192.168.9.8 sample")
 
 		self.build()
 
