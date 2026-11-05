@@ -10,7 +10,8 @@ from unittest.mock import Mock
 import uvicorn
 
 from screen_translation_server.admin.credentials import CredentialManager, CredentialValidationError
-from screen_translation_server.app import _ReloadableServer, create_app
+from screen_translation_server.app import create_app
+from screen_translation_server.server_runtime import ReloadableServer as _ReloadableServer
 from screen_translation_server.security.auth import AuthenticationError, CredentialStore, Role
 from screen_translation_server.security.auth import SecurityPolicy
 from starlette.testclient import TestClient
@@ -66,13 +67,13 @@ class CredentialLifecycleTests(unittest.TestCase):
 	def test_tls_reload_reuses_live_context_and_stops_on_invalid_replacement(self) -> None:
 		context = Mock()
 		server = _ReloadableServer(uvicorn.Config(lambda _scope, _receive, _send: None), context, "cert.pem", "key.pem")
-		with unittest.mock.patch("screen_translation_server.app.signal.SIGHUP", 1):
+		with unittest.mock.patch("screen_translation_server.server_runtime.signal.SIGHUP", 1):
 			server.handle_exit(1, None)
 		context.load_cert_chain.assert_called_once_with("cert.pem", "key.pem")
 		self.assertFalse(server.should_exit)
 
 		context.load_cert_chain.side_effect = OSError("private detail")
-		with unittest.mock.patch("screen_translation_server.app.signal.SIGHUP", 1):
+		with unittest.mock.patch("screen_translation_server.server_runtime.signal.SIGHUP", 1):
 			server.handle_exit(1, None)
 		self.assertTrue(server.should_exit)
 
