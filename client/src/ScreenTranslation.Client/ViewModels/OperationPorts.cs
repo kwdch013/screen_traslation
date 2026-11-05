@@ -44,6 +44,9 @@ public interface ISessionOperations : IAsyncDisposable
 	/// その切断を「接続が切れた」と扱わず、未割当のWSSへ静かにつなぎ直す準備をする。失敗しても例外は出さない(解放は続ける)。
 	/// </summary>
 	Task PrepareForReleaseAsync();
+
+	/// <summary>解放(DELETE)が失敗したとき、<see cref="PrepareForReleaseAsync"/>の準備を取り消す(サーバーがWSSを閉じない見込みのため)。</summary>
+	void CancelPrepareForRelease();
 }
 
 /// <summary>サーバーが発行した、明示開始ごとのsession。</summary>

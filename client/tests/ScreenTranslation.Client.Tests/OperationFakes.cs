@@ -129,6 +129,13 @@ internal sealed class FakeSessionOperations : ISessionOperations
 		return PrepareError is null ? Task.CompletedTask : Task.FromException(PrepareError);
 	}
 
+	public int CancelPrepareCount;
+	public void CancelPrepareForRelease()
+	{
+		CancelPrepareCount++;
+		lock (Events) Events.Add("cancel-prepare");
+	}
+
 	public async ValueTask StopAsync(CancellationToken cancellationToken = default)
 	{
 		StopCount++;

@@ -358,7 +358,16 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 		{
 		}
 
-		await grants.ReleaseAsync(session).ConfigureAwait(false);
+		try
+		{
+			await grants.ReleaseAsync(session).ConfigureAwait(false);
+		}
+		catch (Exception)
+		{
+			// 解放に失敗するとサーバーはWSSを閉じない。残った想定内切断の窓で本物の切断を見逃さないよう準備を取り消す
+			host.CancelPrepareForRelease();
+			throw;
+		}
 	}
 
 	/// <summary>

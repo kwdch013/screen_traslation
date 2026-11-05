@@ -71,6 +71,34 @@ public sealed class OperationPrepareReleaseTests
 	}
 
 	[Fact]
+	public async Task Stop_WhenTheReleaseFails_CancelsThePreparationSoARealDisconnectIsNotHidden()
+	{
+		var host = new FakeSessionOperations();
+		var grants = new FakeGrantProvider { ReleaseError = new SessionGrantException("403") };
+		await using var vm = new OperationsViewModel(host, grants, new FakeRegionSelector(), new FakeHotkeyRegistrar(), new ManualTimeProvider(DateTimeOffset.UnixEpoch));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.ConnectAsync()));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.SelectTargetAsync(Target)));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.ReselectRegionAsync()));
+		Assert.Equal(OperationOutcome.Completed, await T(vm.StartAsync()));
+
+		Assert.Equal(OperationOutcome.Completed, await T(vm.StopAsync()));
+
+		Assert.Equal(["prepare", "cancel-prepare"], host.Events);
+		Assert.Equal(OperationPhase.Stopped, vm.Snapshot.Phase);
+	}
+
+	[Fact]
+	public async Task Stop_WhenTheReleaseSucceeds_KeepsThePreparation()
+	{
+		var (vm, host) = await StreamingAsync();
+		await using var _ = vm;
+
+		Assert.Equal(OperationOutcome.Completed, await T(vm.StopAsync()));
+
+		Assert.Equal(0, host.CancelPrepareCount);
+	}
+
+	[Fact]
 	public async Task Start_DoesNotPrepareWhenNoSessionWasAcquired()
 	{
 		var host = new FakeSessionOperations();

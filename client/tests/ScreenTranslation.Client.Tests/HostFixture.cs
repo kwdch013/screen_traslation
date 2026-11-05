@@ -33,6 +33,8 @@ internal sealed class FakeTransport : ITranslationTransport
 	public Exception? FailReopen;
 	public List<TimeSpan> ExpectedCloseWindows { get; } = [];
 	public void ExpectServerClose(TimeSpan window) => ExpectedCloseWindows.Add(window);
+	public int CancelledExpectedCloses;
+	public void CancelExpectedServerClose() => CancelledExpectedCloses++;
 	public event Action? ConnectionLost;
 
 	public Task ReopenStreamAsync(CancellationToken cancellationToken = default)

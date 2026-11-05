@@ -85,7 +85,7 @@ public sealed class ControlApiSecurityTests
 		Assert.Empty(offenders);
 		var setters = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
 			.Where(path => File.ReadAllText(path).Contains("RemoteCertificateValidationCallback =")).Select(path => Path.GetFileName(path)!).Order().ToArray();
-		Assert.Equal(["ControlApiClient.cs", "StreamTransportClient.cs"], setters);
+		Assert.Equal(["ClientWebSocketStream.cs", "ControlApiClient.cs"], setters);
 	}
 
 	private static string FindDirectory(params string[] parts)
