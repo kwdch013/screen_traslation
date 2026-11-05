@@ -2,7 +2,27 @@
 
 ブラウザで共有した画面、ウィンドウ、またはタブの英語テキストを OCR し、日本語訳を同じ Web アプリへ表示するローカルアプリケーションです。画面選択にはブラウザの Screen Capture API、バックエンドには FastAPI、フロントエンドには React + Vite を使用します。
 
-## 主な機能
+## v1.0 の導入 (Windowsクライアント + Linuxサーバー)
+
+次版 v1.0 は、Windows 11 25H2 (x64) のクライアントが画面取得・領域選択・重畳表示を行い、Linux x86_64 (Docker Engine / Compose v2) のサーバーが OCR・英日翻訳・辞書を担当します。通信は常に HTTPS/WSS と端末認証で保護され、LAN でも証明書の検証を無効にしません。導入・運用の文書は次のとおりです。
+
+- [Linuxサーバーの導入・日常操作・更新・ロールバック](docs/v1.0/install-server.md)
+- [Windowsクライアントの導入・設定・日常操作](docs/v1.0/install-client.md)
+- [運用手順 (資格情報・TLS・障害の切り分け・バックアップと復元・ログ採取)](docs/v1.0/operations.md)
+- [第三者コンポーネントとモデルのライセンス棚卸し](docs/v1.0/licenses.md)
+
+Linux 側の最短手順は、`server/.env.example` から `server/.env` を作り、証明書を用意して次を実行します (詳細は上記の導入文書)。
+
+```bash
+docker compose -f server/compose.yml config
+docker compose -f server/compose.yml build
+docker compose -f server/compose.yml --profile model run --rm prepare-model
+docker compose -f server/compose.yml up -d
+```
+
+翻訳モデルはイメージにもリポジトリにも同梱せず、準備段階で取得元から取得します。第三者ライセンスの最終確認は Owner 判断待ちで、本製品自体のライセンスは未決定です。v1.0 の実機での導入検証は後続 Task で行います (この記載は検証済みを意味しません)。以下は、v1.0 の受入まで維持する旧Web版の説明です。
+
+## 旧Web版の主な機能
 
 - ブラウザ標準の共有ダイアログによる画面、ウィンドウ、タブの選択
 - Tesseract またはローカルの OpenAI 互換 API を使った OCR
@@ -12,7 +32,7 @@
 - ブラウザからの翻訳設定と用語辞書の編集
 - Server-Sent Events（SSE）による状態・翻訳結果の配信
 
-## 必要なもの
+## 旧Web版の必要なもの
 
 - Python 3.14
 - Tesseract OCR 本体
@@ -20,7 +40,7 @@
 - `getDisplayMedia` に対応した Chrome、Edge などのブラウザ
 - ソースから利用する場合は Node.js 24 と npm（`frontend/dist` の生成に使用）
 
-## 起動
+## 旧Web版の起動と利用
 
 ### Windows のランチャー
 
@@ -131,6 +151,7 @@ npm run build
 - [仕様書](docs/specification.md)
 - [利用手順書](docs/user_guide.md)
 - [開発者向け説明書](docs/developer_guide.md)
+- v1.0 の導入・運用: [サーバー](docs/v1.0/install-server.md) / [クライアント](docs/v1.0/install-client.md) / [運用手順](docs/v1.0/operations.md) / [ライセンス](docs/v1.0/licenses.md)
 - [初期要件（経緯資料）](docs/requirements.md)
 - [初期実現可能性メモ（経緯資料）](docs/feasibility.md)
 
