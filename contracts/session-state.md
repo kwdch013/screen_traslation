@@ -15,7 +15,7 @@
 | `session_id` | UUID文字列 | サーバーが明示開始ごとに新規発行する。終了したIDは再利用しない。 |
 | `generation` | 1以上の符号なし64-bit整数 | クライアントがsession内で開始時1から管理する。対象/ROI/DPI context変更、stop、対象消失、切断を検知した時点で直ちに増やし、旧値を無効にする。1session内で再利用しない。 |
 | `frame_id` | 1以上の符号なし64-bit整数 | クライアントが `(session_id, generation)` ごとに1から採番し、送信順に厳密増加させる。新generationで1へ戻す。 |
-| `dictionary_revision` | 1以上の符号なし64-bit整数 | サーバーが設定/辞書の確定revisionとして所有する。サーバーの初期有効値は1。 |
+| `dictionary_revision` | 1以上の符号なし64-bit整数 | サーバーが**用語辞書**の確定revisionとして所有する。sessionのframe/result照合に使うのはこの値だけで、サーバーの初期有効値は1。設定(`capture_fps`など)のrevisionは別系列で、この値を動かさず、frame/resultにも含めない。 |
 | `captured_monotonic_ns` | クライアント内の単調時計ナノ秒 | 画像取得時にクライアントだけで記録し、`(session_id, generation, frame_id)` に対応づける。別ホストへ送信したり、サーバー時刻と比較したりしない。 |
 
 通信上のframe/resultには同じsession_id, generation, frame_id, dictionary_revisionを含める。取得時単調時計値はクライアントの相関台帳に置く。サーバーは自ホスト内で測ったOCR/翻訳処理時間を`server_processing_ms`として返せるが、クライアントの表示期限計算に使わない。
@@ -80,7 +80,10 @@ Issue #73 の `SessionManager` はこの遷移表に従い、停止・再選択�
 
 設定・辞書はサーバーがrevisionと永続化を所有する。更新要求は読込時のrevisionを条件にし、現在値と一致した更新だけを原子的に保存する。成功時はrevisionを1増やして返し、競合時は409を返す。409では他者の更新を上書きせず、再読込を促す。保存に失敗した場合、revision・有効値とも直前の確定版を維持する。
 
-クライアントは保存成功応答を受け取った時点で新revisionをactiveにし、次に取得するframeから採番する。既存処理中frameには旧revisionを保持させるが、その結果は新revision適用後に表示しない。frame_idやgenerationをrevision変更だけを理由に戻さない。
+revisionは設定と辞書で別系列に採番される(`GET/PUT /api/v1/settings`のETagと`GET/PUT /api/v1/glossary`のETagは互いに独立した値で、片方の更新は他方を動かさない)。sessionの`dictionary_revision`を動かすのは**辞書のPUT成功だけ**で、設定のPUT成功は動かさない。設定のrevisionをsessionの`dictionary_revision`として適用してはならない(サーバーの現在値より大きいrevisionのframeとして扱われ、WSS close code 1008で切断される)。
+
+- 辞書: クライアントは保存成功応答を受け取った時点で新revisionをactiveにし、次に取得するframeから採番する。既存処理中frameには旧revisionを保持させるが、その結果は新revision適用後に表示しない。frame_idやgenerationをrevision変更だけを理由に戻さない。
+- 設定(`capture_fps`): サーバーは保存確定後、実行中のsessionの受信レート制限へ次のframeから即時反映する。クライアントも保存成功を受け取った時点で、実行中の取得頻度(取得の間引き)と送信頻度の上限を、sessionのrevision・generation・frame_idを変えずに更新する。停止中に保存した値は次回の開始から使う。
 
 ![セッション状態遷移](../docs/v1.0/design/diagrams/state-session.svg)
 [編集用draw.io](../docs/v1.0/design/diagrams/state-session.drawio)

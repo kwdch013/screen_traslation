@@ -70,6 +70,15 @@ internal sealed class FakeSessionOperations : ISessionOperations
 	public readonly List<ulong> AppliedRevisions = [];
 	public bool ApplyDictionaryRevisionResult = true;
 
+	public readonly List<int> AppliedCaptureFps = [];
+	public bool ApplyCaptureFpsResult = true;
+
+	public bool ApplyCaptureFps(int captureFps)
+	{
+		AppliedCaptureFps.Add(captureFps);
+		return ApplyCaptureFpsResult;
+	}
+
 	public bool ApplyDictionaryRevision(ulong dictionaryRevision)
 	{
 		AppliedRevisions.Add(dictionaryRevision);

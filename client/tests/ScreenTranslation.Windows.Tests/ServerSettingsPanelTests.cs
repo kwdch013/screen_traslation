@@ -60,6 +60,8 @@ public sealed class ServerSettingsPanelTests
 
 			Assert.Equal(new[] { 1, 2, 3, 4, 5 }, Part<ComboBox>(panel, "FpsInput").Items.Cast<int>());
 			Assert.Equal(2, Part<ComboBox>(panel, "FpsInput").SelectedItem);
+			// 保存の反映時期(実行中は次のフレームから、停止中は次回の開始から)を画面に説明する
+			Assert.Equal(TranslationSettingsViewModel.CaptureFpsGuidance, Part<TextBlock>(panel, "FpsGuidanceText").Text);
 			Assert.Single(Part<ListBox>(panel, "GlossaryList").Items);
 			Assert.Contains("保存済み", Part<TextBlock>(panel, "SettingsText").Text);
 			Assert.False(Part<Button>(panel, "GlossarySaveButton").IsEnabled);

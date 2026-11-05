@@ -159,4 +159,30 @@ public sealed class MainWindowWiringTests
 			Assert.Equal([8ul], harness.Host.AppliedRevisions);
 		}, Saved);
 	}
+
+	[Fact]
+	public void TranslationSettingsSave_ReachesTheRunningSessionAsTheFpsValue_NotAsARevision()
+	{
+		MainWindowHarness.Run(harness =>
+		{
+			var input = harness.Part<TextBox>("ServerUriInput");
+			MainWindowHarness.PumpUntil(() => input.Text.Length > 0, "保存済み設定の読み込み");
+			MainWindowHarness.Click(harness.Part<Button>("Operations", "ConnectButton"));
+			MainWindowHarness.PumpUntil(() => harness.Host.ConnectCount == 1, "接続の完了");
+			MainWindowHarness.Click(harness.Part<Button>("ServerSettings", "SettingsLoadButton"));
+			MainWindowHarness.PumpUntil(() => harness.Api.GlossaryLoads == 1, "設定と用語辞書の読み込み");
+
+			var fps = harness.Part<ComboBox>("ServerSettings", "FpsInput");
+			var save = harness.Part<Button>("ServerSettings", "SettingsSaveButton");
+			MainWindowHarness.PumpUntil(() => fps.IsEnabled, "設定の読み込み後の編集可能状態");
+			fps.SelectedItem = 4;
+			MainWindowHarness.PumpUntil(() => save.IsEnabled, "編集後の保存可能状態");
+			MainWindowHarness.Click(save);
+
+			// 取得頻度の値だけが実行中のホストへ届く。設定のrevisionは別系列のため、辞書revisionとしては適用されない
+			MainWindowHarness.PumpUntil(() => harness.Host.AppliedCaptureFps.Count == 1, "取得頻度のホストへの反映");
+			Assert.Equal([4], harness.Host.AppliedCaptureFps);
+			Assert.Empty(harness.Host.AppliedRevisions);
+		}, Saved);
+	}
 }

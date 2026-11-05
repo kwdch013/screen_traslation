@@ -430,4 +430,19 @@ public sealed class OperationTests
 
 		Assert.Equal([3ul, 4ul], f.Host.AppliedRevisions);
 	}
+
+	[Fact]
+	public async Task ApplyCaptureFps_IsPassedToTheHost_WithoutTouchingTheDictionaryRevision()
+	{
+		await using var f = new OperationFixture();
+		f.Host.ApplyCaptureFpsResult = false;
+
+		Assert.False(f.Vm.ApplyCaptureFps(3));
+		f.Host.ApplyCaptureFpsResult = true;
+		Assert.True(f.Vm.ApplyCaptureFps(4));
+
+		Assert.Equal([3, 4], f.Host.AppliedCaptureFps);
+		// 設定の保存は別系列のrevisionで、辞書revisionの適用は起きない
+		Assert.Empty(f.Host.AppliedRevisions);
+	}
 }

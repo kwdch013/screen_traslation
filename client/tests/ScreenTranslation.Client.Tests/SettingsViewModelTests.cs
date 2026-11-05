@@ -306,4 +306,42 @@ public sealed class SettingsViewModelTests
 
 		Assert.True(raised >= 3);
 	}
+
+	[Fact]
+	public async Task Save_RaisesSavedWithTheSavedFpsValue_NotTheSettingsRevision()
+	{
+		using var model = await LoadedAsync();
+		var saved = new List<int>();
+		model.Saved += saved.Add;
+		model.SetCaptureFps(4);
+
+		Assert.Equal(EditorOutcome.Completed, await model.SaveAsync());
+
+		// 通知するのは取得頻度の値だけ。設定のrevision(3)は別系列で、sessionへ適用させないため渡さない
+		Assert.Equal([4], saved);
+		Assert.Equal(3ul, model.Snapshot.Revision);
+	}
+
+	[Fact]
+	public async Task FailedOrConflictedSave_DoesNotRaiseSaved()
+	{
+		using var model = await LoadedAsync();
+		var saved = new List<int>();
+		model.Saved += saved.Add;
+		api.OnUpdateFps = (_, _, _) => Task.FromException<Revisioned<int>>(new ControlApiException(ControlApiFailure.RevisionConflict, System.Net.HttpStatusCode.Conflict));
+		model.SetCaptureFps(4);
+
+		Assert.Equal(EditorOutcome.Failed, await model.SaveAsync());
+
+		Assert.Empty(saved);
+	}
+
+	[Fact]
+	public void TheScreenGuidance_StatesBothTheRunningAndTheStoppedBehavior()
+	{
+		// 実行中は次のフレームから反映し、停止中の保存は次回の開始から使う(方針A)
+		Assert.Contains("実行中", TranslationSettingsViewModel.CaptureFpsGuidance);
+		Assert.Contains("次のフレームから", TranslationSettingsViewModel.CaptureFpsGuidance);
+		Assert.Contains("次回の開始から", TranslationSettingsViewModel.CaptureFpsGuidance);
+	}
 }

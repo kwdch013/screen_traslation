@@ -84,6 +84,9 @@ public sealed class RevisionedEditor<T> : IDisposable
 	/// </summary>
 	public event Action<ulong>? Saved;
 
+	/// <summary>保存が確定した値(サーバーが返した値)。<see cref="Saved"/>の直後に発火する。revisionを渡したくない購読側(設定)が使う。</summary>
+	public event Action<T>? SavedValue;
+
 	public EditorSnapshot<T> Snapshot
 	{
 		get
@@ -255,6 +258,7 @@ public sealed class RevisionedEditor<T> : IDisposable
 
 		// 保存が確定した通知は、購読側の例外が保存結果を変えないよう、保存の例外処理の外で行う
 		Saved?.Invoke(saved.Revision);
+		SavedValue?.Invoke(saved.Value);
 		Changed?.Invoke();
 		return EditorOutcome.Completed;
 	}

@@ -366,4 +366,29 @@ public sealed class FrameSenderTests
 		Assert.True(await Next(sender));
 		Assert.Equal([(3UL, 1UL), (3UL, 2UL)], transport.Sent.Select(m => (m.Generation, m.FrameId)));
 	}
+
+	[Fact]
+	public async Task SetSendFps_ChangesTheSendIntervalAndKeepsSessionAndRevisionAndFrameId()
+	{
+		var (sender, transport, time) = Create(2);
+		sender.Submit(Frame(101));
+		await Next(sender);
+
+		sender.SetSendFps(1);
+		sender.Submit(Frame(102));
+		Assert.True(await Next(sender));
+
+		Assert.Equal([TimeSpan.FromMilliseconds(1000)], time.Delays);
+		Assert.Equal([1UL, 2UL], transport.Sent.Select(m => m.FrameId));
+		Assert.All(transport.Sent, meta => Assert.Equal((SessionId, 1UL, 1UL), (meta.SessionId, meta.Generation, meta.DictionaryRevision)));
+		Assert.Equal(1UL, sender.DictionaryRevision);
+	}
+
+	[Fact]
+	public void SetSendFps_OutsideContractRangeIsRejected()
+	{
+		var (sender, _, _) = Create(2);
+
+		Assert.Throws<ArgumentOutOfRangeException>(() => sender.SetSendFps(6));
+	}
 }

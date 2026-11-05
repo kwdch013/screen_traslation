@@ -51,8 +51,10 @@ public partial class MainWindow
 		_serverSettingsConnection = settings.Connection;
 		_translationSettings = new TranslationSettingsViewModel(_serverSettingsApi);
 		_glossary = new GlossaryViewModel(_serverSettingsApi);
-		// 辞書の保存成功を実行中のsessionへ反映する(翻訳設定の保存は別系列のrevisionのため対象外)
+		// 辞書の保存成功(辞書のrevision)を実行中のsessionへ反映する。翻訳設定のrevisionは別系列のため、sessionのrevisionには使わない
 		_glossary.Saved += OnGlossarySaved;
+		// 翻訳設定の保存成功は、値(取得頻度)だけを実行中の取得・送信の上限へ反映する
+		_translationSettings.Saved += OnTranslationSettingsSaved;
 		ServerSettings.Attach(_translationSettings, _glossary);
 		ServerSettings.ShowCredentialMessage(string.Empty);
 		await Task.WhenAll(_translationSettings.LoadAsync(), _glossary.LoadAsync());
@@ -60,6 +62,8 @@ public partial class MainWindow
 
 	/// <summary>任意のスレッドから呼ばれる。操作モデルは接続設定の変更で作り直されるため、呼ばれた時点のものへ渡す。</summary>
 	private void OnGlossarySaved(ulong revision) => _operations?.ApplyDictionaryRevision(revision);
+
+	private void OnTranslationSettingsSaved(int captureFps) => _operations?.ApplyCaptureFps(captureFps);
 
 	/// <summary>接続設定が変わったときは、古い接続先の編集内容を持ち越さない(別のサーバーの値と取り違えない)。</summary>
 	private void ResetServerSettingsIfConnectionChanged(ConnectionSettings saved)

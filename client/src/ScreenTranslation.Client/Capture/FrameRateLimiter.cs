@@ -11,8 +11,9 @@ public sealed class FrameRateLimiter
 	public const long WindowNanoseconds = 10_000_000_000;
 
 	private readonly object sync = new();
-	private readonly long intervalNanoseconds;
-	private readonly int maximumInWindow;
+	private long intervalNanoseconds;
+	private int maximumInWindow;
+	private int fps;
 	private readonly Queue<long> accepted = new();
 
 	public FrameRateLimiter(int fps)
@@ -22,12 +23,37 @@ public sealed class FrameRateLimiter
 			throw new ArgumentOutOfRangeException(nameof(fps), "fpsは1～5で指定してください。");
 		}
 
-		Fps = fps;
-		intervalNanoseconds = 1_000_000_000L / fps;
-		maximumInWindow = fps * 10;
+		ApplyFps(fps);
 	}
 
-	public int Fps { get; }
+	public int Fps
+	{
+		get
+		{
+			lock (sync) return fps;
+		}
+	}
+
+	/// <summary>
+	/// 上限fpsを変える(実行中の設定変更)。受理済みの記録は残すため、窓(連続10秒)の上限は過去の高いレートの分も数えて守られる。
+	/// 範囲外は<see cref="ArgumentOutOfRangeException"/>で、現在値を保つ。
+	/// </summary>
+	public void SetFps(int newFps)
+	{
+		if (newFps is < MinimumFps or > MaximumFps)
+		{
+			throw new ArgumentOutOfRangeException(nameof(newFps), "fpsは1～5で指定してください。");
+		}
+
+		lock (sync) ApplyFps(newFps);
+	}
+
+	private void ApplyFps(int value)
+	{
+		fps = value;
+		intervalNanoseconds = 1_000_000_000L / value;
+		maximumInWindow = value * 10;
+	}
 
 	/// <summary>許可されるまでの待ち時間(ナノ秒)。0なら今すぐ許可される。記録はしない。</summary>
 	public long DelayNanoseconds(long nowNanoseconds)
@@ -68,8 +94,8 @@ public sealed class FrameRateLimiter
 
 		if (accepted.Count >= maximumInWindow)
 		{
-			// 窓内の最古の記録が窓外へ出るまで待つ
-			delay = Math.Max(delay, accepted.Peek() + WindowNanoseconds - now);
+			// 窓内の記録が上限未満になるまで待つ(上限を下げた直後は、最古1件が出るだけでは足りない)
+			delay = Math.Max(delay, accepted.ElementAt(accepted.Count - maximumInWindow) + WindowNanoseconds - now);
 		}
 
 		return Math.Max(delay, 0);

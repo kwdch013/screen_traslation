@@ -74,4 +74,56 @@ public sealed class FrameRateLimiterTests
 			Assert.True(inWindow <= fps * 10, $"窓内の許可数 {inWindow} が上限を超えました。");
 		}
 	}
+
+	[Fact]
+	public void SetFps_ChangesTheMinimumIntervalFromTheNextAcquire()
+	{
+		var limiter = new FrameRateLimiter(2);
+		Assert.True(limiter.TryAcquire(0));
+
+		limiter.SetFps(1);
+
+		Assert.Equal(1, limiter.Fps);
+		Assert.False(limiter.TryAcquire(500 * Millisecond));
+		Assert.True(limiter.TryAcquire(1_000 * Millisecond));
+	}
+
+	[Fact]
+	public void SetFps_RaisingTheRateAllowsAFasterNextAcquire()
+	{
+		var limiter = new FrameRateLimiter(1);
+		Assert.True(limiter.TryAcquire(0));
+
+		limiter.SetFps(5);
+
+		Assert.False(limiter.TryAcquire(199 * Millisecond));
+		Assert.True(limiter.TryAcquire(200 * Millisecond));
+	}
+
+	[Fact]
+	public void SetFps_LoweringTheRateStillHonorsTheWindowHistoryOfTheHigherRate()
+	{
+		var limiter = new FrameRateLimiter(5);
+		// 5 fpsで窓内に20枚受理済み(0.2秒ごと、0～3.8秒)
+		for (var i = 0; i < 20; i++) Assert.True(limiter.TryAcquire(i * 200 * Millisecond));
+
+		limiter.SetFps(1);
+
+		// 1 fpsの窓上限は10枚。窓内が10枚未満になるまで(11枚目の記録が窓外へ出る12秒まで)許可しない
+		Assert.False(limiter.TryAcquire(10_000 * Millisecond));
+		Assert.Equal(2_000 * Millisecond, limiter.DelayNanoseconds(10_000 * Millisecond));
+		Assert.True(limiter.TryAcquire(12_000 * Millisecond));
+	}
+
+	[Theory]
+	[InlineData(0)]
+	[InlineData(6)]
+	public void SetFps_OutsideContractRangeIsRejectedAndKeepsTheCurrentRate(int fps)
+	{
+		var limiter = new FrameRateLimiter(3);
+
+		Assert.Throws<ArgumentOutOfRangeException>(() => limiter.SetFps(fps));
+
+		Assert.Equal(3, limiter.Fps);
+	}
 }
