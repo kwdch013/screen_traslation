@@ -25,7 +25,6 @@ public partial class MainWindow : Window
 		(_settingsStore, _credentialStore, _adminCredentialStore) = (services.Settings, services.Credentials, services.AdminCredentials);
 		InitializeComponent();
 		InitializeOperations();
-		InitializeServerSettings();
 		_ = LoadSettingsAsync();
 	}
 
