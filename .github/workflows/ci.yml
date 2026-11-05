@@ -44,6 +44,9 @@ jobs:
       - name: 座標契約fixture検証 (リポジトリマウント付きコンテナ内)
         run: docker run --rm --cpus=2 --memory=512m -e PYTHONPATH=/workspace/src -v "$PWD:/workspace:ro" -w /workspace ai-gate-test:ci python -B -m unittest src.tests.test_dpi_coordinates -v
 
+      - name: クライアント配布物の生成・検証・配布定義テスト (Python 3.14コンテナ内)
+        run: docker run --rm --cpus=2 --memory=512m -v "$PWD:/workspace:ro" -w /workspace/client/tests/publish ai-gate-test:ci python -B -m unittest discover -s . -v
+
       - name: フロントエンド検証 (コンテナ内)
         run: docker build --target frontend-test --tag frontend-test:ci .
 
@@ -122,6 +125,16 @@ jobs:
       - name: C#テストを実行
         working-directory: client
         run: dotnet test ScreenTranslation.sln --configuration Release --no-build --blame-hang --blame-hang-timeout 5m --logger "console;verbosity=detailed"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      # 自己完結配布物が生成でき、起動入口・版・チェックサム・混入なしを検証できることを確認する
+      # (SDK未導入Windowsでの起動・接続は実機試験。docs/v1.0/testing.md)
+      - name: 自己完結配布物をpublishして検証
+        shell: pwsh
+        run: |
+          ./client/scripts/publish-client.ps1 -Version 0.0.0-ci -OutputDir artifacts
+          python client/scripts/package_client.py verify --output-dir artifacts/package --version 0.0.0-ci
 
   # Rulesetが要求する既存の「test」checkを常に発行する集約ジョブ
   test:

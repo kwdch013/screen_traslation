@@ -905,3 +905,36 @@ Argos Translateの文分割(`argostranslate.sbd.StanzaSentencizer`)は`stanza.Pi
 | `ClientScenarioRealServerSettingsTests`(実サーバー) | 設定のPUT → 実行中の取得頻度の変化(2fps→5fpsで300ms間隔の取得が通る)、保存後も通信・世代が維持され翻訳が表示される |
 | `server/tests/test_settings_revision_series.py` | 設定のPUT後もsessionの辞書revisionは1のままでrevision 1のframeが受理される。設定のrevision(2)をframeに載せると1008で切断される |
 | `MainWindowWiringTests.TranslationSettingsSave_*`・`ServerSettingsPanelTests`(`windows-client` CI) | 画面の保存が値としてホストへ届き、辞書revisionとしては適用されない。説明文の表示 |
+
+## Windowsクライアント配布物の生成と検証 (Issue #104)
+
+要件はREQ-F-012 / REQ-NF-008 / REQ-NF-009 / REQ-NF-010(ACC-14)です。手順は[導入文書](install-client.md)にあります。
+
+### 自動で確認する範囲
+
+| 区分 | 場所 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 配布物の生成・検証・混入検査 | `client/tests/publish/test_package_client.py`・`test_package_content_rules.py` | Python 3.14コンテナ(`web`ジョブ)。`docker run --rm -v "$PWD:/workspace:ro" -w /workspace/client/tests/publish ai-gate-test:ci python -B -m unittest discover -s .` | 疑似publish出力から、zip・`SHA256SUMS`・manifestの生成、同一入力で同一zip、起動入口なし/不正な版/ライセンス一覧なしの拒否、改ざん・版違い・manifest不一致の検出、設定/資格情報/証明書/鍵/pdb/ログ/私設アドレス/ビルド環境パス/指定文字列の混入拒否と、エラー文に一致した値を出さないこと |
+| 配布定義 | `client/tests/publish/test_publish_definition.py` | 同上 | ビルドスクリプトの引数(win-x64・自己完結・記号なし)、版の正本、ライセンス一覧がcsprojのPackageReferenceを漏れなく含むこと、利用者向け案内、設定の保存先が配布先と別であること |
+| リリースworkflow | `client/tests/publish/test_release_workflow.py` | 同上 | 手動/tagのみ、`contents: read`、concurrency、公開/署名/secretを使わないこと、第三者actionのSHA固定、入力を環境変数で受けること |
+| 実publish | `windows-client` CIの「自己完結配布物をpublishして検証」 | `windows-latest` | 版`0.0.0-ci`で`publish-client.ps1`を実行し、win-x64自己完結のpublish、`ProductVersion`の一致、`package_client.py verify`(チェックサム・manifest・起動入口・混入検査)が成功すること |
+
+### Owner実施(実機。この表の項目は未実施で、合格扱いにしない)
+
+.NET SDK・Python・翻訳モデルを導入していない、対応のWindows(Windows 11 25H2 x64)で行います。接続先とサーバーの資格情報・証明書は試験者が外部設定で用意し、記録には値を書きません。接続先がなければ「未実施」と理由を記録します。
+
+1. zip と `SHA256SUMS` を取得し、`Get-FileHash`で一致を確認する。改変したzipで不一致になることも確認する。
+2. 展開して `ScreenTranslation.Windows.exe` を起動できる(SDK/ランタイム未導入のエラーが出ない)。未署名の警告が出たときの案内に従って実行できる。
+3. 設定画面で接続先・端末資格情報を設定し、サーバーへ接続できる。
+4. 新しい版を別フォルダへ展開して起動し、設定が残っていること(再入力不要)を確認する(更新)。
+5. 旧版のフォルダの実行ファイルを起動し、設定が残っていること(ロールバック)を確認する。
+6. 配布フォルダを削除しても `%LOCALAPPDATA%\ScreenTranslation\` が残ることを確認する。
+
+結果(日時・版・SHA-256・OS版・合否・未実施の理由)は、受入の記録(ACC-14、#106/#108/#110)へ残します。
+
+### 未検証・制約 (#104)
+
+- クリーンなWindowsでの起動・接続・更新・ロールバックは未実施(上のOwner実施)。
+- 設定ファイルの形式を変える版での互換と、新版が書いた設定を旧版が読めない場合の扱いは未定義。
+- publish出力のビット単位の再現性は保証しない。zipの再現性(同じ入力から同じzip)のみ試験する。
+- 署名は行わない。SmartScreenの挙動は未確認。
