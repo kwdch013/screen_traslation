@@ -45,6 +45,7 @@
 | `Streaming` | ROI/対象/DPI context変更・再選択 | 旧generationを無効化し、取得/送信停止、表示消去 | sessionをreleaseし`ConnectedStopped`。新ROI選択後も利用者が再度開始する。 |
 | `Streaming` | 対象消失/最小化/取得拒否 | 旧generationを無効化、送信停止、表示消去 | releaseを行い`ConnectedStopped`。対象復帰だけでは再開しない。 |
 | 任意の接続状態 | WSS切断/認証失効 | 旧session/generationを無効化、送信停止、表示を消去 | `Disconnected`。再接続後も利用者の明示開始が必要。 |
+| `Streaming` | WSS `MODEL_NOT_READY`を採用(serverが準備前・準備失敗中・停止開始後でframeを破棄) | 待機画像を破棄し送信を止める。session・世代・WSS・生存通知は維持し、表示は変えない | `Streaming`の準備待ち。`GET /api/v1/ready`が200になるまで確認(2→4→8→上限10秒)し、200で保持した最新の1画像を新しいframe_idで送って再開する。401/403/資格情報なし/証明書拒否は`Stopping`(固定文言)、一時的な失敗は待機を続ける。停止・切断・破棄は確認を取り消す。 |
 | `Streaming` | 辞書revision確定 | 新revisionを即時activeとし、旧revision結果の採用を禁止 | `Streaming`継続。次の新規frameから新revisionを付ける。generation/frame連番は維持。 |
 | `Stopping` / 停止状態 | 旧結果・逆順結果の到着 | 結果を破棄し表示状態を変えない | 現状態を維持。 |
 

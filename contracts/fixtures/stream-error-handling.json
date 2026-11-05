@@ -9,7 +9,7 @@
   "codes": [
     {"code": "PROCESSING_FAILED", "disposition": "non_fatal", "retry": "next_frame", "server_sends_as_error_message": true},
     {"code": "OCR_TIMEOUT", "disposition": "non_fatal", "retry": "next_frame", "server_sends_as_error_message": true},
-    {"code": "MODEL_NOT_READY", "disposition": "non_fatal", "retry": "next_frame", "server_sends_as_error_message": true, "note": "接続を維持して通知するまでが#226。送信の一時停止・ready再確認・再開は#202"},
+    {"code": "MODEL_NOT_READY", "disposition": "non_fatal", "retry": "next_frame", "server_sends_as_error_message": true, "note": "接続を維持し、clientは送信を一時停止して/api/v1/readyを確認し、準備完了で最新の1画像を新しいframe_idで再送して再開する(#202。契約README「MODEL_NOT_READYを受けたclientの動作」)"},
     {"code": "INVALID_IMAGE", "disposition": "non_fatal", "retry": "next_frame", "server_sends_as_error_message": true, "note": "サーバーのパイプライン上限(寸法・頻度・容量)に達したframeの通知。形式不正のbinaryは通知なしに1008で閉じる"},
     {"code": "AUTHENTICATION_FAILED", "disposition": "fatal", "retry": "none", "server_sends_as_error_message": false, "note": "サーバーはcloseのreasonに使い、error messageとしては送らない"},
     {"code": "SESSION_MISMATCH", "disposition": "fatal", "retry": "none", "server_sends_as_error_message": false, "note": "同上"},

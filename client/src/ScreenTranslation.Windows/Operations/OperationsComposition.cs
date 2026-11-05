@@ -1,4 +1,5 @@
 using System.Windows.Threading;
+using ScreenTranslation.Client.Api;
 using ScreenTranslation.Client.Hotkeys;
 using ScreenTranslation.Client.Security;
 using ScreenTranslation.Client.Settings;
@@ -24,7 +25,9 @@ public static class OperationsComposition
 		IHotkeyRegistrar? hotkeys)
 	{
 		var transport = new StreamTransportClient(settings.Connection, credentials, new ClientWebSocketStreamFactory(), Reconnect);
-		var host = runtime.CreateSessionHost(transport, new WindowsOverlaySurface(dispatcher));
+		// WSSのMODEL_NOT_READYで送信を止めたとき、準備完了を確認して再開するための部品(ホストが破棄時に片付ける)
+		var readiness = new ServerReadinessClient(settings.Connection, credentials);
+		var host = runtime.CreateSessionHost(transport, new WindowsOverlaySurface(dispatcher), readinessProbe: readiness);
 		return new OperationsViewModel(host, grants, new WindowsRegionSelector(new WindowsRegionSelectionOverlay()), hotkeys);
 	}
 }

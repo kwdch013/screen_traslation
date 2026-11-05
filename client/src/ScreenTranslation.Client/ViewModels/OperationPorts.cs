@@ -23,6 +23,8 @@ public interface ISessionOperations : IAsyncDisposable
 	event Action? OcrTimedOut;
 	/// <summary>OCR_TIMEOUT以外のフレーム単位の非致命エラー(codeのみ)。通信は維持されている。利用者へ固定文言で知らせる契機。</summary>
 	event Action<string>? FrameFailed;
+	/// <summary>サーバーの翻訳エンジンの準備待ち(WSSのMODEL_NOT_READY)に入った・確認できない・再開した。送信は準備待ちの間だけ止まり、準備完了で自動で再開する。</summary>
+	event Action<ServerReadinessState>? ServerReadinessChanged;
 	/// <summary>採用・表示した結果(session・世代・領域)。履歴の記録元。</summary>
 	event Action<Guid, ulong, IReadOnlyList<OverlayRegion>>? TranslationsPresented;
 

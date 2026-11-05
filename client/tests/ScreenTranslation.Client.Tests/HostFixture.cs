@@ -134,7 +134,7 @@ internal sealed class HostFixture : IAsyncDisposable
 	public readonly List<OverlayClearReason> Ended = [];
 	public readonly List<string> Faults = [];
 
-	public HostFixture(int captureFps = 2, int sendFps = 2)
+	public HostFixture(int captureFps = 2, int sendFps = 2, IServerReadinessProbe? readiness = null, Func<TimeSpan, CancellationToken, Task>? readinessDelay = null)
 	{
 		Host = new TranslationSessionHost(
 			Transport,
@@ -145,7 +145,9 @@ internal sealed class HostFixture : IAsyncDisposable
 			// 送信間隔の待機は実時間を使わず、注入時計を進めるだけにする
 			sendDelay: (wait, _) => { Interlocked.Add(ref Now, wait.Ticks * 100); return Task.CompletedTask; },
 			tickDelay: Ticker.Delay,
-			currentBounds: target => CurrentBounds is null ? target.Bounds : CurrentBounds(target));
+			currentBounds: target => CurrentBounds is null ? target.Bounds : CurrentBounds(target),
+			readinessProbe: readiness,
+			readinessDelay: readinessDelay);
 		Host.SessionEnded += Ended.Add;
 		Host.Faulted += Faults.Add;
 	}

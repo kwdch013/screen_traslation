@@ -245,7 +245,6 @@ dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTransla
 
 | 項目 | 現行の挙動(試験で確認) | 関連 |
 | --- | --- | --- |
-| WSSの`MODEL_NOT_READY`後の待機・ready確認・再開 | 接続を維持して通知するまでは #226 で実装。送信の一時停止・ready再確認・再開は未実装 | #202(未実装) |
 | 通信部品の分割・開き直し競合試験 | 未着手(`StreamTransportClient.cs`は500行超) | #222 |
 | 全画面の複雑背景のOCR予算 | Owner判断待ち。この通しでは検証していない | #224 |
 
@@ -588,10 +587,21 @@ WSSの`error`は、`code`ごとに致命(streamを閉じる)か非致命(閉じ�
 
 - 契約(Python `server/tests/contracts/test_stream_error_handling.py`、C# `StreamErrorPolicyTests`): fixtureとschemaの`code`列挙が一致し、各codeの扱いをクライアントの分類が満たす。サーバーが送るcodeは非致命に限る。未知のcodeは致命。
 - クライアント単体(`TransportFrameErrorTests`・`FrameFailureNoticeTests`): 非致命codeは世代・session・revision・送信済みframe・5秒以内を照合して採用し、偽・古い世代・未送信・重複は捨てて受信ループを止めない。致命codeと未知のcodeは従来どおり閉じる。通知は固定文言で、同種は10秒に1回まで(種類ごと)。
-- 契約サーバー結合(`ClientScenarioFaultTests`): `PROCESSING_FAILED`・`MODEL_NOT_READY`・`INVALID_IMAGE`で通信が切れず、次のフレームが同じ接続で表示される。偽のerrorは採用されない。`PROTOCOL_VIOLATION`・`MESSAGE_TOO_LARGE`は従来どおり閉じる。
+- 契約サーバー結合(`ClientScenarioFaultTests`): `PROCESSING_FAILED`・`INVALID_IMAGE`で通信が切れず、次のフレームが同じ接続で表示される。偽のerrorは採用されない。`PROTOCOL_VIOLATION`・`MESSAGE_TOO_LARGE`は従来どおり閉じる。
 - 実サーバー結合(`ClientScenarioRealServerTests.ProcessingFailure_...`、Linuxコンテナ): 試験専用の待受のOCRに処理失敗を注入し、実サーバーが送る`PROCESSING_FAILED`で通信が閉じず、復旧後の次のフレームが同じ世代で翻訳される。
-- 境界: `MODEL_NOT_READY`は接続を維持して通知するまで。送信の一時停止・ready再確認・再開は#202。
+- `MODEL_NOT_READY`は#202で送信の一時停止・ready確認・自動再開まで実装した。次の「WSSの`MODEL_NOT_READY`後の待機・ready確認・再開 (#202)」を参照。
 - 未検証: Windows実機での通し(#108)。
+
+### WSSの`MODEL_NOT_READY`後の待機・ready確認・再開 (#202)
+
+仕様の正本は[契約README](../../contracts/README.md#model_not_readyを受けたclientの動作-202)です。serverが準備前・準備失敗中・停止開始後にframeを破棄し`MODEL_NOT_READY`を返したとき、clientは送信を一時停止し、`GET /api/v1/ready`の確認で自動再開します。変化検出(#94)は送信済みの画素を再送しないため、再開時に保持した最新の1画像を新しいframe_idで送ります(これが無いと静止画面は準備完了後も訳されません)。
+
+- クライアント単体(`CaptureSendPipelineSuspendTests`・`FrameSenderTests.DiscardPending_*`): 一時停止で待機画像を破棄し以後の取得は保持のみ(`Held`)。再開で最新の1件だけを取得時刻付け替えで送る。画面が変わらなければ、直前に送って破棄された静止画面と同じ画像が再送される。世代切替では保持画像を持ち越さず、一時停止は維持する。
+- ホスト(`ModelNotReadyHostTests`、`FakeReadinessProbe`と`ManualReadinessDelay`で待機を手動で進め、固定sleepを同期に使わない): 一時停止中はsession・世代・生存通知を維持して送らない/準備完了で最新の1画像だけを再送(破棄された画像ではない)/静止画面の再送/待機中の追加の`MODEL_NOT_READY`で確認ループを増やさない/再開前に送ったframeへの遅れた通知で再び止まらず、再開後のframeへの通知では止まる/間隔2→4→8→10秒(上限)と次の待機での初期化/一時的な失敗は待機を続け状態を1回だけ通知/確認手段の例外は一時的な失敗/401等は固定文言で停止し再確認しない/停止・切断・破棄で確認を取り消し、プローブを片付け、次のsessionに待機を持ち越さない/待機中の再選択は待機を続け旧ROIの画像を新世代へ持ち越さない/他の非致命codeは止めない/確認手段が無い構成は従来どおり通知のみ。
+- 確認手段(`ServerReadinessClientTests`): 契約fixtureどおり、200 `{"ready":true}`だけが準備完了(`{"ready":false}`・余分なフィールド・文字列のtrue・不正JSONは準備完了にしない)、503 `MODEL_NOT_READY`は準備中、401/403/資格情報なし/証明書拒否は停止、到達不能・期限切れ・500系は一時的な失敗、呼び出し側の取消は取消のまま伝わる。
+- 表示(`ServerReadinessNoticeTests`): 固定の日本語、準備完了で自動的に再開の案内へ。別の通知が出ていれば上書きしない。
+- 契約サーバー結合(`ClientScenarioModelNotReadyTests`、実TLSの契約サーバーが準備前は実サーバーと同じくframeを破棄してerrorを返し`/api/v1/ready`が503): 準備待ちの間は接続・session・世代を維持して送らず、準備完了で破棄された静止画面と同じ画像が次のframe_idで再送され訳が表示される/待機中の画面変化は送らず最新の1件だけが再開後に送られる/一時的な確認失敗は固定文言で待機を続けて回復/確認の401は固定文言で停止し再確認しない/待機中の停止は確認を取り消しsessionを解放して再開始で持ち越さない。`ClientScenarioFaultTests`の`MODEL_NOT_READY`の行はこの挙動に移した。
+- 未検証: 実サーバー(準備失敗から復旧に切り替えられる範囲の通し)と、Windows実機での通し(#108)。実サーバーとの通しは、準備完了済みの実サーバーに対する既存の通常経路の確認(`RealServer*`)で、準備失敗中のWSSフレーム破棄は`server/tests/test_pipeline_not_ready.py`(#199)が確認している。クライアント側の再開は契約サーバーで確認し、両者を実サーバーでつなぐ通しは行っていない。
 
 ### 未解決事項 (製品側)
 

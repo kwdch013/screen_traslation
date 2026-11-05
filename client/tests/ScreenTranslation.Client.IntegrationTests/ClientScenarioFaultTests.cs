@@ -82,11 +82,10 @@ public sealed class ClientScenarioFaultTests
 	/// <summary>
 	/// 契約(#226): フレーム単位の非致命エラー(PROCESSING_FAILED・MODEL_NOT_READY・INVALID_IMAGE)は、通信全体を閉じない。
 	/// 固定の日本語文言で知らせ、次のフレームの結果は通常どおり表示される。(旧 KnownGap_ 試験を仕様の期待へ改めたもの。
-	/// MODEL_NOT_READY後の送信の一時停止・ready再確認・再開は #202 の範囲で、ここでは接続を維持して知らせるところまで)
+	/// MODEL_NOT_READY は #202 で送信の一時停止・ready再確認・再開を伴う挙動になったため、ClientScenarioModelNotReadyTests で確認する)
 	/// </summary>
 	[Theory]
 	[InlineData("PROCESSING_FAILED")]
-	[InlineData("MODEL_NOT_READY")]
 	[InlineData("INVALID_IMAGE")]
 	public async Task FrameLevelError_KeepsTheStreamOpenNotifiesAndTheNextFrameIsTranslated(string code)
 	{
