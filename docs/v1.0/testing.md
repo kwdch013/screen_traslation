@@ -473,7 +473,7 @@ OCRが時間予算で打ち切られたframeを、契約の`error` `code=OCR_TIM
 ### 推測(未検証)
 
 - 本番のuvicornでは、切断時にハンドラのtaskは取り消されないため、同じ経路で購読が残る可能性は低い。サーバー停止時の取消などで同種の順序になり得るが、本番での発生は確認していない。
-- `finally`の後半(`streams`の除去・`pipeline.cancel`・`sessions.disconnected`)も取消で飛ばされ得るが、今回は変更していない(sessionは既存の監視で解放される)。購読の解除だけを、最初の`await`より前の同期処理へ移した。
+- `finally`の後半(`streams`の除去・`pipeline.cancel`・`sessions.disconnected`)も取消で飛ばされ得るが、#232では変更していない(sessionは既存の監視で解放される)。購読の解除だけを、最初の`await`より前の同期処理へ移した。後半は[#235](#stream取消時の後始末の保護-issue-235)で解消した。
 
 ### 修正
 
@@ -491,6 +491,41 @@ OCRが時間予算で打ち切られたframeを、契約の`error` `code=OCR_TIM
 ### mutation確認
 
 `unsubscribe`を`await asyncio.gather(...)`の後へ戻すと、`test_stream_cancellation`が失敗します(`subscriber_count_total`が1のまま)。
+
+## stream取消時の後始末の保護 (Issue #235)
+
+#232の続きです。`stream`の`finally`後半(`streams`の除去・`pipeline.cancel`・`sessions.disconnected`)も、anyioのレベルトリガ取消で最初の`await`に中断されると実行されませんでした。`streams`の残留、待機フレームの`pipeline.cancel`漏れ、sessionの`disconnected`通知漏れ(単一アクティブsessionが残り、新しいPOSTが409 `SESSION_IN_USE`のまま)が起き得ました。
+
+### 設計判断
+
+- 後始末を`server/src/screen_translation_server/stream_cleanup.py`へ分け、2段にした。
+  1. 同期段(`release_stream_sync`): background taskのcancel・購読解除・`streams`の除去。最初の`await`より前に完了するので取消の位置に依存しない。
+  2. 非同期段(`finish_stream_cleanup`): `pipeline.cancel`→`sessions.disconnected`を**別task**で実行し、`app.state.cancel_tasks`に登録して`asyncio.shield`で待つ。
+- `anyio.CancelScope(shield=True)`を採らなかった理由: anyioのスコープ取消にしか効かず、uvicornのサーバー停止などが行う`task.cancel()`は防げない。別taskはスコープにも親taskへの`task.cancel()`にも巻き込まれず、#173の`schedule_pipeline_cancel`と同じ構造(`cancel_tasks`)で、shutdownの`drain_cancel_tasks`が完了を待つ。
+- 同期段で`streams`の除去を判定する(`streams.get(session_id) is websocket`)ので、DELETEが先に外した場合は非同期段を実行しない。DELETEの`pipeline.cancel(session, None)`との二重実行・順序逆転は起きない。DELETEは従来どおり`streams`を外し別taskでcancelする(変更なし)。
+- 1項目が失敗・期限切れでも残りを実行する。例外は握りつぶさずERRORログへ項目名と例外の型名だけを記録する(session_id・原文・訳文・例外メッセージは記録しない)。`SessionConflict/Forbidden/NotFound`は従来どおり正常扱い。
+- 遮蔽した後始末が永久に残りサーバー停止を妨げないよう、1項目あたり`STEP_TIMEOUT_SECONDS`(10秒)の期限を付けた。
+
+### 試験
+
+- `server/tests/test_stream_cancellation.py`の`StreamCleanupProtectionTests`: 取消を「`finally`に入る前(`receive`待機中)」「`pipeline.cancel`の実行中」「`sessions.disconnected`の実行中」の3位置へ、anyioスコープ取消とasyncio `task.cancel()`(二重)の2方式で届け、4項目(unsubscribe・`streams`除去・`pipeline.cancel`完了・`disconnected`完了、cancel→disconnectedの順)と、後始末後に新しいstartが409にならないことを確認する。各位置はEventで同期し、固定sleepを同期条件に使わない。
+- 1項目の失敗で残りが実行されること・ログに例外メッセージが出ないこと、ハングした項目が期限で打ち切られ残りが実行されること、DELETEが先に`streams`を外した場合に二重実行しないこと、後始末taskが`cancel_tasks`へ登録されshutdownで待てること。
+- `server/tests/integration/test_stream_shutdown.py`: 実TLSの本物のuvicornでWSS接続中にサーバーを停止し、`streams`・購読・`cancel_tasks`が空で、`pipeline.cancel`が完了し、sessionが解放されることを確認する(モデル不要)。uvicornの停止はdisconnectで`finally`に入るため、この試験は修正前の実装でも通る。本番経路で後始末が欠けないことの回帰確認であり、取消の位置による欠落は上記の単体試験で検出する。
+
+### mutation確認(コンテナ内の`test_stream_cancellation`)
+
+| 変更 | 結果 |
+| --- | --- |
+| `finally`を修正前(#232時点)へ戻す | 失敗(`streams`残留、`pipeline.cancel:done`/`sessions.disconnected:done`が無い、`cancel_tasks`が0) |
+| 別task化をやめ、ハンドラ内で直接`await` | 失敗(5位置・方式で後始末が完了せず) |
+| 同期段の`unsubscribe`を除去 | 失敗(`1 != 0`) |
+| 1項目の例外で残りを止める | 失敗(失敗隔離・ハング試験) |
+| 項目の期限を除去 | 失敗(ハング試験が10秒でtimeout) |
+
+### 未検証
+
+- 本番のuvicornがハンドラのtaskを実際に取り消す経路(例: `timeout_graceful_shutdown`超過)での実測。単体試験は`task.cancel()`とanyio取消の両方式で代替している。
+- `pipeline.cancel`が`STEP_TIMEOUT_SECONDS`で打ち切られた場合、進行中OCRは中断できず後から完了する(従来のshutdown待ちと同じ)。
 
 ## サーバー全体の設定更新・再起動結合試験 (Issue #85)
 

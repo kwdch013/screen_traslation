@@ -58,6 +58,7 @@ from screen_translation_server.lifecycle_readiness import LifecycleReadiness, Pi
 from screen_translation_server.startup import StartupConfigurationError, lifecycle_from_environment
 from screen_translation_server.observability import ProcessingObserver
 from screen_translation_server.operational_logging import disable_access_logger, restrict_dependency_loggers
+from screen_translation_server.stream_cleanup import finish_stream_cleanup, release_stream_sync
 from screen_translation_server.result_delivery import build_result_callbacks, drain_cancel_tasks, schedule_pipeline_cancel
 from screen_translation_server.pipeline import FrameInput, PipelineLimitError, TranslationPipeline, create_default_pipeline, create_pipeline_from_engines
 
@@ -349,22 +350,15 @@ def create_app(
 				background_tasks.append(heartbeat_task)
 			if sender_task is not None:
 				background_tasks.append(sender_task)
-			for task in background_tasks:
-				task.cancel()
-			# 購読解除は同期処理なので、最初のawaitより前に済ませる。anyioの取消(TestClientの終了や
-			# 親スコープの取消)はレベルトリガで、取消済みスコープ内の以後のawaitも全て中断される。
-			# awaitの後に置くと解除が飛ばされ、購読が残り続けてwait_until_emptyが戻らない(Issue #232)。
-			if subscription is not None:
-				app.state.events.unsubscribe(subscription)
-			await asyncio.gather(*background_tasks, return_exceptions=True)
-			if session is not None and app.state.streams.get(session.session_id) is websocket:
-				app.state.streams.pop(session.session_id, None)
-				if app.state.pipeline is not None:
-					await app.state.pipeline.cancel(session.session_id, new_generation=session.generation + 1)
-				try:
-					await app.state.sessions.disconnected(session.session_id, credential.credential_id)
-				except (SessionConflict, SessionForbidden, SessionNotFound):
-					pass
+			# 取消はレベルトリガで、最初のawaitで中断される。同期で済む後始末(購読解除・streamsの除去)を
+			# 先に終え、非同期の後始末(pipeline.cancel・disconnected)は別taskへ逃がす(Issue #232/#235)。
+			owned = release_stream_sync(
+				app, websocket, session.session_id if session is not None else None, subscription, background_tasks,
+			)
+			if owned and session is not None:
+				await finish_stream_cleanup(
+					app, session.session_id, credential.credential_id, session.generation + 1, background_tasks,
+				)
 
 	app.routes.extend([
 		Route("/api/v1/health", health, methods=["GET"]),
