@@ -110,7 +110,7 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 | 二重実行の抑止 | 接続・開始は処理中の再要求を無視する(開始のsession取得・取得開始は1回)。停止は開始中でも受け付けて開始を取り消し、停止中の再要求は同じ停止の完了を待つ。開始の完了と停止が交差してもホストを止め、動いたままにしない。UIスレッドは待たない |
 | 切断中の停止・再接続 | 切断を検知すると未接続へ移り、停止は何もしない。再接続しても自動では開始せず、利用者の明示操作を待つ。停止中・開始中の切断も最終状態は未接続になる |
 | 再選択 | 実行中・開始中ならいったん停止(送信と表示を止めsessionを解放)してから領域選択を開く。選択画面は翻訳しない。選び直した領域は新しいセッションの対象で、自動では再開しない。取り消し・DPI/画面構成変化による無効化・範囲外は理由を示し、元の領域と履歴を保つ |
-| 履歴 | 採用・表示した結果だけを最新順に最大100件(メモリのみ。永続ログへ保存しない)。停止・切断・対象消失後も閲覧でき、再選択・新セッション・終了で消す。消去後に遅れて届く旧世代の結果は世代で拒否する。直前と同じ行は重ねて記録せず、字幕が消えた(空の結果)後に同じ文が出れば記録する。位置不明(`rect: null`)の訳文も記録し「(位置不明)」と示す |
+| 履歴 | 採用・表示した結果だけを最新順に最大100件(メモリのみ。永続ログへ保存しない)。停止・切断・対象消失後も閲覧でき、再選択・新セッション・終了で消す。履歴の記録先は(session, 世代)で見分け、世代の下限はsessionごとに持つ(新sessionの世代は1から始まるため、旧sessionの下限を持ち越さない。#242)。消去後に遅れて届く旧世代の結果と、旧sessionの結果(世代の値によらず)は拒否する。開始の完了前に届く新sessionの最初の結果は、開始に成功した場合だけ残す。直前と同じ行は重ねて記録せず、字幕が消えた(空の結果)後に同じ文が出れば記録する。位置不明(`rect: null`)の訳文も記録し「(位置不明)」と示す |
 | ホットキー | 設定で有効にしたときだけ登録する(既定は無効)。割り当ては「Ctrl+Alt+T」形式で、修飾キーなし・未対応のキー・重複は登録せず理由を示す。競合(他アプリが使用中)・OS拒否は理由とボタンでの代替操作を示し、他のキーの登録は続ける。設定を直して「ホットキーを再登録」で再実行できる。押下はボタンと同じ操作で、押し続けても連続通知しない(`MOD_NOREPEAT`) |
 | 移動追従・リサイズ (#198との整合) | 移動追従は世代が進むが停止せず、翻訳中のまま履歴も保つ(履歴の世代下限は再選択・新セッションでだけ上げる)。リサイズは停止して対象とROIを破棄し、選び直すまで開始させない。履歴は停止と同じく閲覧できる。同じ対象を選び直すと再選択として履歴を消す(`OperationTargetChangeTests`) |
 | 開始完了との交差 | 開始の完了処理では、停止要求・終了通知・切断の判定と「翻訳中」への遷移を同じ排他区間で行う。割り込まれても動いたまま・誤って翻訳中にならない。接続の完了前に切れた場合も接続済みにしない(`OperationInterleavingTests`) |
@@ -120,7 +120,7 @@ hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際�
 | 区分 | 場所・分類 | 実行環境 | 内容 |
 | --- | --- | --- | --- |
 | 操作の状態契約 | `client/tests/ScreenTranslation.Client.Tests/OperationTests.cs`・`OperationReselectTests.cs`・`OperationDisposeTests.cs`(代替は`OperationFakes.cs`/`OperationFixture.cs`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 連打(20回の開始で1回だけ)、開始中・session取得中・取得開始中の停止、取消と完了の交差、停止中の再要求と開始、切断中・開始中・停止中の切断、停止失敗、各理由での停止、処理中の再選択・対象変更、取消/DPI無効化/範囲外、終了。ゲートで処理中の状態を作り、固定sleepを同期条件にしない |
-| 履歴 | `TranslationHistoryTests.cs`・`OperationHistoryTests.cs`・`OverlayPresentedTests.cs` | 同上 | 100件ちょうどと101件目、1結果が100件超、重複抑制と空結果後の再記録、世代による消去と遅延結果の拒否、停止・切断後の保持、新セッション・終了での消去、位置不明の保持、同時追加、本文を`ToString`へ出さないこと、不採用の結果は通知しないこと |
+| 履歴 | `TranslationHistoryTests.cs`・`OperationHistoryTests.cs`・`OverlayPresentedTests.cs` | 同上 | 100件ちょうどと101件目、1結果が100件超、重複抑制と空結果後の再記録、世代による消去と遅延結果の拒否、停止・切断後の保持、新セッション・終了での消去、再選択後の新session(世代1)の記録と旧sessionの遅れた結果の拒否、開始失敗したsessionの結果を残さないこと、位置不明の保持、同時追加、本文を`ToString`へ出さないこと、不採用の結果は通知しないこと |
 | ホットキー | `HotkeyGestureTests.cs`・`OperationHotkeyTests.cs` | 同上 | 割り当ての解析/正規化、無効・競合・重複・OS拒否の説明、再登録、連打・停止中・未接続・例外、旧版の設定ファイルの読み込み |
 | 実Windows API | `client/tests/ScreenTranslation.Windows.Tests/OperationsWindowsTests.cs`(`Category=Operations`) | Windowsのみ(`windows-client` CI) | `RegisterHotKey`の登録・押下通知・解除、同じキーの二重登録が競合になること、解放後に再登録できること、例外を窓手続きから出さないこと、実レジストラ経由で競合の説明が出て終了後に登録が残らないこと |
 
@@ -241,12 +241,11 @@ dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTransla
 
 ### 未解決事項 (この通しで見つかった・確認できていない項目)
 
-次は**現行クライアントが期待どおりでない**(または未実装の)項目です。通ったことにはしません。(解決済み: 実行中sessionへの辞書revision適用は #241 で解決し、`KnownGap_DictionaryUpdateDuringStreaming_...`は仕様の期待へ書き換えた。下の「実行中sessionへの辞書revision適用 (Issue #241)」を参照)試験は現行の挙動を「既知の未解決(`KnownGap_`)」として固定してあり、修正されると落ちるので、期待を仕様へ改めてこの表から外してください。
+次は**現行クライアントが期待どおりでない**(または未実装の)項目です。通ったことにはしません。(解決済み: 再選択後の新sessionで履歴が記録されない不具合は #242 で解決し、`KnownGap_HistoryOfANewSessionStartedAfterReselect_IsNotRecorded`は`HistoryOfANewSessionStartedAfterReselect_IsRecorded`として仕様の期待へ書き換えた。下の履歴の行を参照)(解決済み: 実行中sessionへの辞書revision適用は #241 で解決し、`KnownGap_DictionaryUpdateDuringStreaming_...`は仕様の期待へ書き換えた。下の「実行中sessionへの辞書revision適用 (Issue #241)」を参照)試験は現行の挙動を「既知の未解決(`KnownGap_`)」として固定してあり、修正されると落ちるので、期待を仕様へ改めてこの表から外してください。
 
 | 項目 | 現行の挙動(試験で確認) | 関連 |
 | --- | --- | --- |
 | フレーム単位の非致命エラー | WSSで`MODEL_NOT_READY`・`PROCESSING_FAILED`を受けると通信全体を閉じて停止する(`KnownGap_FrameLevelError_CurrentlyClosesTheWholeStream`)。`MODEL_NOT_READY`後に待機・ready確認・再開する挙動は未実装 | #226 / #202(未実装) |
-| 再選択後の新sessionの履歴 | 履歴の最小世代が単調に増えるが世代は新sessionで1に戻るため、再選択を経たsessionの結果が履歴に記録されない(`KnownGap_HistoryOfANewSessionStartedAfterReselect_IsNotRecorded`)。REQ-F-007(履歴の閲覧)に反する | #242 |
 | 通信部品の分割・開き直し競合試験 | 未着手(`StreamTransportClient.cs`は500行超) | #222 |
 | 全画面の複雑背景のOCR予算 | Owner判断待ち。この通しでは検証していない | #224 |
 

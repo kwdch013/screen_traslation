@@ -34,7 +34,7 @@ public sealed class OverlayPresentedTests
 		var tracker = new ResultAcceptanceTracker();
 		var controller = new TranslationOverlayController(new Surface(), state, tracker, clock);
 		var presented = new List<(ulong, IReadOnlyList<OverlayRegion>)>();
-		controller.Presented += (generation, regions) => presented.Add((generation, regions));
+		controller.Presented += (_, generation, regions) => presented.Add((generation, regions));
 		Assert.True(controller.Prepare());
 		tracker.BeginSession(SessionId, 1, 1);
 		Assert.True(controller.Begin(Roi, 1));

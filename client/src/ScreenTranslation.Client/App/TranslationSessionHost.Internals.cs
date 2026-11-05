@@ -169,7 +169,7 @@ public sealed partial class TranslationSessionHost
 		ConnectionLost?.Invoke();
 	}
 
-	private void OnPresented(ulong generation, IReadOnlyList<OverlayRegion> regions) => TranslationsPresented?.Invoke(generation, regions);
+	private void OnPresented(Guid presentedSessionId, ulong generation, IReadOnlyList<OverlayRegion> regions) => TranslationsPresented?.Invoke(presentedSessionId, generation, regions);
 
 	private void OnOverlayFailed(OverlayFailure failure)
 	{

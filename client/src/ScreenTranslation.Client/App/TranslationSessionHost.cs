@@ -95,7 +95,7 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 	/// <summary>接続が切れた(送信中でなくても発火する)。再接続しても自動では送信を再開しない。</summary>
 	public event Action? ConnectionLost;
 	/// <summary>採用して表示した結果(世代と領域。空の結果を含む)。履歴の記録元。</summary>
-	public event Action<ulong, IReadOnlyList<OverlayRegion>>? TranslationsPresented;
+	public event Action<Guid, ulong, IReadOnlyList<OverlayRegion>>? TranslationsPresented;
 	/// <summary>result以外のサーバー通知(状態・エラー等)。</summary>
 	public event Action<JsonElement>? MessageReceived;
 	/// <summary>サーバーが文字認識の期限超過(OCR_TIMEOUT)を通知した(現在のsessionのものだけ)。</summary>

@@ -157,9 +157,11 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 		{
 			var grant = await grants.AcquireAsync(token).ConfigureAwait(false);
 			lock (sync) currentSession = grant.SessionId;
+			// 開始の完了前に届く新sessionの最初の結果も記録できるよう、履歴は消さずに先に受け付けておく
+			history.ExpectSession(grant.SessionId);
 			var result = await host.StartAsync(grant.SessionId, grant.DictionaryRevision, token).ConfigureAwait(false);
 			return result == StartResult.Started
-				? await CompleteStartedAsync().ConfigureAwait(false)
+				? await CompleteStartedAsync(grant.SessionId).ConfigureAwait(false)
 				: await CompleteRejectedAsync(OperationMessages.Start(result), result == StartResult.NotConnected).ConfigureAwait(false);
 		}
 		catch (OperationCanceledException)
@@ -177,11 +179,12 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 		}
 	}
 
-	private async Task<OperationOutcome> CompleteStartedAsync()
+	private async Task<OperationOutcome> CompleteStartedAsync(Guid sessionId)
 	{
-		// 新しいセッションの開始: 前のセッションの履歴を消す(以後は今の世代以降の結果だけを記録する)。
-		// 世代の読み取りと履歴の操作は、状態のロックの外で先に済ませる(ロック内で外部の処理を呼ばない)
-		history.Clear(host.Generation);
+		// 新しいセッションの開始: 前のセッションの履歴を消し、世代の下限も新sessionの分に作り直す
+		// (新sessionの世代は1から始まるので、前のsessionの下限を持ち越すと新しい結果が全て落ちる)。
+		// 履歴の操作は、状態のロックの外で先に済ませる(ロック内で外部の処理を呼ばない)
+		history.BeginSession(sessionId, host.Generation);
 
 		// 取消・終了の判定と「翻訳中」への遷移は同じロック区間で行う。ここを分けると、間に来た停止・終了通知・切断を
 		// 見落とし、ホストが止まっているのに(または停止の要求を受けたのに)翻訳中になる
@@ -331,6 +334,8 @@ public sealed partial class OperationsViewModel : IAsyncDisposable
 			currentSession = null;
 		}
 		if (session is not { } id) return;
+		// 開始に失敗したsessionの結果を履歴に残さない(開始に成功して履歴の持ち主になったsessionには何もしない)
+		history.CancelExpectedSession(id);
 		try
 		{
 			await PrepareAndReleaseAsync(id).ConfigureAwait(false);

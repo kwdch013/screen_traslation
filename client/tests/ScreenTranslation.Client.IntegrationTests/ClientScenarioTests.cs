@@ -71,7 +71,7 @@ public sealed class ClientScenarioTests
 		Assert.Equal((server.ActiveSession!.Value, 1ul, 1ul, 2ul), (second.Metadata.SessionId, second.Metadata.Generation, second.Metadata.FrameId, second.Metadata.DictionaryRevision));
 		Assert.Equal((440, 320), (second.Metadata.ImageWidth, second.Metadata.ImageHeight));
 		await ScenarioRig.EventuallyAsync(() => rig.RenderedTexts().Length == 2, "新sessionの表示");
-		// 新sessionの履歴が記録されない既知の不具合は KnownGap_HistoryOfANewSession... で記録する(ここでは断定しない)
+		// 再選択後の新sessionの履歴は HistoryOfANewSessionStartedAfterReselect_IsRecorded で確認する
 
 		// 停止: DELETE・表示消去・送信停止。履歴は停止後も閲覧できる
 		await rig.Completed(rig.Model.StopAsync());
@@ -139,13 +139,12 @@ public sealed class ClientScenarioTests
 	}
 
 	/// <summary>
-	/// 既知の不具合の記録(新規Issue案: 再選択後の新sessionで履歴が記録されない)。
-	/// 履歴の最小世代(<c>TranslationHistory.Clear</c>)は単調に増えるのに対し、世代は新sessionで1へ戻るため、
-	/// 再選択(<c>Clear(Generation+1)</c>)を経たsessionの結果は世代が足りず履歴に入らない。契約(世代は新sessionで1)とREQ-F-007(停止後の履歴閲覧)に反する。
-	/// 修正されたらこの試験は落ちるので、期待を「新sessionの結果が履歴に入る」へ改め、testing.mdの未解決事項から外すこと。
+	/// 再選択後に開始した新sessionの結果は履歴に記録される(#242。旧 KnownGap_ 試験を仕様の期待へ改めたもの)。
+	/// 世代は新sessionで1へ戻るので、履歴の世代の下限をsessionごとに作り直さないと、再選択を経たsessionの結果が全て落ちる。
+	/// 消去の規則(再選択・新session)は従来どおりで、前のsessionの履歴は残らない。
 	/// </summary>
 	[Fact]
-	public async Task KnownGap_HistoryOfANewSessionStartedAfterReselect_IsNotRecorded()
+	public async Task HistoryOfANewSessionStartedAfterReselect_IsRecorded()
 	{
 		await using var server = await ScenarioContractServer.StartAsync();
 		await using var rig = await ScenarioRig.CreateAsync(server);
@@ -154,14 +153,19 @@ public sealed class ClientScenarioTests
 		await ScenarioRig.EventuallyAsync(() => rig.Model.History.Count == 1, "最初のsessionの履歴");
 
 		await rig.Completed(rig.Model.ReselectRegionAsync());
+		Assert.Empty(rig.Model.History);
 		await rig.Completed(rig.Model.StartAsync());
+		Assert.Equal(1ul, rig.Host.Generation);
 		await rig.EmitAndReceiveAsync(seed: 2);
 		await ScenarioRig.EventuallyAsync(() => rig.RenderedTexts().Length == 2, "新sessionの1件目の表示");
-		await rig.EmitAndReceiveAsync(seed: 3);
-		await ScenarioRig.EventuallyAsync(() => rig.RenderedTexts().Length == 3, "新sessionの2件目の表示");
 
-		// 表示は受信順に処理される。2件目が表示された時点で、1件目の履歴記録の判断は済んでいる
-		Assert.Empty(rig.Model.History);
+		// 前のsessionの履歴は消え、新sessionの結果だけが記録される(同じ字幕は重ねて記録しない)
+		await ScenarioRig.EventuallyAsync(() => rig.Model.History.Count == 1, "新sessionの履歴");
+		Assert.All(rig.Model.History, entry => Assert.Equal(1ul, entry.Generation));
+
+		// 停止後も閲覧できる
+		await rig.Completed(rig.Model.StopAsync());
+		Assert.Equal(1, rig.Model.Snapshot.HistoryCount);
 	}
 
 	[Fact]
