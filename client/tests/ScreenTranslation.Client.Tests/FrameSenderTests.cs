@@ -344,4 +344,26 @@ public sealed class FrameSenderTests
 	{
 		Assert.True(typeof(IFrameTransport).IsAssignableFrom(typeof(StreamTransportClient)));
 	}
+
+	[Fact]
+	public async Task DiscardPending_DropsOnlyThePendingImage_AndKeepsTheSessionGenerationAndFrameIds()
+	{
+		var time = new FakeTime();
+		var transport = new FakeTransport(time);
+		var sender = new FrameSender(transport, 5, () => time.Now, time.Delay);
+		sender.BeginSession(SessionId, 3, 2);
+		Assert.True(sender.Submit(new EncodedFrame(64, 32, "image/png", new byte[] { 1 }, 1)));
+		Assert.True(await Next(sender));
+
+		Assert.True(sender.Submit(new EncodedFrame(64, 32, "image/png", new byte[] { 2 }, 2)));
+		sender.DiscardPending();
+
+		Assert.False(sender.HasPending);
+		// 待機の通知だけが残るため、空振りして戻る(送らない)
+		Assert.False(await Next(sender));
+		Assert.Single(transport.Sent);
+		Assert.True(sender.Submit(new EncodedFrame(64, 32, "image/png", new byte[] { 3 }, 3)));
+		Assert.True(await Next(sender));
+		Assert.Equal([(3UL, 1UL), (3UL, 2UL)], transport.Sent.Select(m => (m.Generation, m.FrameId)));
+	}
 }

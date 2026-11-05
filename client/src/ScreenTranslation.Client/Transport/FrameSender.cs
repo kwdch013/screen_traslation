@@ -77,6 +77,18 @@ public sealed class FrameSender
 		}
 	}
 
+	/// <summary>
+	/// 待機画像だけを破棄する。世代・frame_id・通信中の送信は変えない(サーバーの準備待ちの間、送るべきでない画像を保持しないため)。
+	/// 待機の通知(セマフォ)は残るが、<see cref="SendNextAsync"/>がロック内で待機画像の有無を再検証するため、空振りして戻るだけになる。
+	/// </summary>
+	public void DiscardPending()
+	{
+		lock (sync)
+		{
+			pending = null;
+		}
+	}
+
 	/// <summary>停止・切断・対象消失。以降のSubmitは受け付けない。</summary>
 	public void EndSession()
 	{

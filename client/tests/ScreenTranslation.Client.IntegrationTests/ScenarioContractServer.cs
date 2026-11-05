@@ -52,6 +52,18 @@ internal sealed class ScenarioContractServer : IAsyncDisposable
 	/// <summary>trueなら、受け取ったフレームごとに契約どおりの結果を返す。falseなら試験が<see cref="SendResultAsync"/>で返す。</summary>
 	public bool AutoRespond { get; set; } = true;
 
+	private int readyCount, notReadyDiscarded;
+	private volatile bool ready = true;
+	private int readyFailureStatus;
+	/// <summary>falseの間、サーバーは実サーバーと同じく準備前として振る舞う: 制御API <c>/api/v1/ready</c>は503 MODEL_NOT_READY、受け取ったフレームは破棄してWSSのerror MODEL_NOT_READY(接続は維持)を返す(#199)。</summary>
+	public bool Ready { get => ready; set => ready = value; }
+	/// <summary>0以外を設定すると、<c>/api/v1/ready</c>がこの状態コードの契約エラーで失敗する(401・500など。確認の失敗の再現用)。</summary>
+	public int ReadyFailureStatus { get => Volatile.Read(ref readyFailureStatus); set => Volatile.Write(ref readyFailureStatus, value); }
+	/// <summary>受け付けた<c>/api/v1/ready</c>の確認の数。</summary>
+	public int ReadyCount => Volatile.Read(ref readyCount);
+	/// <summary>準備前のため破棄してMODEL_NOT_READYを返したフレーム数。</summary>
+	public int NotReadyDiscarded => Volatile.Read(ref notReadyDiscarded);
+
 	public int PostCount => Volatile.Read(ref postCount);
 	public int DeleteCount => Volatile.Read(ref deleteCount);
 	/// <summary>旧revisionのため処理せず破棄したフレーム数(実サーバーは切断も応答もせず破棄する)。</summary>
@@ -117,11 +129,21 @@ internal sealed class ScenarioContractServer : IAsyncDisposable
 		{
 			case ("POST", "/api/v1/sessions"): await PostSessionAsync(context); break;
 			case ("DELETE", _) when path.StartsWith("/api/v1/sessions/", StringComparison.Ordinal): await DeleteSessionAsync(context, path[17..]); break;
+			case ("GET", "/api/v1/ready"): await ReadyAsync(context); break;
 			case ("GET", "/api/v1/glossary"): await WriteJsonAsync(context, 200, GlossaryBody()); break;
 			case ("PUT", "/api/v1/glossary"): await PutGlossaryAsync(context); break;
 			case ("GET", "/api/v1/stream"): await StreamAsync(context); break;
 			default: await ErrorAsync(context, 404, "NOT_FOUND", false); break;
 		}
+	}
+
+	private async Task ReadyAsync(HttpContext context)
+	{
+		Interlocked.Increment(ref readyCount);
+		var failure = ReadyFailureStatus;
+		if (failure != 0) await ErrorAsync(context, failure, failure == 401 ? "UNAUTHENTICATED" : failure == 403 ? "FORBIDDEN" : "INTERNAL_ERROR", false);
+		else if (!Ready) await ErrorAsync(context, 503, "MODEL_NOT_READY", true);
+		else await WriteJsonAsync(context, 200, "{\"ready\":true}");
 	}
 
 	private async Task PostSessionAsync(HttpContext context)
@@ -291,6 +313,13 @@ internal sealed class ScenarioContractServer : IAsyncDisposable
 			if (stale)
 			{
 				Interlocked.Increment(ref staleDropped);
+				continue;
+			}
+			if (!Ready)
+			{
+				// 準備前は処理せずに破棄し、接続は維持してerrorだけを返す
+				Interlocked.Increment(ref notReadyDiscarded);
+				await connection.SendAsync(Messages.FrameError("MODEL_NOT_READY", metadata));
 				continue;
 			}
 			if (AutoRespond) await connection.SendAsync(Messages.Result(metadata, $"訳{metadata.FrameId}"));

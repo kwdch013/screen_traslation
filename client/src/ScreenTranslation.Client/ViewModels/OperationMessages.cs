@@ -38,6 +38,9 @@ internal static class OperationMessages
 	public const string OcrTimeout = "文字認識に時間がかかりすぎました。領域を狭めて選び直してください。";
 	public const string ProcessingFailed = "一部の画像を翻訳できませんでした。翻訳は続けています。";
 	public const string ModelNotReady = "翻訳エンジンを準備中のため、翻訳できない画像があります。接続は維持しています。";
+	public const string ServerPreparing = "サーバーが翻訳エンジンを準備中のため、画像の送信を一時停止しています。準備が完了すると自動で翻訳を再開します。";
+	public const string ServerReadinessUnknown = "サーバーの準備状態を確認できません。画像の送信は停止したままで、確認を続けています。";
+	public const string ServerReady = "サーバーの準備が完了したため、翻訳を再開しました。";
 	public const string InvalidImage = "画像を処理できませんでした。翻訳は続けています。";
 	public const string Busy = "別の操作を処理中です。完了してからもう一度操作してください。";
 

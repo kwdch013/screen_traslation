@@ -14,7 +14,9 @@ public enum CapturePipelineOutcome
 	/// <summary>取得時の世代が現在と異なる(再選択・停止後に届いた旧フレーム)。</summary>
 	StaleGeneration,
 	/// <summary>sessionが無い(停止・対象終了・取得不可の後)。</summary>
-	NoSession
+	NoSession,
+	/// <summary>サーバーの準備待ちで送信を止めている。画像は符号化して保持するだけで、送らない(準備完了後に最新の1件を送る)。</summary>
+	Held
 }
 
 /// <summary>
@@ -30,6 +32,10 @@ public sealed class CaptureSendPipeline
 	private readonly object sync = new();
 	private bool active;
 	private ulong generation;
+	// サーバーの準備待ち(MODEL_NOT_READY)で送信を止めている間はtrue。待機画像は破棄し、取得した画像は保持だけする
+	private bool suspended;
+	// 現在の世代で最後に符号化した画像。準備待ちの間にサーバーが破棄した静止画面を、再開時に再送するために保持する
+	private EncodedFrame? latestImage;
 
 	public CaptureSendPipeline(FrameProcessor processor, FrameSender sender)
 	{
@@ -39,6 +45,9 @@ public sealed class CaptureSendPipeline
 
 	public bool HasPending => sender.HasPending;
 	public ulong Generation { get { lock (sync) return generation; } }
+	public bool IsSuspended { get { lock (sync) return suspended; } }
+	/// <summary>現在の世代で最後に採番した送信frame_id。</summary>
+	public ulong LastFrameId => sender.LastFrameId;
 
 	/// <summary>取得fps上限のため、いま画素を読み出しても破棄される見込みか。</summary>
 	public bool WouldThrottle(long nowNanoseconds) => processor.WouldThrottle(nowNanoseconds);
@@ -50,6 +59,8 @@ public sealed class CaptureSendPipeline
 			sender.BeginSession(sessionId, newGeneration, dictionaryRevision);
 			generation = newGeneration;
 			active = true;
+			suspended = false;
+			latestImage = null;
 			processor.ResetBaseline();
 		}
 	}
@@ -61,6 +72,8 @@ public sealed class CaptureSendPipeline
 		{
 			sender.AdvanceGeneration(newGeneration);
 			generation = newGeneration;
+			// 旧ROIの画像は新しい世代で再送しない。準備待ちは世代をまたいで続く(サーバーの状態は世代と無関係)
+			latestImage = null;
 			processor.ResetBaseline();
 		}
 	}
@@ -87,6 +100,8 @@ public sealed class CaptureSendPipeline
 		lock (sync)
 		{
 			active = false;
+			suspended = false;
+			latestImage = null;
 			sender.EndSession();
 			processor.ResetBaseline();
 		}
@@ -116,9 +131,56 @@ public sealed class CaptureSendPipeline
 					return CapturePipelineOutcome.Rejected;
 			}
 
+			latestImage = result.Frame;
+			if (suspended)
+			{
+				return CapturePipelineOutcome.Held;
+			}
+
 			// activeをsync内で確認済みのためsender側も必ずsession中で、Submitは失敗しない
 			sender.Submit(result.Frame!);
 			return CapturePipelineOutcome.Submitted;
+		}
+	}
+
+	/// <summary>
+	/// サーバーの準備待ちで送信を止める。待機画像は破棄する(サーバーが破棄するだけの画像を送り続けない)。
+	/// 通信中の送信・世代・frame_idは変えない。sessionが無い・すでに止めているならfalse。
+	/// </summary>
+	public bool Suspend()
+	{
+		lock (sync)
+		{
+			if (!active || suspended)
+			{
+				return false;
+			}
+			suspended = true;
+			sender.DiscardPending();
+			return true;
+		}
+	}
+
+	/// <summary>
+	/// 送信を再開し、保持している最新の1画像を取得時刻を<paramref name="nowNanoseconds"/>へ付け替えて送る。
+	/// 準備待ちの間に送った画像はサーバーが破棄しており、その後に画面が変わらなければ新しい取得は来ないため、
+	/// 変化検出の基準だけを捨てても再送されない。付け替えるのは、結果の採用が取得から5秒以内だけであるため
+	/// (準備待ちは5秒を超え得る)。画面は取得後に変わっていれば、その変化が新しい取得として届き、この画像を置き換える。
+	/// </summary>
+	public bool Resume(long nowNanoseconds)
+	{
+		lock (sync)
+		{
+			if (!active || !suspended)
+			{
+				return false;
+			}
+			suspended = false;
+			if (latestImage is { } image)
+			{
+				sender.Submit(image with { CapturedMonotonicNanoseconds = nowNanoseconds });
+			}
+			return true;
 		}
 	}
 

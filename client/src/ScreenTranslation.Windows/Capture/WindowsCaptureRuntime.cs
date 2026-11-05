@@ -23,10 +23,10 @@ public sealed class WindowsCaptureRuntime : IAsyncDisposable
 	/// 実WGCの取得、WSS送信、翻訳オーバーレイを組み立てる。ホストは取得フレームの渡し先(ROIと世代の経路)を
 	/// 実WGCセッションへ渡すため、開始前にオーバーレイのキャプチャ除外を確認するまで画素を読み出さない。
 	/// </summary>
-	public TranslationSessionHost CreateSessionHost(ITranslationTransport transport, IOverlaySurface overlaySurface, TranslationSessionOptions? options = null)
+	public TranslationSessionHost CreateSessionHost(ITranslationTransport transport, IOverlaySurface overlaySurface, TranslationSessionOptions? options = null, IServerReadinessProbe? readinessProbe = null)
 	{
 		var host = new TranslationSessionHost(transport, sink => new WindowsCaptureSessionFactory(sink), overlaySurface, options,
-			currentBounds: WindowsCaptureTargetCatalog.TryGetWindowBounds);
+			currentBounds: WindowsCaptureTargetCatalog.TryGetWindowBounds, readinessProbe: readinessProbe);
 		lock (hosts) hosts.Add(host);
 		return host;
 	}

@@ -54,7 +54,7 @@ sequenceDiagram
 | WSS | 1本の双方向接続。subprotocol `screen-translation.v1`、Upgrade前に認証 |
 | WSS state/result text | state 4 KiB以下、result 1 MiB以下 |
 | WSS image binary | 1 message、画像payload 4 MiB以下。8-byte header + 4,096-byte metadata + 4 MiB画像payloadの合計で、message 4,198,408 bytes以下 |
-| Retry | 認証・権限・形式・競合は自動再試行しない。503 `MODEL_NOT_READY`のみready再確認後に明示操作で再試行 |
+| Retry | 認証・権限・形式・競合は自動再試行しない。HTTPの503 `MODEL_NOT_READY`のみready再確認後に明示操作で再試行。実行中のWSSで受けた`MODEL_NOT_READY`は、clientが送信を止めてready再確認し、準備完了で自動再開する(sessionは維持。契約READMEの「`MODEL_NOT_READY`を受けたclientの動作」) |
 
 認証失敗は401、role/所有者不一致は403。資格情報失効は新規HTTPS要求に即時適用し、既存WSSも最大1秒で送受信を拒否します。資格情報と画像・原文・訳文を永続ログ/応答へ記録しません。
 
@@ -158,7 +158,7 @@ JSON errorは`code`, 利用者向け`message`, UUID `correlation_id`, boolean `r
 | invalid image/geometry | 形式・寸法の不正: close 1008。パイプライン上限(寸法・頻度・容量)に達したframe: WSS `error` `code=INVALID_IMAGE`(該当frameのみ。streamは閉じない) | format, decoded dimensions, #63 coordinatesを確認。次のframeは通常どおり処理 |
 | OCR timeout | WSS `error` `code=OCR_TIMEOUT`(該当frameのみ。streamは閉じない) | 利用者へ領域を狭めて選び直す案内を表示(10秒に1回まで)。次のframeは通常どおり処理 |
 | processing failed (1 frame) | WSS `error` `code=PROCESSING_FAILED`(該当frameのみ。streamは閉じない) | 利用者へ固定文言で通知(10秒に1回まで)。同じframeは再送せず、次のframeは通常どおり処理 (#226) |
-| model not ready (WSS) | WSS `error` `code=MODEL_NOT_READY`(該当frameを破棄。streamは閉じない) | 接続を維持して固定文言で通知(#226)。送信の一時停止・ready再確認・再開は#202 |
+| model not ready (WSS) | WSS `error` `code=MODEL_NOT_READY`(該当frameを破棄。streamは閉じない) | 接続・session・世代を維持。clientは送信を一時停止して固定文言(「準備中」)で知らせ、`GET /api/v1/ready`を2→4→8→上限10秒の間隔で確認し、200で最新の1画像を新しいframe_idで送って自動再開(#202。401/403/資格情報なし/証明書拒否は固定文言で停止、一時的な失敗は待機を続ける) |
 | model not ready | 503 | readinessを表示し、準備後に明示再試行 |
 | processing fault | 500 / close 1011 | correlation_idで運用者が調査。内容をログに保存しない |
 

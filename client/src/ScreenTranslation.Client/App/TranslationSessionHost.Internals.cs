@@ -127,6 +127,8 @@ public sealed partial class TranslationSessionHost
 			}
 			sendCancellation?.Cancel();
 			sendCancellation = null;
+			// 準備待ちの確認は、sessionの取消(上のCancel)で止まる。次のsessionへ持ち越さない
+			waitingForServer = false;
 			pipeline.EndSession();
 			overlay.Invalidate(reason);
 			// 停止後に生存通知を送り続けない。再開始のActivateSessionと同じ排他区間で行い、新しいsessionの通知を止めない
@@ -185,6 +187,7 @@ public sealed partial class TranslationSessionHost
 		var errorCode = kind == "error" && message.TryGetProperty("code", out var code) ? code.GetString() : null;
 		if (kind == "result") overlay.HandleResult(message);
 		else if (errorCode == "OCR_TIMEOUT") OcrTimedOut?.Invoke();
+		else if (errorCode == "MODEL_NOT_READY") OnModelNotReady(message);
 		else if (errorCode is not null && StreamErrorPolicy.IsNonFatal(errorCode)) FrameFailed?.Invoke(errorCode);
 		else MessageReceived?.Invoke(message);
 		return Task.CompletedTask;

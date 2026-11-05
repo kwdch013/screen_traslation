@@ -47,6 +47,8 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 	/// <param name="createSessionFactory">取得フレームの渡し先を受け取り、取得セッションの工場を返す(Windowsでは実WGC)。</param>
 	/// <param name="sendDelay">送信fps上限の待機。試験では実時間を使わない代替を渡す。</param>
 	/// <param name="tickDelay">表示の失効確認の待機。試験では実時間を使わない代替を渡す。</param>
+	/// <param name="readinessProbe">WSSのMODEL_NOT_READYを受けたときのready確認。指定すると送信を一時停止して自動再開する。未指定ならcodeの通知だけで送信は止めない。</param>
+	/// <param name="readinessDelay">ready確認の間隔の待機。試験では実時間を使わない代替を渡す。</param>
 	/// <param name="currentBounds">ウィンドウ対象の現在位置の供給元(ROI選択時に取り直す)。対象が消えたらnull。未指定なら選択時・追従済みの位置を使う。</param>
 	public TranslationSessionHost(
 		ITranslationTransport transport,
@@ -57,8 +59,12 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 		Func<long>? monotonicNanoseconds = null,
 		Func<TimeSpan, CancellationToken, Task>? sendDelay = null,
 		Func<TimeSpan, CancellationToken, Task>? tickDelay = null,
-		Func<CaptureTarget, CaptureBounds?>? currentBounds = null)
+		Func<CaptureTarget, CaptureBounds?>? currentBounds = null,
+		IServerReadinessProbe? readinessProbe = null,
+		Func<TimeSpan, CancellationToken, Task>? readinessDelay = null)
 	{
+		this.readinessProbe = readinessProbe;
+		this.readinessDelay = readinessDelay ?? Task.Delay;
 		this.currentBounds = currentBounds;
 		this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
 		ArgumentNullException.ThrowIfNull(createSessionFactory);
@@ -256,6 +262,9 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 			sessionId = newSessionId;
 			dictionaryRevision = newDictionaryRevision;
 			generation = next;
+			// 前のsessionの再開境界を持ち越さない(新sessionのframe_idは1から始まる)
+			staleNotReadyGeneration = 0;
+			staleNotReadyThroughFrameId = 0;
 			route = new CaptureRoute(local, next);
 			active = true;
 			sendCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -292,7 +301,7 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 	{
 		EndSession(OverlayClearReason.Stopped);
 		await lifecycle.StopAsync(cancellationToken).ConfigureAwait(false);
-		await WaitForLoopsAsync(sendTask).ConfigureAwait(false);
+		await WaitForLoopsAsync(sendTask, readinessTask).ConfigureAwait(false);
 	}
 
 	/// <summary>解放する。何度呼んでも、同時に呼んでも、同じ完了を待つだけで例外を出さない。</summary>
@@ -335,7 +344,8 @@ public sealed partial class TranslationSessionHost : ISessionOperations
 		}
 		finally
 		{
-			await WaitForLoopsAsync(sendTask, receiveTask, tickTask).ConfigureAwait(false);
+			await WaitForLoopsAsync(sendTask, receiveTask, tickTask, readinessTask).ConfigureAwait(false);
+			(readinessProbe as IDisposable)?.Dispose();
 			await transport.DisconnectAsync().ConfigureAwait(false);
 			overlay.Dispose();
 			lifetime.Dispose();

@@ -19,6 +19,7 @@
     <Compile Include="..\Shared\CaptureTestSupport.cs" Link="Shared\CaptureTestSupport.cs" />
     <Compile Include="..\Shared\AppHostTestSupport.cs" Link="Shared\AppHostTestSupport.cs" />
     <Compile Include="..\ScreenTranslation.Client.Tests\OperationFakes.cs" Link="Shared\OperationFakes.cs" />
+    <Compile Include="..\ScreenTranslation.Client.Tests\ModelNotReadySupport.cs" Link="Shared\ModelNotReadySupport.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\ScreenTranslation.Client\ScreenTranslation.Client.csproj" />

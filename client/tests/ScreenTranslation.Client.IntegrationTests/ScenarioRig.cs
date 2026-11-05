@@ -40,6 +40,8 @@ internal sealed class ScenarioRig : IAsyncDisposable
 	public TranslationSessionHost Host { get; private set; } = null!;
 	public OperationsViewModel Model { get; private set; } = null!;
 	public FakeCaptureSessionFactory Factory { get; private set; } = null!;
+	public ManualReadinessDelay ReadinessDelay { get; } = new();
+	public List<ServerReadinessState> ReadinessStates { get; } = [];
 	public List<string> Faults { get; } = [];
 	public List<Overlay.OverlayClearReason> Ended { get; } = [];
 	public ManualTicker Ticker => ticker;
@@ -70,7 +72,11 @@ internal sealed class ScenarioRig : IAsyncDisposable
 			rig.Transport, sink => rig.Factory = new FakeCaptureSessionFactory(sink), rig.Surface, new TranslationSessionOptions(2, 2),
 			monotonicNanoseconds: () => rig.Now,
 			sendDelay: (wait, _) => { rig.Advance(wait); return Task.CompletedTask; },
-			tickDelay: rig.ticker.Delay);
+			tickDelay: rig.ticker.Delay,
+			// 製品と同じ確認手段(認証付きHTTPSの/api/v1/ready)。間隔の待機だけ手動で進める
+			readinessProbe: new ServerReadinessClient(new ControlApiClient(connection, rig.credentials.Store, validation)),
+			readinessDelay: rig.ReadinessDelay.Delay);
+		rig.Host.ServerReadinessChanged += state => { lock (rig.ReadinessStates) rig.ReadinessStates.Add(state); };
 		rig.Host.Faulted += rig.Faults.Add;
 		rig.Host.SessionEnded += rig.Ended.Add;
 		rig.Model = new OperationsViewModel(rig.Host, sessions, rig.Selector, rig.Hotkeys);
