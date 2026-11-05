@@ -24,7 +24,7 @@ from screen_translation_server.events import EventHub, make_result_message
 from screen_translation_server.observability import ProcessingObserver
 from screen_translation_server.pipeline import FrameInput, PipelineResult, TranslationPipeline
 from app.contracts import TranslationResult
-from screen_translation_server.app import _send_heartbeats
+from screen_translation_server.stream_tasks import send_heartbeats as _send_heartbeats
 from screen_translation_server.security.auth import Credential, CredentialStore, Role, SecurityPolicy
 from screen_translation_server.sessions import SessionManager
 

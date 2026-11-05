@@ -3,18 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 import logging
-import json
 import os
 from pathlib import Path
-import signal
 import ssl
 import time
-from uuid import uuid4
-import threading
-from types import FrameType
-from typing import Awaitable, Iterator
+from typing import Awaitable
 from datetime import UTC, datetime, timedelta
 from typing import Callable
 
@@ -23,10 +18,8 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route, WebSocketRoute
-from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from screen_translation_server.api.glossary import glossary_routes
-from screen_translation_server.api.keepalive import KeepaliveRateLimiter, check_keepalive
 from screen_translation_server.api.settings import settings_routes
 from screen_translation_server.glossary_runtime import GlossaryRuntime
 from screen_translation_server.storage import GlossaryStore, SettingsStore
@@ -36,7 +29,6 @@ from screen_translation_server.api.input_limits import (
 	InputLimitError,
 	authenticate_request,
 	read_limited_body,
-	validate_authenticated_binary_message,
 )
 from screen_translation_server.security.auth import (
 	AuthenticationError,
@@ -59,13 +51,14 @@ from screen_translation_server.lifecycle_readiness import LifecycleReadiness, Pi
 from screen_translation_server.startup import StartupConfigurationError, lifecycle_from_environment
 from screen_translation_server.observability import ProcessingObserver
 from screen_translation_server.operational_logging import disable_access_logger, restrict_dependency_loggers
-from screen_translation_server.stream_cleanup import finish_stream_cleanup, release_stream_sync
+from screen_translation_server.server_runtime import ReloadableServer
+from screen_translation_server.http_errors import error_body, source_address
+from screen_translation_server.stream_endpoint import create_stream_handler
 from screen_translation_server.result_delivery import build_result_callbacks, drain_cancel_tasks, schedule_pipeline_cancel
-from screen_translation_server.pipeline import FrameInput, PipelineLimitError, TranslationPipeline, create_default_pipeline, create_pipeline_from_engines
+from screen_translation_server.pipeline import TranslationPipeline, create_default_pipeline, create_pipeline_from_engines
 
 
 _UNIMPLEMENTED = {"detail": "not implemented"}
-WSS_SUBPROTOCOL = "screen-translation.v1"
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -126,7 +119,7 @@ def create_app(
 	app.state.http_body_timeout = float(os.environ.get("SCREEN_TRANSLATION_HTTP_BODY_TIMEOUT_SECONDS", "10"))
 
 	async def authenticated(request: Request, roles: frozenset[Role]) -> Credential | Response:
-		remote = _source_address(request.scope.get("client"))
+		remote = source_address(request.scope.get("client"))
 		try:
 			app.state.limiter.begin(remote)
 		except AttemptLimitError as error:
@@ -233,149 +226,7 @@ def create_app(
 			await stream_websocket.close(code=1000)
 		return Response(status_code=204)
 
-	async def stream(websocket: WebSocket) -> None:
-		remote = _source_address(websocket.scope.get("client"))
-		try:
-			app.state.limiter.begin(remote)
-		except AttemptLimitError as error:
-			await _deny_websocket(websocket, 429, retry_after=error.retry_after)
-			return
-		authorization = websocket.headers.get("authorization")
-		try:
-			credential = authenticate_request(
-				app.state.credentials,
-				app.state.policy,
-				is_secure=websocket.url.scheme == "wss",
-				host=websocket.headers.get("host"),
-				origin=websocket.headers.get("origin"),
-				authorization=authorization,
-				allowed_roles=frozenset({Role.DEVICE}),
-			)
-		except AuthenticationError:
-			app.state.limiter.finish(remote, success=False)
-			await _deny_websocket(websocket, 401)
-			return
-		app.state.limiter.finish(remote, success=True)
-		# 契約のsubprotocolは、クライアントが提示したときだけ選択する(提示しない相手へは返さない)
-		offered = websocket.scope.get("subprotocols", [])
-		await websocket.accept(subprotocol=WSS_SUBPROTOCOL if WSS_SUBPROTOCOL in offered else None)
-		session = await app.state.sessions.active_for_owner(credential.credential_id)
-		subscription = None
-		sender_task: asyncio.Task[None] | None = None
-		heartbeat_task: asyncio.Task[None] | None = None
-		if session is not None:
-			app.state.streams[session.session_id] = websocket
-			subscription = app.state.events.subscribe(session.session_id)
-			sender_task = asyncio.create_task(_send_stream_events(app, websocket, subscription))
-			for state in ("accepted", "ready"):
-				app.state.events.publish_state(
-					session.session_id, session.generation, session.dictionary_revision, state,
-				)
-			heartbeat_task = asyncio.create_task(_send_heartbeats(app, session.session_id))
-		keepalive_limiter = KeepaliveRateLimiter(clock=app.state.keepalive_clock)
-		revocation_watch = asyncio.create_task(
-			_watch_websocket_revocation(
-				websocket,
-				app.state.credentials,
-				app.state.policy,
-				authorization,
-			)
-		)
-		try:
-			while True:
-				message = await websocket.receive()
-				if message["type"] == "websocket.disconnect":
-					return
-				if message.get("text") is not None:
-					# 静止画面でフレームが無くてもsessionの生存を伝える(Issue #245)
-					close_code = await check_keepalive(
-						message["text"],
-						authenticate=lambda: authenticate_request(
-							app.state.credentials, app.state.policy, is_secure=websocket.url.scheme == "wss",
-							host=websocket.headers.get("host"), origin=websocket.headers.get("origin"),
-							authorization=websocket.headers.get("authorization"), allowed_roles=frozenset({Role.DEVICE}),
-						),
-						limiter=keepalive_limiter, sessions=app.state.sessions, session=session,
-						owner_id=credential.credential_id,
-					)
-					if close_code is not None:
-						await websocket.close(code=close_code)
-						return
-					continue
-				data = message.get("bytes")
-				if not isinstance(data, bytes) or len(data) > BINARY_MESSAGE_MAX_BYTES:
-					await websocket.close(code=1008)
-					return
-				try:
-					frame = validate_authenticated_binary_message(
-						data, app.state.credentials, app.state.policy,
-						websocket.headers.get("authorization"), is_secure=websocket.url.scheme == "wss",
-						host=websocket.headers.get("host"), origin=websocket.headers.get("origin"),
-					)
-				except (AuthenticationError, InputLimitError):
-					await websocket.close(code=1008)
-					return
-				if (session is None or subscription is None or frame.metadata["session_id"] != session.session_id
-						or frame.metadata["dictionary_revision"] > session.dictionary_revision):
-					await websocket.close(code=1008)
-					return
-				stale_revision = frame.metadata["dictionary_revision"] < session.dictionary_revision
-				try:
-					await app.state.sessions.heartbeat(
-						session.session_id, credential.credential_id, generation=frame.metadata["generation"],
-					)
-				except (SessionConflict, SessionForbidden, SessionNotFound):
-					await websocket.close(code=1008)
-					return
-				if stale_revision:
-					# 辞書更新前に送られたframeは切断せず、処理せず破棄する。
-					app.state.observer.dropped("stale_dictionary_revision", correlation_id=str(uuid4()))
-					continue
-				correlation_id = str(uuid4())
-				try:
-					pipeline = _ensure_pipeline(app)
-				except PipelineNotReady:
-					# 準備が整っていない間はエンジンを作らず、フレームを破棄して再試行可能な通知だけ返す。
-					app.state.observer.dropped("model_not_ready", correlation_id=correlation_id)
-					app.state.events.publish_error(
-						"MODEL_NOT_READY", correlation_id, session.session_id, session.generation,
-						session.dictionary_revision, frame_id=frame.metadata["frame_id"],
-					)
-					continue
-				started = app.state.observer.start("receive", correlation_id)
-				app.state.events.publish_state(
-					session.session_id, session.generation, session.dictionary_revision,
-					"processing", frame_id=frame.metadata["frame_id"], correlation_id=correlation_id,
-				)
-				try:
-					await pipeline.submit(FrameInput(
-						session.session_id, frame.metadata["generation"], frame.metadata["frame_id"],
-						frame.metadata["dictionary_revision"], frame.image,
-						frame.metadata["image_width"], frame.metadata["image_height"], correlation_id,
-					))
-				except PipelineLimitError:
-					app.state.events.publish_error(
-						"INVALID_IMAGE", correlation_id, session.session_id, session.generation,
-						session.dictionary_revision, frame_id=frame.metadata["frame_id"],
-					)
-				app.state.observer.finish("receive", started, correlation_id=correlation_id)
-		except WebSocketDisconnect:
-			return
-		finally:
-			background_tasks = [revocation_watch]
-			if heartbeat_task is not None:
-				background_tasks.append(heartbeat_task)
-			if sender_task is not None:
-				background_tasks.append(sender_task)
-			# 取消はレベルトリガで、最初のawaitで中断される。同期で済む後始末(購読解除・streamsの除去)を
-			# 先に終え、非同期の後始末(pipeline.cancel・disconnected)は別taskへ逃がす(Issue #232/#235)。
-			owned = release_stream_sync(
-				app, websocket, session.session_id if session is not None else None, subscription, background_tasks,
-			)
-			if owned and session is not None:
-				await finish_stream_cleanup(
-					app, session.session_id, credential.credential_id, session.generation + 1, background_tasks,
-				)
+	stream = create_stream_handler(app, ensure_pipeline=lambda: _ensure_pipeline(app))
 
 	app.routes.extend([
 		Route("/api/v1/health", health, methods=["GET"]),
@@ -411,7 +262,7 @@ def create_server(app: Starlette, *, tls_context: ssl.SSLContext | None) -> uvic
 	)
 	# Configがloggingを再設定した後に付けるため、再設定で消えない。
 	disable_access_logger()
-	return _ReloadableServer(
+	return ReloadableServer(
 		config,
 		tls_context,
 		os.environ.get("SCREEN_TRANSLATION_TLS_CERTIFICATE"),
@@ -472,78 +323,12 @@ def _ensure_pipeline(app: Starlette) -> TranslationPipeline:
 	return pipeline
 
 
-async def _send_stream_events(app: Starlette, websocket: WebSocket, subscription: object) -> None:
-	async def send(message: dict[str, object]) -> None:
-		started = app.state.observer.start("delivery", message.get("correlation_id"))
-		await websocket.send_text(json.dumps(message, ensure_ascii=False, separators=(",", ":")))
-		app.state.observer.finish("delivery", started, correlation_id=message.get("correlation_id"))
-	while not subscription.closed:  # type: ignore[attr-defined]
-		await subscription.send_next(send)  # type: ignore[attr-defined]
-	if subscription.closed:  # type: ignore[attr-defined]
-		await websocket.close(code=1011)
-
-
-async def _send_heartbeats(app: Starlette, session_id: str) -> None:
-	while True:
-		await app.state.heartbeat_sleep(1.0)
-		session = await app.state.sessions.active_snapshot(session_id)
-		if session is None:
-			return
-		app.state.events.publish_heartbeat(session_id, session.generation, session.dictionary_revision)
-
-
-async def _deny_websocket(websocket: WebSocket, status: int, *, retry_after: int | None = None) -> None:
-	headers = {"Retry-After": str(retry_after)} if retry_after is not None else None
-	await websocket.send_denial_response(JSONResponse(
-		_error_body("UNAUTHENTICATED", "認証が必要です。"), status_code=status, headers=headers,
-	))
-
-
-async def _watch_websocket_revocation(
-	websocket: WebSocket,
-	credentials: CredentialStore,
-	policy: SecurityPolicy,
-	authorization: str | None,
-) -> None:
-	"""idle接続を含め、失効を1秒以内に既存streamへ反映する。"""
-	while True:
-		await asyncio.sleep(0.25)
-		try:
-			authenticate_request(
-				credentials,
-				policy,
-				is_secure=websocket.url.scheme == "wss",
-				host=websocket.headers.get("host"),
-				origin=websocket.headers.get("origin"),
-				authorization=authorization,
-				allowed_roles=frozenset({Role.DEVICE}),
-			)
-		except AuthenticationError:
-			await websocket.close(code=1008)
-			return
-
-
 def _limited_response(retry_after: int) -> JSONResponse:
-	return JSONResponse(_error_body("UNAUTHENTICATED", "認証が必要です。"), status_code=429, headers={"Retry-After": str(retry_after)})
+	return JSONResponse(error_body("UNAUTHENTICATED", "認証が必要です。"), status_code=429, headers={"Retry-After": str(retry_after)})
 
 
 def _session_error(code: str, message: str, status_code: int, *, retryable: bool = False) -> JSONResponse:
-	return JSONResponse(_error_body(code, message, retryable=retryable), status_code=status_code)
-
-
-def _error_body(code: str, message: str, *, retryable: bool = False) -> dict[str, object]:
-	return {
-		"code": code,
-		"message": message,
-		"correlation_id": str(uuid4()),
-		"retryable": retryable,
-	}
-
-
-def _source_address(client: object) -> str:
-	if isinstance(client, tuple) and client and isinstance(client[0], str):
-		return client[0]
-	return "unknown"
+	return JSONResponse(error_body(code, message, retryable=retryable), status_code=status_code)
 
 
 def _stores_from_environment() -> tuple[SettingsStore | None, GlossaryStore | None]:
@@ -579,48 +364,3 @@ def _credentials_from_environment() -> CredentialStore:
 		if token:
 			credentials.append(create_credential(token, role, valid_until, role.value))
 	return CredentialStore(credentials)
-
-
-class _ReloadableServer(uvicorn.Server):
-	"""SIGHUPで同じlistenerのTLS証明書を再読込する。"""
-
-	def __init__(
-		self,
-		config: uvicorn.Config,
-		tls_context: ssl.SSLContext,
-		certificate_path: str | None,
-		private_key_path: str | None,
-	) -> None:
-		super().__init__(config)
-		self._tls_context = tls_context
-		self._certificate_path = certificate_path
-		self._private_key_path = private_key_path
-
-	@contextmanager
-	def capture_signals(self) -> Iterator[None]:
-		reload_signal = getattr(signal, "SIGHUP", None)
-		with super().capture_signals():
-			if reload_signal is None or threading.current_thread() is not threading.main_thread():
-				yield
-				return
-			original_handler = signal.signal(reload_signal, self.handle_exit)
-			try:
-				yield
-			finally:
-				signal.signal(reload_signal, original_handler)
-
-	def handle_exit(self, sig: int, frame: FrameType | None) -> None:
-		if sig == getattr(signal, "SIGHUP", None):
-			if not self._certificate_path or not self._private_key_path:
-				_LOGGER.error("TLS証明書再読込を拒否しました。設定が不足しています。")
-				self.should_exit = True
-				return
-			try:
-				self._tls_context.load_cert_chain(self._certificate_path, self._private_key_path)
-			except (OSError, ssl.SSLError):
-				_LOGGER.error("TLS証明書再読込に失敗したため、安全に停止します。")
-				self.should_exit = True
-				return
-			_LOGGER.info("TLS証明書を再読込しました。")
-			return
-		super().handle_exit(sig, frame)

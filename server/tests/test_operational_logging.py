@@ -97,7 +97,7 @@ class ServerStartupLoggingTests(unittest.TestCase):
 			patch.object(app_module, "lifecycle_from_environment", return_value=object()), \
 			patch.object(app_module, "LifecycleReadiness", return_value=object()), \
 			patch.object(app_module, "create_app", return_value=object()), \
-			patch.object(app_module._ReloadableServer, "run", lambda self, *a, **k: captured.append(self)):
+			patch.object(app_module.ReloadableServer, "run", lambda self, *a, **k: captured.append(self)):
 			self.assertEqual(app_module.main(), 0)
 		self.assertIs(captured[0].config.access_log, False)  # type: ignore[attr-defined]
 
