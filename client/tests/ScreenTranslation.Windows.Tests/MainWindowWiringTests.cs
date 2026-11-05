@@ -144,10 +144,15 @@ public sealed class MainWindowWiringTests
 			MainWindowHarness.Click(harness.Part<Button>("ServerSettings", "SettingsLoadButton"));
 			MainWindowHarness.PumpUntil(() => harness.Api.GlossaryLoads == 1, "用語辞書の読み込み");
 
+			// 画面の更新は非同期のため、押せる状態になるのを待ってから操作する
+			var add = harness.Part<Button>("ServerSettings", "AddButton");
+			var save = harness.Part<Button>("ServerSettings", "GlossarySaveButton");
+			MainWindowHarness.PumpUntil(() => add.IsEnabled, "用語辞書の読み込み後の編集可能状態");
 			harness.Part<TextBox>("ServerSettings", "SourceInput").Text = "Save";
 			harness.Part<TextBox>("ServerSettings", "TargetInput").Text = "保存";
-			MainWindowHarness.Click(harness.Part<Button>("ServerSettings", "AddButton"));
-			MainWindowHarness.Click(harness.Part<Button>("ServerSettings", "GlossarySaveButton"));
+			MainWindowHarness.Click(add);
+			MainWindowHarness.PumpUntil(() => save.IsEnabled, "追加後の保存可能状態");
+			MainWindowHarness.Click(save);
 
 			// 辞書の保存成功(サーバーが返した新revision)が、操作モデル経由で実行中のホストへ届く
 			MainWindowHarness.PumpUntil(() => harness.Host.AppliedRevisions.Count == 1, "辞書revisionのホストへの反映");
