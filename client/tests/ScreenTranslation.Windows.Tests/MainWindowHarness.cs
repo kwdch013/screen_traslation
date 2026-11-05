@@ -140,10 +140,13 @@ internal sealed class MainWindowHarness : IDisposable
 	{
 		public int FpsLoads, GlossaryLoads;
 
+		/// <summary>サーバーの取得頻度(クライアントの既定2とは違う値にして、読み込みの反映を区別する)。</summary>
+		public int ServerFps => 3;
+
 		public Task<Revisioned<int>> GetCaptureFpsAsync(CancellationToken cancellationToken)
 		{
 			Interlocked.Increment(ref FpsLoads);
-			return Task.FromResult(new Revisioned<int>(2, 2));
+			return Task.FromResult(new Revisioned<int>(2, ServerFps));
 		}
 
 		public Task<Revisioned<int>> UpdateCaptureFpsAsync(ulong revision, int captureFps, CancellationToken cancellationToken) =>

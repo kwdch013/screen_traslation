@@ -179,9 +179,28 @@ public sealed class MainWindowWiringTests
 			MainWindowHarness.PumpUntil(() => save.IsEnabled, "編集後の保存可能状態");
 			MainWindowHarness.Click(save);
 
-			// 取得頻度の値だけが実行中のホストへ届く。設定のrevisionは別系列のため、辞書revisionとしては適用されない
-			MainWindowHarness.PumpUntil(() => harness.Host.AppliedCaptureFps.Count == 1, "取得頻度のホストへの反映");
-			Assert.Equal([4], harness.Host.AppliedCaptureFps);
+			// 取得頻度の値だけが実行中のホストへ届く(読み込み時のサーバーの値に続けて、保存した値)。
+			// 設定のrevisionは別系列のため、辞書revisionとしては適用されない
+			MainWindowHarness.PumpUntil(() => harness.Host.AppliedCaptureFps.Count == 2, "取得頻度のホストへの反映");
+			Assert.Equal([harness.Api.ServerFps, 4], harness.Host.AppliedCaptureFps);
+			Assert.Empty(harness.Host.AppliedRevisions);
+		}, Saved);
+	}
+
+	[Fact]
+	public void TranslationSettingsLoad_ReachesTheRunningSessionAsTheServerFpsValue()
+	{
+		MainWindowHarness.Run(harness =>
+		{
+			var input = harness.Part<TextBox>("ServerUriInput");
+			MainWindowHarness.PumpUntil(() => input.Text.Length > 0, "保存済み設定の読み込み");
+			MainWindowHarness.Click(harness.Part<Button>("Operations", "ConnectButton"));
+			MainWindowHarness.PumpUntil(() => harness.Host.ConnectCount == 1, "接続の完了");
+			MainWindowHarness.Click(harness.Part<Button>("ServerSettings", "SettingsLoadButton"));
+
+			// 読み込みの成功だけで(保存せずに)、サーバーの取得頻度の値が実行中のホストへ届く
+			MainWindowHarness.PumpUntil(() => harness.Host.AppliedCaptureFps.Count == 1, "読み込んだ取得頻度のホストへの反映");
+			Assert.Equal([harness.Api.ServerFps], harness.Host.AppliedCaptureFps);
 			Assert.Empty(harness.Host.AppliedRevisions);
 		}, Saved);
 	}

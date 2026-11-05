@@ -344,4 +344,68 @@ public sealed class SettingsViewModelTests
 		Assert.Contains("次のフレームから", TranslationSettingsViewModel.CaptureFpsGuidance);
 		Assert.Contains("次回の開始から", TranslationSettingsViewModel.CaptureFpsGuidance);
 	}
+
+	[Fact]
+	public async Task Load_RaisesLoadedWithTheServerFpsValue_NotTheSettingsRevision()
+	{
+		var loaded = new List<int>();
+		using var model = new TranslationSettingsViewModel(api);
+		model.Loaded += loaded.Add;
+		api.OnGetFps = _ => Task.FromResult(new Revisioned<int>(7, 1));
+
+		Assert.Equal(EditorOutcome.Completed, await model.LoadAsync());
+
+		// 通知するのはサーバーの取得頻度の値だけ(設定のrevisionは渡さない)
+		Assert.Equal([1], loaded);
+	}
+
+	[Fact]
+	public async Task FailedOrIgnoredOrUnconfirmedLoad_DoesNotRaiseLoaded()
+	{
+		using var model = await LoadedAsync();
+		var loaded = new List<int>();
+		model.Loaded += loaded.Add;
+
+		api.OnGetFps = _ => Task.FromException<Revisioned<int>>(new ControlApiException(ControlApiFailure.Unreachable));
+		Assert.Equal(EditorOutcome.Failed, await model.LoadAsync());
+
+		api.OnGetFps = _ => Task.FromResult(new Revisioned<int>(9, 5));
+		model.SetCaptureFps(3);
+		Assert.Equal(EditorOutcome.NeedsConfirmation, await model.LoadAsync());
+
+		Assert.Empty(loaded);
+	}
+
+	[Fact]
+	public async Task ReloadWithDiscard_RaisesLoadedAgain()
+	{
+		using var model = await LoadedAsync();
+		var loaded = new List<int>();
+		model.Loaded += loaded.Add;
+		api.OnGetFps = _ => Task.FromResult(new Revisioned<int>(9, 5));
+		model.SetCaptureFps(3);
+
+		Assert.Equal(EditorOutcome.Completed, await model.LoadAsync(discardEdits: true));
+
+		Assert.Equal([5], loaded);
+	}
+
+	[Fact]
+	public async Task ALoadedSubscriberException_DoesNotTurnTheLoadIntoAFailure()
+	{
+		using var model = new TranslationSettingsViewModel(api);
+		model.Loaded += _ => throw new InvalidOperationException("購読側の失敗");
+
+		await Assert.ThrowsAsync<InvalidOperationException>(() => model.LoadAsync());
+
+		// 読み込み自体はサーバーから成功しており、画面は読み込み済みの状態になる
+		Assert.Equal(EditorPhase.Ready, model.Snapshot.Phase);
+	}
+
+	[Fact]
+	public void TheScreenGuidance_StatesThatTheValueFollowsTheServerOnLoadAndDefaultsBeforeThat()
+	{
+		Assert.Contains("読み込", TranslationSettingsViewModel.CaptureFpsGuidance);
+		Assert.Contains("既定", TranslationSettingsViewModel.CaptureFpsGuidance);
+	}
 }

@@ -95,4 +95,46 @@ public sealed class ClientScenarioRealServerSettingsTests
 			await SaveAsync(settings, original);
 		}
 	}
+
+	[RealServerFact]
+	public async Task LoadingSettings_AlignsTheRunningCaptureRateWithTheServerValue_AgainstTheRealServer()
+	{
+		using var device = new RealServerClient(Url, Env.Token("device-a"), Env.CaPem);
+		using var admin = new RealServerClient(Url, Env.Token("admin"), Env.CaPem);
+		var surface = new FakeOverlaySurface();
+		FakeCaptureSessionFactory? factory = null;
+		// クライアントの起動時の既定は2 fps。サーバーの値(1 fps)とは揃っていない
+		var host = new TranslationSessionHost(device.Transport, sink => factory = new FakeCaptureSessionFactory(sink), surface, new TranslationSessionOptions(2, 2));
+		await using var model = new OperationsViewModel(host, device.Sessions, new Selector(), null);
+		Assert.Equal(OperationOutcome.Completed, await model.ConnectAsync().WaitAsync(Watchdog));
+		Assert.Equal(OperationOutcome.Completed, await model.SelectTargetAsync(ScenarioRig.Display).WaitAsync(Watchdog));
+		Assert.Equal(OperationOutcome.Completed, await model.ReselectRegionAsync().WaitAsync(Watchdog));
+		Assert.Equal(OperationOutcome.Completed, await model.StartAsync().WaitAsync(Watchdog));
+
+		using var settings = new TranslationSettingsViewModel(admin.ServerSettings);
+		Assert.Equal(EditorOutcome.Completed, await settings.LoadAsync().WaitAsync(Watchdog));
+		var original = settings.Snapshot.Draft;
+		try
+		{
+			await SaveAsync(settings, 1);
+
+			// 製品の配線と同じ: 読み込み成功の値だけを実行中の取得頻度へ渡す(保存はしない)
+			using var reloaded = new TranslationSettingsViewModel(admin.ServerSettings);
+			reloaded.Loaded += fps => model.ApplyCaptureFps(fps);
+			Assert.Equal(EditorOutcome.Completed, await reloaded.LoadAsync().WaitAsync(Watchdog));
+			Assert.Equal(1, reloaded.Snapshot.Draft);
+
+			// 1 fps(最小間隔1000ms)へ揃い、既定の2 fpsなら通る600ms後のフレームは間引かれる
+			await Task.Delay(1100);
+			Assert.NotNull(Emit(factory!, 1));
+			await Task.Delay(600);
+			Assert.Null(Emit(factory!, 2));
+			Assert.Equal(OperationPhase.Streaming, model.Snapshot.Phase);
+			Assert.Equal(1ul, host.Generation);
+		}
+		finally
+		{
+			await SaveAsync(settings, original);
+		}
+	}
 }
