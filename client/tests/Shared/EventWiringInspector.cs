@@ -63,6 +63,10 @@ public static class EventWiringInspector
 				? $"{wiring.Key} を購読している処理がありません(配線の忘れ)。"
 				: $"{wiring.Key} は購読の有無を調べられません。フィールド型イベントにするか、理由を付けて許可リストに入れてください。");
 		}
+		foreach (var key in allowed.Where(entry => string.IsNullOrWhiteSpace(entry.Value)).Select(entry => entry.Key))
+		{
+			problems.Add($"許可リストの {key} に理由がありません。購読が不要な理由を書いてください。");
+		}
 		foreach (var key in allowed.Keys.Where(key => all.All(w => w.Key != key)))
 		{
 			problems.Add($"許可リストの {key} に対応するイベントがありません。削除してください。");

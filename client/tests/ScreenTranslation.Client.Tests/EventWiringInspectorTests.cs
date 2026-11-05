@@ -116,4 +116,18 @@ public sealed class EventWiringInspectorTests
 
 		Assert.Contains("Panel.Removed", Assert.Single(EventWiringInspector.FindProblems([panel], allowed)));
 	}
+
+	[Theory]
+	[InlineData("")]
+	[InlineData("   ")]
+	public void FindProblems_RejectsAnAllowListEntryWithoutAReason(string reason)
+	{
+		var panel = new Panel();
+		panel.Subscribe(() => Task.CompletedTask, null);
+		var allowed = new Dictionary<string, string> { ["Panel.ReapplyRequested"] = reason };
+
+		var problem = Assert.Single(EventWiringInspector.FindProblems([panel], allowed));
+		Assert.Contains("Panel.ReapplyRequested", problem);
+		Assert.Contains("理由", problem);
+	}
 }
