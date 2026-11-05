@@ -14,6 +14,13 @@ public sealed class WpfSerializationTests
 	/// <summary>WPFを使っても直列化が不要な試験クラス(「型名」→理由)。現在は無い。追加するときは競合しないと言える根拠を書く。</summary>
 	private static readonly IReadOnlyDictionary<string, string> NoSerializationNeeded = new Dictionary<string, string>();
 
+	/// <summary>
+	/// 名前で型を引く。typeof で参照すると、この試験クラス自身がWPF試験の型を参照する形になり、
+	/// WPF利用と判定されてしまうため(検査の参照解析が補助クラス経由も辿るため)。
+	/// </summary>
+	private static Type[] Named(params string[] names) =>
+		[.. names.Select(name => typeof(WpfSerializationTests).Assembly.GetType("ScreenTranslation.Windows.Tests." + name, throwOnError: true)!)];
+
 	[Fact]
 	public void EveryWpfUsingTestClass_IsInTheWpfStaCollection()
 	{
@@ -29,11 +36,7 @@ public sealed class WpfSerializationTests
 	{
 		// 検査が空振りして素通りしないよう、既知のWPF試験が実際にWPF利用と判定されることを確かめる。
 		// 集合を外した版で調べ、未付与ならそれぞれが問題として報告されるはずの型を列挙する。
-		var known = new[]
-		{
-			typeof(OperationsWindowsTests), typeof(MainWindowWiringTests), typeof(OverlayWindowsTests),
-			typeof(ServerSettingsPanelTests), typeof(ClientScenarioWindowsTests)
-		};
+		var known = Named("OperationsWindowsTests", "MainWindowWiringTests", "OverlayWindowsTests", "ServerSettingsPanelTests", "ClientScenarioWindowsTests");
 
 		var problems = WpfSerializationInspector.FindProblems(known, "NoSuchCollection", NoSerializationNeeded);
 
@@ -44,7 +47,7 @@ public sealed class WpfSerializationTests
 	public void TheWgcCaptureTests_AreNotMistakenForWpfUsers()
 	{
 		// Win32直叩きの補助(KnownPatternWindow・PumpingThread)を使う試験は、WPFの直列化の対象ではない
-		var types = new[] { typeof(WgcCaptureIntegrationTests), typeof(WgcTargetMoveTests), typeof(CaptureIntegrationTests) };
+		var types = Named("WgcCaptureIntegrationTests", "WgcTargetMoveTests", "CaptureIntegrationTests");
 
 		Assert.Empty(WpfSerializationInspector.FindProblems(types, "NoSuchCollection", NoSerializationNeeded));
 	}
