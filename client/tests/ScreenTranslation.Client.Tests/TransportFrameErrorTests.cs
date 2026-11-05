@@ -8,8 +8,9 @@ using Xunit;
 namespace ScreenTranslation.Client.Tests;
 
 /// <summary>
-/// OCR期限超過(OCR_TIMEOUT)のerrorは、stream全体の契約違反ではなく「そのframeの処理が間に合わなかった」通知。
-/// 現在のsession・世代・辞書revisionと送信済みframeに一致するものだけを、受信ループを止めずに上位へ渡す (Issue #223)。
+/// フレーム単位の非致命error(OCR_TIMEOUT・PROCESSING_FAILED・MODEL_NOT_READY・INVALID_IMAGE)は、stream全体の契約違反ではなく
+/// 「そのframeの処理が間に合わなかった/失敗した」通知。現在のsession・世代・辞書revisionと送信済みframeに一致するものだけを、
+/// 受信ループを止めずに上位へ渡す。致命的な違反(認証・session不一致・契約違反・上限超過)と未知のcodeは従来どおりstreamを閉じる (Issue #223 / #226)。
 /// </summary>
 public sealed class TransportFrameErrorTests : IDisposable
 {
@@ -67,9 +68,36 @@ public sealed class TransportFrameErrorTests : IDisposable
 	{
 		var tracker = Tracker();
 		Assert.False(Accept(tracker, ErrorMessage("OCR_TIMEOUT", SessionId, 3, 9, 7), now: 14_600_000_001));
-		Assert.False(Accept(tracker, ErrorMessage("PROCESSING_FAILED", SessionId, 3, 9, 7)));
+		Assert.False(Accept(tracker, ErrorMessage("PROTOCOL_VIOLATION", SessionId, 3, 9, 7)));
 		Assert.True(Accept(tracker, ErrorMessage("OCR_TIMEOUT", SessionId, 3, 9, 7)));
 		Assert.False(Accept(tracker, ErrorMessage("OCR_TIMEOUT", SessionId, 3, 9, 7)));
+	}
+
+	[Theory]
+	[InlineData("PROCESSING_FAILED")]
+	[InlineData("OCR_TIMEOUT")]
+	[InlineData("MODEL_NOT_READY")]
+	[InlineData("INVALID_IMAGE")]
+	public void Tracker_AcceptsEveryNonFatalCodeOnlyForAMatchingFrame(string code)
+	{
+		var tracker = Tracker();
+		Assert.False(Accept(tracker, ErrorMessage(code, Guid.NewGuid(), 3, 9, 7)));
+		Assert.False(Accept(tracker, ErrorMessage(code, SessionId, 2, 9, 7)));
+		Assert.False(Accept(tracker, ErrorMessage(code, SessionId, 3, 9, 6)));
+		Assert.False(Accept(tracker, ErrorMessage(code, SessionId, 3, 10, 7)));
+		Assert.False(Accept(tracker, ErrorMessage(code, SessionId, 3, 9, 7), now: 14_600_000_001));
+		Assert.True(Accept(tracker, ErrorMessage(code, SessionId, 3, 9, 7)));
+		Assert.False(Accept(tracker, ErrorMessage(code, SessionId, 3, 9, 7)));
+	}
+
+	[Theory]
+	[InlineData("AUTHENTICATION_FAILED")]
+	[InlineData("SESSION_MISMATCH")]
+	[InlineData("PROTOCOL_VIOLATION")]
+	[InlineData("MESSAGE_TOO_LARGE")]
+	public void Tracker_NeverAcceptsAFatalCodeAsAFrameError(string code)
+	{
+		Assert.False(Accept(Tracker(), ErrorMessage(code, SessionId, 3, 9, 7)));
 	}
 
 	[Fact]
@@ -113,6 +141,94 @@ public sealed class TransportFrameErrorTests : IDisposable
 		cancellation.Cancel();
 		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => loop.WaitAsync(Watchdog));
 		await transport.DisconnectAsync();
+	}
+
+	[Theory]
+	[InlineData("PROCESSING_FAILED")]
+	[InlineData("MODEL_NOT_READY")]
+	[InlineData("INVALID_IMAGE")]
+	public async Task ReceiveLoop_KeepsTheStreamOpenAfterANonFatalFrameErrorAndDeliversOnlyTheAdoptedOne(string code)
+	{
+		var (transport, socket) = await CreateAsync();
+		var delivered = Channel.CreateUnbounded<string>();
+		using var cancellation = new CancellationTokenSource();
+		var lost = 0;
+		transport.ConnectionLost += () => Interlocked.Increment(ref lost);
+		transport.ActivateSession(SessionId, 1, 1);
+		await transport.SendFrameAsync(Metadata(1), new byte[] { 1, 2, 3 }, 1_000_000_000);
+		await transport.SendFrameAsync(Metadata(2), new byte[] { 1, 2, 3 }, 1_100_000_000);
+		var loop = transport.RunReceiveLoopAsync(message => { delivered.Writer.TryWrite(message.GetRawText()); return Task.CompletedTask; }, cancellation.Token);
+
+		// 偽(別session・古い世代・未送信frame・別revision)は採用されず、streamも閉じない
+		socket.Push(ErrorMessage(code, Guid.NewGuid(), 1, 1, 1));
+		socket.Push(ErrorMessage(code, SessionId, 9, 1, 1));
+		socket.Push(ErrorMessage(code, SessionId, 1, 99, 1));
+		socket.Push(ErrorMessage(code, SessionId, 1, 1, 9));
+		socket.Push(ErrorMessage(code, SessionId, 1, 1, 1));
+		using var adopted = JsonDocument.Parse(await delivered.Reader.ReadAsync().AsTask().WaitAsync(Watchdog));
+		Assert.Equal(code, adopted.RootElement.GetProperty("code").GetString());
+		Assert.Equal(1UL, adopted.RootElement.GetProperty("frame_id").GetUInt64());
+
+		// 次のframeの結果は通常どおり届く
+		socket.Push(JsonSerializer.Serialize(new
+		{
+			type = "result", session_id = SessionId, generation = 1, frame_id = 2, dictionary_revision = 1,
+			correlation_id = Guid.NewGuid(), status = "empty", image_width = 64, image_height = 32,
+			regions = Array.Empty<object>(), server_processing_ms = 1
+		}));
+		using var next = JsonDocument.Parse(await delivered.Reader.ReadAsync().AsTask().WaitAsync(Watchdog));
+		Assert.Equal("result", next.RootElement.GetProperty("type").GetString());
+		Assert.False(delivered.Reader.TryRead(out _));
+		Assert.Equal(0, Volatile.Read(ref lost));
+		Assert.True(transport.IsConnected);
+
+		cancellation.Cancel();
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => loop.WaitAsync(Watchdog));
+		await transport.DisconnectAsync();
+	}
+
+	[Theory]
+	[InlineData("PROTOCOL_VIOLATION")]
+	[InlineData("MESSAGE_TOO_LARGE")]
+	public async Task ReceiveLoop_ClosesOnAFatalContractError(string code)
+	{
+		var (transport, socket) = await CreateAsync();
+		transport.ActivateSession(SessionId, 1, 1);
+		await transport.SendFrameAsync(Metadata(1), new byte[] { 1, 2, 3 }, 1_000_000_000);
+		var loop = transport.RunReceiveLoopAsync(_ => Task.CompletedTask);
+
+		socket.Push(ErrorMessage(code, SessionId, 1, 1, 1));
+
+		await Assert.ThrowsAsync<InvalidDataException>(() => loop.WaitAsync(Watchdog));
+		Assert.False(transport.IsConnected);
+	}
+
+	[Theory]
+	[InlineData("AUTHENTICATION_FAILED")]
+	[InlineData("SESSION_MISMATCH")]
+	public async Task ReceiveLoop_ClosesOnAnAuthenticationOrOwnershipError(string code)
+	{
+		var (transport, socket) = await CreateAsync();
+		transport.ActivateSession(SessionId, 1, 1);
+		await transport.SendFrameAsync(Metadata(1), new byte[] { 1, 2, 3 }, 1_000_000_000);
+		var loop = transport.RunReceiveLoopAsync(_ => Task.CompletedTask);
+
+		socket.Push(ErrorMessage(code, SessionId, 1, 1, 1));
+
+		await Assert.ThrowsAsync<TransportAuthenticationException>(() => loop.WaitAsync(Watchdog));
+	}
+
+	[Fact]
+	public async Task ReceiveLoop_ClosesOnAnUnknownErrorCode()
+	{
+		var (transport, socket) = await CreateAsync();
+		transport.ActivateSession(SessionId, 1, 1);
+		await transport.SendFrameAsync(Metadata(1), new byte[] { 1, 2, 3 }, 1_000_000_000);
+		var loop = transport.RunReceiveLoopAsync(_ => Task.CompletedTask);
+
+		socket.Push(ErrorMessage("SOMETHING_NEW", SessionId, 1, 1, 1));
+
+		await Assert.ThrowsAsync<InvalidDataException>(() => loop.WaitAsync(Watchdog));
 	}
 
 	[Fact]

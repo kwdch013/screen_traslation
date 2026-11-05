@@ -197,10 +197,10 @@ public sealed class StreamTransportClient(
 				if (value.GetProperty("type").GetString() == "error")
 				{
 					var code = value.GetProperty("code").GetString();
-					if (code == "OCR_TIMEOUT")
+					if (StreamErrorPolicy.IsNonFatal(code))
 					{
-						// 1frameの文字認識が間に合わなかっただけ。接続は保ち、現在のsessionのものだけ上位へ渡す
-						if (resultTracker.TryAcceptFrameError(value, monotonicNanoseconds(), out var timeout)) await onMessage(timeout).ConfigureAwait(false);
+						// 1frameの失敗(文字認識の期限超過・処理失敗・準備中など)。接続は保ち、現在のsessionのものだけ上位へ渡す
+						if (resultTracker.TryAcceptFrameError(value, monotonicNanoseconds(), out var frameError)) await onMessage(frameError).ConfigureAwait(false);
 						continue;
 					}
 					if (code is "AUTHENTICATION_FAILED" or "SESSION_MISMATCH") throw new TransportAuthenticationException("WSSの認証またはsession所有権が拒否されました。");

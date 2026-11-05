@@ -1,0 +1,19 @@
+{
+  "description": "WSS errorメッセージのcodeごとの扱い(Issue #226)。clientはnon_fatalのcodeでstreamを閉じず、fatalのcodeと未知のcodeでは閉じる。正本は contracts/README.md の「WSS errorのcodeごとの扱い」。server/clientの両方がこの一覧と stream-message.schema.json のcode列挙の一致を検証する。",
+  "unknown_code": {"disposition": "fatal", "reason": "新しい意味のerrorを黙って無視して致命的な違反を見逃さないため、安全側で閉じる。schemaのcode列挙に無い値はtextの契約検査で拒否される"},
+  "adoption_rule": "non_fatalは、現在のsession・generation・dictionary_revisionに一致し、送信済みで未採用のframe_idに対する、取得から5秒以内のものだけを採用する。それ以外は捨てる(streamは閉じない)",
+  "retry": {
+    "next_frame": "同じframeを再送しない。次に取得するframeが通常どおり処理される",
+    "none": "再試行しない(接続を閉じる)"
+  },
+  "codes": [
+    {"code": "PROCESSING_FAILED", "disposition": "non_fatal", "retry": "next_frame", "server_sends_as_error_message": true},
+    {"code": "OCR_TIMEOUT", "disposition": "non_fatal", "retry": "next_frame", "server_sends_as_error_message": true},
+    {"code": "MODEL_NOT_READY", "disposition": "non_fatal", "retry": "next_frame", "server_sends_as_error_message": true, "note": "接続を維持して通知するまでが#226。送信の一時停止・ready再確認・再開は#202"},
+    {"code": "INVALID_IMAGE", "disposition": "non_fatal", "retry": "next_frame", "server_sends_as_error_message": true, "note": "サーバーのパイプライン上限(寸法・頻度・容量)に達したframeの通知。形式不正のbinaryは通知なしに1008で閉じる"},
+    {"code": "AUTHENTICATION_FAILED", "disposition": "fatal", "retry": "none", "server_sends_as_error_message": false, "note": "サーバーはcloseのreasonに使い、error messageとしては送らない"},
+    {"code": "SESSION_MISMATCH", "disposition": "fatal", "retry": "none", "server_sends_as_error_message": false, "note": "同上"},
+    {"code": "PROTOCOL_VIOLATION", "disposition": "fatal", "retry": "none", "server_sends_as_error_message": false, "note": "同上"},
+    {"code": "MESSAGE_TOO_LARGE", "disposition": "fatal", "retry": "none", "server_sends_as_error_message": false, "note": "同上"}
+  ]
+}

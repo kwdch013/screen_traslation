@@ -36,7 +36,19 @@ internal static class OperationMessages
 	public const string TargetSelected = "対象を選択しました。続けて領域を選んでください。";
 	public const string TargetFailed = "対象を選択できませんでした。別の対象を選ぶか、もう一度試してください。";
 	public const string OcrTimeout = "文字認識に時間がかかりすぎました。領域を狭めて選び直してください。";
+	public const string ProcessingFailed = "一部の画像を翻訳できませんでした。翻訳は続けています。";
+	public const string ModelNotReady = "翻訳エンジンを準備中のため、翻訳できない画像があります。接続は維持しています。";
+	public const string InvalidImage = "画像を処理できませんでした。翻訳は続けています。";
 	public const string Busy = "別の操作を処理中です。完了してからもう一度操作してください。";
+
+	/// <summary>フレーム単位の非致命エラーのcodeに対する固定の案内。サーバーの文言は使わない。未知のcodeは汎用文言。</summary>
+	public static string FrameFailure(string code) => code switch
+	{
+		"OCR_TIMEOUT" => OcrTimeout,
+		"MODEL_NOT_READY" => ModelNotReady,
+		"INVALID_IMAGE" => InvalidImage,
+		_ => ProcessingFailed
+	};
 
 	public static string Start(StartResult result) => result switch
 	{

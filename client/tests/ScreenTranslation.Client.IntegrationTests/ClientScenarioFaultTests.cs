@@ -80,14 +80,15 @@ public sealed class ClientScenarioFaultTests
 	}
 
 	/// <summary>
-	/// 既知の未実装の記録(#202 / #226)。フレーム単位のエラー(MODEL_NOT_READY・PROCESSING_FAILED)を受けると、
-	/// 現行クライアントは通信全体を閉じて停止する。仕様どおり(接続維持・準備後に再開)になったら、この試験は落ちるので
-	/// 期待を仕様へ改め、docs/v1.0/testing.mdの未解決事項から外すこと。仕様を満たした証明としては数えない。
+	/// 契約(#226): フレーム単位の非致命エラー(PROCESSING_FAILED・MODEL_NOT_READY・INVALID_IMAGE)は、通信全体を閉じない。
+	/// 固定の日本語文言で知らせ、次のフレームの結果は通常どおり表示される。(旧 KnownGap_ 試験を仕様の期待へ改めたもの。
+	/// MODEL_NOT_READY後の送信の一時停止・ready再確認・再開は #202 の範囲で、ここでは接続を維持して知らせるところまで)
 	/// </summary>
 	[Theory]
-	[InlineData("MODEL_NOT_READY")]
 	[InlineData("PROCESSING_FAILED")]
-	public async Task KnownGap_FrameLevelError_CurrentlyClosesTheWholeStream(string code)
+	[InlineData("MODEL_NOT_READY")]
+	[InlineData("INVALID_IMAGE")]
+	public async Task FrameLevelError_KeepsTheStreamOpenNotifiesAndTheNextFrameIsTranslated(string code)
 	{
 		await using var server = await ScenarioContractServer.StartAsync();
 		await using var rig = await ScenarioRig.CreateAsync(server);
@@ -96,7 +97,57 @@ public sealed class ClientScenarioFaultTests
 		var frame = await rig.EmitAndReceiveAsync(seed: 1);
 
 		await server.SendAllAsync(ScenarioContractServer.Messages.FrameError(code, frame.Metadata));
-		await rig.WaitSnapshotAsync(snapshot => snapshot.Phase != OperationPhase.Streaming, "通信全体が閉じられる(現行の挙動)");
+		await rig.WaitSnapshotAsync(snapshot => snapshot.Message == OperationMessages.FrameFailure(code), "固定文言の通知");
+
+		Assert.Equal(OperationPhase.Streaming, rig.Model.Snapshot.Phase);
+		Assert.Empty(rig.Ended);
+		Assert.Empty(rig.Faults);
+		Assert.Equal(0, server.DeleteCount);
+		// 同じ接続で、次のフレームの結果が表示される
+		var next = await rig.EmitAndReceiveAsync(seed: 2);
+		await server.SendResultAsync(next);
+		await rig.WaitRenderedAsync();
+		Assert.Equal(OperationPhase.Streaming, rig.Model.Snapshot.Phase);
+	}
+
+	/// <summary>偽の(別sessionの・未送信frameの)非致命errorは採用されず、通知も出さず、通信も切れない。</summary>
+	[Fact]
+	public async Task ForgedFrameLevelErrors_AreNotAdoptedAndDoNotCloseTheStream()
+	{
+		await using var server = await ScenarioContractServer.StartAsync();
+		await using var rig = await ScenarioRig.CreateAsync(server);
+		await rig.StartStreamingAsync();
+		server.AutoRespond = false;
+		var frame = await rig.EmitAndReceiveAsync(seed: 1);
+		var before = rig.Model.Snapshot.Message;
+
+		await server.SendAllAsync(ScenarioContractServer.Messages.FrameError("PROCESSING_FAILED", frame.Metadata with { SessionId = Guid.NewGuid() }));
+		await server.SendAllAsync(ScenarioContractServer.Messages.FrameError("PROCESSING_FAILED", frame.Metadata with { FrameId = frame.Metadata.FrameId + 50 }));
+		await server.SendAllAsync(ScenarioContractServer.Messages.FrameError("PROCESSING_FAILED", frame.Metadata with { Generation = frame.Metadata.Generation + 1 }));
+		// 同じ順序で届く、本物の結果が表示されたことで、上の偽errorがすべて処理済みと分かる
+		await server.SendResultAsync(frame);
+		await rig.WaitRenderedAsync();
+
+		Assert.Equal(before, rig.Model.Snapshot.Message);
+		Assert.Equal(OperationPhase.Streaming, rig.Model.Snapshot.Phase);
+		Assert.Empty(rig.Ended);
+		Assert.Empty(rig.Faults);
+	}
+
+	/// <summary>致命的な契約違反のerrorは従来どおり通信を閉じる(非致命の緩和が、違反の見逃しにならない)。</summary>
+	[Theory]
+	[InlineData("PROTOCOL_VIOLATION")]
+	[InlineData("MESSAGE_TOO_LARGE")]
+	public async Task FatalStreamError_StillClosesTheWholeStream(string code)
+	{
+		await using var server = await ScenarioContractServer.StartAsync();
+		await using var rig = await ScenarioRig.CreateAsync(server);
+		await rig.StartStreamingAsync();
+		server.AutoRespond = false;
+		var frame = await rig.EmitAndReceiveAsync(seed: 1);
+
+		await server.SendAllAsync(ScenarioContractServer.Messages.FrameError(code, frame.Metadata));
+		await rig.WaitSnapshotAsync(snapshot => snapshot.Phase != OperationPhase.Streaming, "通信全体が閉じられる");
 
 		Assert.Contains(OverlayClearReason.Disconnected, rig.Ended);
 		Assert.Null(rig.Emit(seed: 2));

@@ -21,6 +21,8 @@ public interface ISessionOperations : IAsyncDisposable
 	event Action? ConnectionLost;
 	/// <summary>文字認識が期限を超えて打ち切られた(現在のsessionのフレーム)。領域を狭めての再選択を案内する契機。</summary>
 	event Action? OcrTimedOut;
+	/// <summary>OCR_TIMEOUT以外のフレーム単位の非致命エラー(codeのみ)。通信は維持されている。利用者へ固定文言で知らせる契機。</summary>
+	event Action<string>? FrameFailed;
 	/// <summary>採用・表示した結果(session・世代・領域)。履歴の記録元。</summary>
 	event Action<Guid, ulong, IReadOnlyList<OverlayRegion>>? TranslationsPresented;
 

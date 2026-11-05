@@ -88,7 +88,7 @@ public sealed class ResultAcceptanceTracker
 	}
 
 	/// <summary>
-	/// フレーム単位の回復可能なerror(OCR_TIMEOUT)を採用する。resultと同じく、現在のsession・世代・辞書revisionと
+	/// フレーム単位の非致命error(StreamErrorPolicyが非致命とするcode)を採用する。resultと同じく、現在のsession・世代・辞書revisionと
 	/// 送信済みframeに一致し、取得から5秒以内のものだけ。同じframeのerrorは1回だけ採用する(重複通知を出さない)。
 	/// 採用してもresultの適用順(最後に適用したframe)は動かさない。
 	/// </summary>
@@ -98,7 +98,7 @@ public sealed class ResultAcceptanceTracker
 		lock (sync)
 		{
 			if (sessionId is null || !TransportProtocol.IsValidTextMessage(error.GetRawText())) return false;
-			if (error.GetProperty("type").GetString() != "error" || error.GetProperty("code").GetString() != "OCR_TIMEOUT") return false;
+			if (error.GetProperty("type").GetString() != "error" || !StreamErrorPolicy.IsNonFatal(error.GetProperty("code").GetString())) return false;
 			if (!Guid.TryParse(error.GetProperty("session_id").GetString(), out var errorSessionId) || errorSessionId != sessionId
 				|| error.GetProperty("generation").GetUInt64() != generation
 				|| error.GetProperty("dictionary_revision").GetUInt64() != dictionaryRevision) return false;

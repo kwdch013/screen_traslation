@@ -155,10 +155,14 @@ JSON errorは`code`, 利用者向け`message`, UUID `correlation_id`, boolean `r
 | session already active | 409 | 現owner解放後、利用者が開始操作を再実行 |
 | stale revision | 409 + ETag | GETし編集を再適用 |
 | image/message over limit | 413 / close 1009 | ROI再選択か画像設定を見直す。無断縮小しない |
-| invalid image/geometry | WSS `INVALID_IMAGE`, close 1008 | format, decoded dimensions, #63 coordinatesを確認 |
+| invalid image/geometry | 形式・寸法の不正: close 1008。パイプライン上限(寸法・頻度・容量)に達したframe: WSS `error` `code=INVALID_IMAGE`(該当frameのみ。streamは閉じない) | format, decoded dimensions, #63 coordinatesを確認。次のframeは通常どおり処理 |
 | OCR timeout | WSS `error` `code=OCR_TIMEOUT`(該当frameのみ。streamは閉じない) | 利用者へ領域を狭めて選び直す案内を表示(10秒に1回まで)。次のframeは通常どおり処理 |
+| processing failed (1 frame) | WSS `error` `code=PROCESSING_FAILED`(該当frameのみ。streamは閉じない) | 利用者へ固定文言で通知(10秒に1回まで)。同じframeは再送せず、次のframeは通常どおり処理 (#226) |
+| model not ready (WSS) | WSS `error` `code=MODEL_NOT_READY`(該当frameを破棄。streamは閉じない) | 接続を維持して固定文言で通知(#226)。送信の一時停止・ready再確認・再開は#202 |
 | model not ready | 503 | readinessを表示し、準備後に明示再試行 |
 | processing fault | 500 / close 1011 | correlation_idで運用者が調査。内容をログに保存しない |
+
+WSS `error`の`code`ごとの扱い(致命/非致命・再試行・未知のcode)は[契約README](../../../contracts/README.md#wss-errorのcodeごとの扱い)と`contracts/fixtures/stream-error-handling.json`が正本です。致命(`AUTHENTICATION_FAILED`・`SESSION_MISMATCH`・`PROTOCOL_VIOLATION`・`MESSAGE_TOO_LARGE`・未知のcode)はclientがstreamを閉じ、非致命(`PROCESSING_FAILED`・`OCR_TIMEOUT`・`MODEL_NOT_READY`・`INVALID_IMAGE`)は現在のsession・世代・revisionの送信済みframeに対するものだけを採用して接続を維持します。
 
 WSS close reasonは固定code `AUTHENTICATION_FAILED`, `SESSION_MISMATCH`, `PROTOCOL_VIOLATION`, `MESSAGE_TOO_LARGE`, `PROCESSING_FAILED`のいずれかで、最大123 UTF-8 bytes。秘密や入力値を含めません。クライアント向けcorrelation IDを必要とする入力エラーはUpgrade前HTTP error、Upgrade後は汎用`error` text message (`code`, `correlation_id`)後にcloseします。詳細close fixtureは#64の作業範囲です。
 

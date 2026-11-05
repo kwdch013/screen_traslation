@@ -17,6 +17,10 @@ services:
       # 起動のたびに生成する一時CA・端末資格情報の受け渡し先(リポジトリへ秘密を置かない)
       - shared:/shared
       - ./tests/real-server:/harness:ro
+      # 試験が作る間だけ1フレームの処理失敗を起こす注入ファイルの置き場(Issue #226)
+      - fault:/fault
+    environment:
+      REAL_SERVER_FAULT_FILE: /fault/ocr-failure
     # 切断検知は製品の既定(5秒)で動かす。短縮すると静止画面の維持を製品の値で確認できない(Issue #245)
     command: [python, -B, /harness/serve.py, /shared]
     healthcheck:
@@ -38,7 +42,9 @@ services:
     volumes:
       - shared:/shared:ro
       - ../contracts:/workspace/contracts:ro
+      - fault:/fault
     environment:
+      REAL_SERVER_FAULT_FILE: /fault/ocr-failure
       REAL_SERVER_URL: https://localhost:8443
       REAL_SERVER_NOT_READY_URL: https://localhost:8444
       REAL_SERVER_SETTINGS_URL: https://localhost:8445
@@ -53,3 +59,4 @@ services:
       - Category=RealServerIntegration
 volumes:
   shared: {}
+  fault: {}
