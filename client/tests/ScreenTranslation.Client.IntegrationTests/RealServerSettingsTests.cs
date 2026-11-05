@@ -9,6 +9,8 @@ namespace ScreenTranslation.Client.IntegrationTests;
 /// 製品と同じ通信部品(ServerSettingsApiClient)と編集モデルを使う。端末の見た目・保護保存は範囲外(Owner実機手順)。
 /// </summary>
 [Trait("Category", "RealServerIntegration")]
+// 設定専用の待受の辞書revisionを動かす試験(#100の通し)と並列に走らせない
+[Collection("RealServerSettings")]
 public sealed class RealServerSettingsTests
 {
 	private static readonly TimeSpan Watchdog = TimeSpan.FromSeconds(60);

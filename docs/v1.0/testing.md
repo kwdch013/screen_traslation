@@ -217,6 +217,50 @@ dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windo
 
 **この試験が検証しないこと(未実施)**: 見た目、実際のマウス・キー入力、混在DPI・複数モニター、実WGC・実サーバーとの通し。これらは上記のOwner実機手順で確認する。フィールド型でないイベント(`add`/`remove`を自前実装したもの)は購読の有無を調べられないため、許可リストに理由を書かない限り不合格にする。
 
+## Windowsクライアント全体の操作結合テスト (Issue #100)
+
+R3の各Phase(画面取得・領域選択・送信・結果の重畳・操作とホットキー・設定と辞書)の部品を、個別試験の書き写しではなく**層をまたぐ1本の流れ**で確認する。流れは「設定(保存した接続先)→接続→対象選択→ROI選択→画像送信→結果受信→重畳→辞書更新→再選択(世代1から)→停止」。**どの相手・どの環境で確認したか**を次の表で区別する。
+
+| 区分 | 場所・分類 | 相手・環境 | 確認すること |
+| --- | --- | --- | --- |
+| 契約に基づくテスト用サーバーとの通し | `client/tests/ScreenTranslation.Client.IntegrationTests/ClientScenarioTests.cs`・`ClientScenarioFaultTests.cs`(土台は`ScenarioContractServer.cs`・`ScenarioRig.cs`)。`Category=ClientScenarioIntegration`と`Category=ClientIntegration` | 実TLSのHTTPS制御API・WSSを契約どおりに話す**テスト用サーバー**(Kestrel。OCR・翻訳エンジンは無い)。Linuxコンテナ(`client/compose.test.yml`)と`windows-client` CI(solution全体)の両方で実行 | 保存済み設定から接続→POST→WSS開き直し→PNG送信(負座標・DPI192のROI左上の画素)→結果→重畳の物理座標→履歴→辞書保存でrevisionが進む→再選択でDELETE・表示と履歴の消去→再開始(新session・世代1・新revision)→停止。遅れた結果(旧世代・別session・旧revision・未送信frame・取得から5秒超過)が表示にも履歴にも混入しない/表示の5秒失効/切断(表示消去・送信停止・切断中の停止は何もしない)/`OCR_TIMEOUT`の案内と通信維持/503 `MODEL_NOT_READY`(POST)の案内と回復/除外を確認できないときの非送信・非取得/表示直前の除外喪失/DPI変更通知での停止/ホットキーの競合表示とキーでの開始・停止/応答が飛んでいる最中の終了 |
+| 本物のサーバーアプリとの通し | `ClientScenarioRealServerTests.cs`(`Category=RealServerIntegration`) | `client/compose.real-server.yml`(Linuxコンテナの本物のサーバー。OCR・翻訳だけ固定の代替)。接続先は環境変数で受け取り、**未設定ならskip(合格として数えない)** | 接続→開始→翻訳(`訳:Hello`)→管理資格情報で辞書保存→再選択→再開始→翻訳→停止→別端末が開始できる |
+| Windows実ウィンドウ・実HWND・実RegisterHotKey | `client/tests/ScreenTranslation.Windows.Tests/ClientScenarioWindowsTests.cs`(土台は`WindowsScenarioChain.cs`)。`Category=ClientIntegration`、WPF試験なので`[Collection("WpfSta")]` | `windows-client` CI(Windows hosted runner)。画面取得・ネットワーク・キャプチャ除外APIは代替 | 実`MainWindow`のボタン操作→実操作モデル→実セッションホスト→実`StreamTransportClient`(WSSは台本の代替ソケット)→実HWNDのオーバーレイ窓の表示・消去・破棄。実`RegisterHotKey`の競合が画面に出てボタンで開始できること。除外を確認できない実オーバーレイ窓では取得も送信もしないこと。DPI/画面構成の変化通知で選択が無効になる案内 |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+docker compose -f client/compose.real-server.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=ClientIntegration
+dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTranslation.Client.IntegrationTests.csproj --configuration Release --filter Category=ClientIntegration
+```
+
+**skipの扱い**: 実サーバー結合(`RealServerIntegration`)は接続先の環境変数が無いとskipする。skipは合格に数えない。`windows-client` CIでは本物のサーバーを起動しないため、この区分はWindows上では常にskipで、Linuxの`client/compose.real-server.yml`の結果だけで確認する。時計は注入(固定sleepを同期条件にしない)し、待機の上限はハング検出のwatchdogで合否の時間条件ではない。
+
+### 未解決事項 (この通しで見つかった・確認できていない項目)
+
+次は**現行クライアントが期待どおりでない**(または未実装の)項目です。通ったことにはしません。試験は現行の挙動を「既知の未解決(`KnownGap_`)」として固定してあり、修正されると落ちるので、期待を仕様へ改めてこの表から外してください。
+
+| 項目 | 現行の挙動(試験で確認) | 関連 |
+| --- | --- | --- |
+| フレーム単位の非致命エラー | WSSで`MODEL_NOT_READY`・`PROCESSING_FAILED`を受けると通信全体を閉じて停止する(`KnownGap_FrameLevelError_CurrentlyClosesTheWholeStream`)。`MODEL_NOT_READY`後に待機・ready確認・再開する挙動は未実装 | #226 / #202(未実装) |
+| 実行中sessionへの辞書revision適用 | 辞書を保存しても実行中のsessionのrevisionを更新しない(`UpdateDictionaryRevision`の呼び出し元が無い)。旧revisionのフレームはサーバーに破棄され、停止して開始し直すまで新しい訳文が出ない(`KnownGap_DictionaryUpdateDuringStreaming_IsNotAppliedToTheRunningSession`)。本物のサーバー相手では、更新後に表示が止まり、観測した実行では通信も切れた(切れ方は処理中フレームの有無で変わり得る。原因の特定は未実施)。契約は「保存成功で即時active」 | #241 |
+| 再選択後の新sessionの履歴 | 履歴の最小世代が単調に増えるが世代は新sessionで1に戻るため、再選択を経たsessionの結果が履歴に記録されない(`KnownGap_HistoryOfANewSessionStartedAfterReselect_IsNotRecorded`)。REQ-F-007(履歴の閲覧)に反する | #242 |
+| 通信部品の分割・開き直し競合試験 | 未着手(`StreamTransportClient.cs`は500行超) | #222 |
+| 全画面の複雑背景のOCR予算 | Owner判断待ち。この通しでは検証していない | #224 |
+
+### Owner実機手順 (Windowsクライアント全体)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、モニター構成(解像度・DPI・配置)、GPU、接続先の種別(実サーバーか)、合否をIssueへ記録し、この欄を更新してください。CI成功をこの項目の実施として数えません。
+
+1. 実サーバーに接続し、実際のウィンドウとディスプレイで、対象選択→ROI選択→開始→字幕の重畳→辞書の編集→再選択→停止を通す。字幕が対象の上に出て、操作を邪魔せず(クリック透過・フォーカスを奪わない)、翻訳結果が自分自身の字幕を再翻訳しない(自己キャプチャが無い)こと。
+2. 混在DPI(100%と150%以上)・複数モニター・負座標のディスプレイで、同じ流れを通し、ROIと字幕の位置がずれないこと。ウィンドウを別DPIのモニターへ移したとき、停止して選び直しの案内が出ること。
+3. ホットキーを他アプリと競合させ、理由と代替のボタン操作が表示されること。実際のキー入力で開始・停止すること。
+4. 翻訳中にネットワークを切る/サーバーを止め、1秒以内に字幕が消え、再接続しても自動では再開しないこと。アプリを閉じる操作を応答の途中で行っても固まらず、サーバーのsessionが残らないこと。
+5. 辞書を保存した直後の翻訳の表示を確認し、上の「実行中sessionへの辞書revision適用」の現象(表示が止まる)を記録する。
+
 ## セッション取得・解放のHTTPSクライアント (Issue #210)
 
 `client/src/ScreenTranslation.Client/Api/`が、`POST /api/v1/sessions`(取得)と`DELETE /api/v1/sessions/{session_id}`(解放)を呼ぶ。共通の`ControlApiClient`(認証付きHTTPS・TLS検証・エラー分類。設定・辞書の編集 #99 が再利用する)と、`ISessionGrantProvider`の実装`SessionApiClient`から成る。

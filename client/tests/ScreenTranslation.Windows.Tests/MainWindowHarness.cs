@@ -32,6 +32,9 @@ internal sealed class MainWindowHarness : IDisposable
 	public MainWindow Window { get; private set; } = null!;
 	public int ComposedOperations { get; private set; }
 
+	/// <summary>設定すると、操作モデルの組み立てをフェイクのホストではなくこの関数で行う(層をまたぐ結合試験用)。ウィンドウ生成前に設定する。</summary>
+	private Func<Dispatcher, OperationsViewModel>? operationsFactory;
+
 	public static readonly CaptureTarget Target = new("screen-1", CaptureTargetKind.Display, "画面1", new CaptureBounds(0, 0, 1920, 1080), 96);
 
 	private MainWindowHarness()
@@ -43,7 +46,7 @@ internal sealed class MainWindowHarness : IDisposable
 	}
 
 	/// <summary>STAスレッドで本体を動かす。ウィンドウ生成前に保存しておく設定を渡せる。UIスレッドを待たせる同期待ちはしない。</summary>
-	public static void Run(Action<MainWindowHarness> body, ClientSettings? saved = null)
+	public static void Run(Action<MainWindowHarness> body, ClientSettings? saved = null, Func<Dispatcher, OperationsViewModel>? operations = null)
 	{
 		Exception? failure = null;
 		var stage = "開始前";
@@ -55,7 +58,7 @@ internal sealed class MainWindowHarness : IDisposable
 				stage = "同期コンテキスト設定";
 				SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
 				stage = "部品の生成";
-				using var harness = new MainWindowHarness();
+				using var harness = new MainWindowHarness { operationsFactory = operations };
 				stage = "設定の事前保存";
 				if (saved is not null) Task.Run(() => harness.Settings.SaveAsync(saved)).GetAwaiter().GetResult();
 				stage = "MainWindowの生成";
@@ -78,10 +81,11 @@ internal sealed class MainWindowHarness : IDisposable
 		Settings = Settings,
 		Credentials = Credentials,
 		AdminCredentials = AdminCredentials,
-		CreateOperations = (_, _) =>
+		CreateOperations = (_, dispatcher) =>
 		{
 			ComposedOperations++;
-			return new OperationsParts(new OperationsViewModel(Host, Grants, Selector, Hotkeys), new FakeCatalog());
+			var model = operationsFactory?.Invoke(dispatcher) ?? new OperationsViewModel(Host, Grants, Selector, Hotkeys);
+			return new OperationsParts(model, new FakeCatalog());
 		},
 		CreateServerSettingsApi = _ => Api
 	};
