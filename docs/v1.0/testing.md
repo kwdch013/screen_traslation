@@ -561,9 +561,9 @@ OCRは`server/src/screen_translation_server/engines/robust_ocr.py`(server専用�
 - ROI上限（幅1280px・高さ300px・384,000画素）を超える画像は、OCRエンジンでも縮小せず`OcrInputTooLargeError`で拒否します(通常は受信時の`validate_roi`が`INVALID_IMAGE`で拒否し、再選択を案内します)。
 
 **試験**
-- ROI受信上限(`test_input_limits.py`・`test_roi_limit_stream.py`): 契約fixtureの1280×300を受理し、1281×300と1280×301を拒否します。上限超過は画像decode前に`INVALID_IMAGE`を返し、WSS接続を閉じずsession heartbeatも更新しません。通常の形式不正binaryは従来どおり1008で閉じます。
+- ROI受信上限（`test_input_limits.py`・`test_roi_limit_stream.py`）: 契約fixtureの1280×300を受理し、1281×300と1280×301を拒否します。上限超過は画像decode前に`INVALID_IMAGE`を返し、WSS接続を閉じずsession heartbeatも更新しません。通常の形式不正binaryは従来どおり1008で閉じます。
 - 単体(`test_tesseract_runner.py`・`test_ocr_quality.py`): 偽の`sh`コマンドでハング・SIGTERM無視・孫プロセス・異常終了・起動失敗を再現し、kill・回収を確認。期限の配分(最初=全体期限、追加=1.0秒−経過、前処理時間を差し引く、残りなしでは起動しない)は注入した時計で決定的に確認。
-- 結合(`integration/test_ocr_time_budget.py`、実Tesseract): ROI上限(1280×300)の全面ノイズで、**起動済みのTesseractが期限でkillされ回収される**こと(起動回数を数え、前処理だけで期限切れになった場合と区別)、3回繰り返しても**子プロセス・zombie・スレッドが増えない**こと、直後の通常フレームが同じエンジンで読めることを確認します。上限外の全画面寸法をOCRへ渡す試験は、受信境界で拒否する仕様のため行いません。サーバー経由では、上限ROIのノイズ(PNGは符号化後上限内)が`OCR_TIMEOUT`になり、次のフレームが翻訳結果になることを確認します。試験の期限は1.5秒に短縮、実時間の上限はハング検出用の余裕値(期限+8秒)で、1000 ms予算の合否には使いません。
+- 結合(`integration/test_ocr_time_budget.py`、実Tesseract): 標準ROIサイズ(1280x300)の全面ノイズで、**起動済みのTesseractが期限でkillされ回収される**こと(起動回数を数え、前処理だけで期限切れになった場合と区別)、3回繰り返しても**子プロセス・zombie・スレッドが増えない**こと、直後の通常フレームが同じエンジンで読めること。1920x1080のノイズ(8bit/RGB)と全画面の縞背景は、前処理(メディアン、1920x1080のノイズで約1.3秒)で期限の大半を使うため、Tesseract起動前の期限切れも含めて「期限内に戻り、何も残らない」ことを確認。サーバー経由では、ノイズ(PNG約2 MB、符号化後上限内)が`OCR_TIMEOUT`になり、次のフレームが翻訳結果になること。試験の期限は1.5秒に短縮、実時間の上限はハング検出用の余裕値(期限+8秒)で、1000 ms予算の合否には使いません。
 - 前処理は中断できないため、期限の一部を消費します。拡大後画素数の上限(400万)が、その最悪時間(約0.4〜1.3秒)を抑えます。
 
 **Owner判断と残る事項**

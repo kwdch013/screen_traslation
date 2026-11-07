@@ -314,6 +314,22 @@ Dependabot-onlyの判定条件はPR authorがGitHub API上の`dependabot[bot]`�
 
 PR #119の読み戻しでは、Rulesetのbase SHAと一致する`develop`に対して、PRがDraftでなく、`mergeable=MERGEABLE`、レビュー未承認、CI run 42385662121の全jobがsuccess、required status `AI Review Gate=pending`（説明「独立レビュー待ち」）、`mergeStateStatus=BLOCKED`だった。同一HEADのCIが成功し、BEHINDやDraftではない状態でGateの未承認待ちが統合を止めることを確認した。残る検証はContributor本人承認、古いHEAD、Gate success + CI failureと独立承認+CI success、およびrequired化前後の全5ケース一式である。Dependabotの受理経路は通常PRの独立承認受理とは別ケースである。
 
+#### Task #276 required化後の検証結果（2026-11-07）
+
+Ruleset・リポジトリ設定は変更せず、develop宛ての使い捨て通常PRでrequired化後のケースを確認した。各status/check runとPR HEADは同一SHAに紐付け、CI完了後に`gh api repos/kwdch013/screen_traslation/commits/<sha>/status`とPRの`mergeStateStatus`を読み戻した。Rulesetは`protect-develop` (19132355: `test`・`AI Review Gate`必須、strict、squashのみ) と`protect-main` (26752581: `test`必須、merge commitのみ)。確認時のdefault branchは`develop`、repository merge設定はsquash/merge commit有効、rebase無効だった。
+
+| ケース | 検証PR・HEAD SHA | AI Review Gate status / run | required `test` / CI run | `mergeStateStatus`・後処理 |
+| --- | --- | --- | --- | --- |
+| 1. 未承認・通常・非Draft | [#282](https://github.com/kwdch013/screen_traslation/pull/282) `120abcddea29b35d4b0d7f1d4b972ffba41ced05` | 16:30:19Zに`pending`（説明: 独立レビュー待ち。status履歴を読み戻し）。[run 42391610395](https://github.com/kwdch013/screen_traslation/actions/runs/42391610395)はjob success。close後の最新commit statusは16:36:13Zに`failure`（ポリシー違反）。 | `success`。[run 42391596390](https://github.com/kwdch013/screen_traslation/actions/runs/42391596390) | 検証時`BLOCKED`。Draft=false、base `2d6b747f7f5d19eb48a794a00042c983c31355e3`。未承認によるpendingを確認してからmergeせずclose・head branch削除。現時点もclosed / `BLOCKED`。 |
+| 2. Contributor自身の承認 | [#283](https://github.com/kwdch013/screen_traslation/pull/283) `d1de0694a951d45787c2aad22936a308978efe82` | Contributor自身のWork Unit `f1c3efa5-4eb1-4309-9c2e-109d31e6ef44`を除外し`failure`。[run 42391685093](https://github.com/kwdch013/screen_traslation/actions/runs/42391685093)。close後も最新statusは`failure`（16:36:16Z）。 | `success`。[run 42391663441](https://github.com/kwdch013/screen_traslation/actions/runs/42391663441) | 検証時`BLOCKED`。承認コメントと`pr/approved`を付けても拒否。mergeせずclose・head branch削除。現時点もclosed / `BLOCKED`。 |
+| 3. 承認後にHEAD更新 | [#284](https://github.com/kwdch013/screen_traslation/pull/284) 承認対象 `ac4ee9bccaed512e74eefc05df40ee904511a395` → 最新 `80d3b7be75975401ca039f3b5a1f6fd7fef59bbb` | 旧HEADは別Work UnitのClaude承認後Gate success。[run 42392307879](https://github.com/kwdch013/screen_traslation/actions/runs/42392307879)。更新後HEADは承認SHA不一致で`failure`。[run 42392372224](https://github.com/kwdch013/screen_traslation/actions/runs/42392372224)、status履歴もfailure。 | 最新HEAD `success`。[run 42392374361](https://github.com/kwdch013/screen_traslation/actions/runs/42392374361) | 検証時`BLOCKED`。追加commitでstale化を確認後、mergeせずclose・head branch削除。現時点もclosed / `BLOCKED`。 |
+| 4. 承認あり・CI失敗 | [#285](https://github.com/kwdch013/screen_traslation/pull/285) `8dee87dfd07a7d7640b6988e03bcede2248a20a5` | 別Work UnitのClaude承認後は16:45:14Zに`success`。[run 42392845672](https://github.com/kwdch013/screen_traslation/actions/runs/42392845672)。close後の最新statusは16:48:07Zに`failure`（ポリシー違反）。 | `failure`。[run 42392296796](https://github.com/kwdch013/screen_traslation/actions/runs/42392296796)。`web` jobで`.NET SDK 10.0.402`の文書assertionが失敗し、`contracts` jobも別の結合assertionで失敗。 | 検証時`BLOCKED`。Gate successでもrequired `test` failureが統合を止めることを同一HEADで確認後、mergeせずclose・head branch削除。現時点もclosed / `BLOCKED`。 |
+| 5. 独立承認 + CI成功 | [#286](https://github.com/kwdch013/screen_traslation/pull/286) `1e91e7b728e12cd911f1dd6c14263e8ca601f51d` | Claudeの別Work Unit `1a7b8166-6274-43f8-a412-5a23ed07b354`が17:01:51Zに承認Commentを投稿。Gateは17:02:02Zに`success`、[run 42394249444](https://github.com/kwdch013/screen_traslation/actions/runs/42394249444)。status履歴で確認。close後17:02:53Zの最新statusは`failure`に再評価された。 | `success`。[run 42391871949](https://github.com/kwdch013/screen_traslation/actions/runs/42391871949) | 17:02:11Zに`CLEAN`を確認。17:02:43Zにmergeせずclose、head branch削除済み。現在はclosed / `BLOCKED`。検証時点の独立承認+CI成功による受理可能状態を確認済み。 |
+
+status履歴は各SHAの`gh api repos/kwdch013/screen_traslation/commits/<sha>/statuses`、runのHEAD SHAとjob結果は`gh run view <run-id>`、PRの現在状態は`gh pr view`で読み戻した。ケース1〜5の検証時merge状態はいずれも`BLOCKED`（ケース5のみ承認後17:02:11Zに`CLEAN`）。使い捨てPRをcloseした後にGateが再評価され、最新commit statusがfailureへ変わったケースがある。記録表では検証時のstatusとclose後の最新値を区別した。
+
+このTaskではOwner指定によりrequired化後のケースだけを実行した。required化前の5ケースは未実施であり、成功扱いにしない。したがって親Issue #118のrequired化前後10ケース受入条件は未完了で、#118はOpenのまま維持する。
+
 ### 基盤テスト
 
 ```bash
