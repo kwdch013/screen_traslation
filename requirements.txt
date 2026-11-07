@@ -1,4 +1,4 @@
-pillow>=12.3.0
+pillow>=13.0.0
 pytesseract>=0.3.13
 argostranslate>=1.11.0
 fastapi>=0.141.1
