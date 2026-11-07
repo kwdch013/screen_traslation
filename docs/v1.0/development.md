@@ -278,7 +278,7 @@ GITHUB_TOKEN="$(gh auth token)" python3 scripts/ai-review-gate.py \
   --repo "$(gh repo view --json nameWithOwner --jq .nameWithOwner)" --pr-number <PR番号>
 ```
 
-`--issue-number <番号>` はIssueを指定して関連PRを再評価します。ゲートは全commitの証跡・最新判断・HEAD一致・IssueのOpen/review-required・`pr/block` を確認します。commit APIの上限250件に達したPRは検証不足として拒否します。CIの `test` とconversation解決は別途merge条件として確認します。Issueの受入条件が未達の場合、PR本文は `Refs #<番号>` としてIssueを自動closeしないようにします。
+`--issue-number <番号>` はclosing keywordで関連付いたOpen PRを再評価します。ゲートは全commitの証跡・最新判断・HEAD一致・認識したIssueのOpen/review-required・`pr/block` を確認します。commit APIの上限250件に達したPRは検証不足として拒否します。CIの `test` とconversation解決は別途merge条件として確認します。受入条件未達のIssueはPR本文で `Refs #<番号>` と参照し、自動closeを避けます。`Refs` はゲートのlinked Issue判定には使われません。
 
 ### workflowの信頼境界と受入実証
 

@@ -30,6 +30,7 @@ class AiReviewGateDocumentationTest(unittest.TestCase):
 		self.assertIn("未完了", document)
 		self.assertIn("Task #276", document)
 		self.assertIn("`Refs #<番号>`", document)
+		self.assertIn("`Refs` はゲートのlinked Issue判定には使われません", document)
 		self.assertIn("#118は実証完了までOpenのまま維持", document)
 
 	def _read_development_guide(self) -> str:
