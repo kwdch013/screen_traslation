@@ -162,8 +162,8 @@
 - guard: なし
 
 ## 2026-11-07 文書テストがCI用コンテナに文書がない前提を見落とした
-- 何が起きたか: `app:ci`上で文書検査テストが`docs/v1.0/development.md`を読み込もうとして`FileNotFoundError`になった。
-- 根本原因: テスト追加前にCI実行環境のファイル配置を確認せず、コンテナ内にもdocsがあると仮定した。
-- 正しいやり方: 文書を含まない実行環境では文書検査をskipし、ホスト側のリポジトリで文書テストを実行する。CI用イメージの実際の配置を事前に確認する。
-- 発生回数: 1
-- guard: なし
+- 何が起きたか: `app:ci`上で文書検査テストが`docs/v1.0/development.md`を読み込もうとして`FileNotFoundError`になった。2026-11-07の再発では、CI失敗用fixtureを作る際に、選んだ`test_ai_review_gate_documentation.py`が実際のPR workflowで呼ばれていないことを事前確認せず、最初の検証PRがCI成功になった。
+- 根本原因: CI実行環境のファイル配置だけでなく、workflowの実コマンド・job・mountと対象assertionの対応を確認せず、unittest discoveryで検出されるテストが必須checkでも実行されると思い込んだ。
+- 正しいやり方: `.github/workflows/`でrequired checkが実行するworkflow・job・コマンド・作業ディレクトリ・mountを確認し、対象assertionがその経路で実行されると確かめる。実行後はログにテスト名と期待するassertion失敗があることを読み戻す。
+- 発生回数: 2
+- guard: guard-ci-test-selection
