@@ -153,3 +153,10 @@
 - 正しいやり方: Mutationは対象メソッド単位の差分で戻し、各mutation後に`git diff -- <対象ファイル>`で正しい本体へ戻ったことを確認してから、最新ソースを含むコンテナで最終テストを実行する。
 - 発生回数: 1
 - guard: なし
+
+## 2026-11-07 PR作成前にIssueをレビュー待ちへ遷移しなかった
+- 何が起きたか: PR #275作成時にIssue #274を`issue/in-progress`のままにしていたため、AI Review Gateが`issue/review-required`不足として一度failureを発行した。PR作成後にIssue/PRの状態ラベルを更新し、ラベル変更イベントによる再評価を確認した。
+- 根本原因: PR作成と状態ラベル遷移を一つの完了手順として扱わず、PR作成直後にGateが評価することを考慮しなかった。
+- 正しいやり方: PR作成の直前に受け入れ条件・CI・本文を確認し、PR作成後は直ちにIssueを`issue/review-required`、PRを`pr/review-required`へ遷移させる。その後、ラベル変更後の最新Gate runをread-backする。
+- 発生回数: 1
+- guard: なし
