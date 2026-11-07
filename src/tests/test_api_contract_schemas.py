@@ -81,6 +81,33 @@ class ApiContractSchemaTests(unittest.TestCase):
 		self.assertIn("generation", fixtures[0])
 		self.assertIn("frame_id", fixtures[0])
 		self.assertIn("dictionary_revision", fixtures[0])
+		maximum = next(fixture for fixture in fixtures if fixture["image_width"] == 1280 and fixture["image_height"] == 300)
+		validator.validate(maximum)
+		for field, value in (("image_width", 1281), ("image_height", 301)):
+			with self.subTest(field=field, value=value):
+				invalid = dict(maximum, **{field: value})
+				with self.assertRaises(self.ValidationError):
+					validator.validate(invalid)
+
+	def test_roi_limits_match_openapi_json_schemas_and_compatibility_fixtures(self) -> None:
+		openapi = (self.contracts / "openapi.yaml").read_text(encoding="utf-8")
+		self.assertIn("maximumImageWidth: 1280", openapi)
+		self.assertIn("maximumImageHeight: 300", openapi)
+		self.assertIn("maximumImagePixels: 384000", openapi)
+		for schema_name in ("frame-metadata", "stream-message"):
+			with self.subTest(schema=schema_name):
+				schema_text = (self.contracts / "schemas" / f"{schema_name}.schema.json").read_text(encoding="utf-8")
+				self.assertIn('"maximum": 1280', schema_text)
+				self.assertIn('"maximum": 300', schema_text)
+		fixtures = self.read_json(self.contracts / "fixtures/compatibility.json")
+		for fixture in fixtures:
+			if fixture["id"] in ("frame-valid-maximum", "stream-result-valid-maximum"):
+				with self.subTest(fixture=fixture["id"]):
+					self.validator(fixture["schema"]).validate(fixture["value"])
+			if fixture["id"] in ("frame-area-too-large", "stream-result-width-too-large", "stream-result-height-too-large", "stream-result-area-too-large"):
+				with self.subTest(fixture=fixture["id"]):
+					with self.assertRaises(self.ValidationError):
+						self.validator(fixture["schema"]).validate(fixture["value"])
 
 	def test_invalid_uuid_format_is_rejected_by_the_format_checker(self) -> None:
 		fixtures = self.read_json(self.contracts / "fixtures/frame-metadata.json")

@@ -6,6 +6,10 @@ namespace ScreenTranslation.Client.Transport;
 
 public static class TransportProtocol
 {
+	private const int MaximumRoiWidth = 1280;
+	private const int MaximumRoiHeight = 300;
+	private const long MaximumRoiPixels = 384_000;
+
 	public static JsonSerializerOptions JsonOptions { get; } = new()
 	{
 		PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -19,9 +23,9 @@ public static class TransportProtocol
 		&& metadata.Generation > 0
 		&& metadata.FrameId > 0
 		&& metadata.DictionaryRevision > 0
-		&& metadata.ImageWidth is >= 64 and <= 1920
-		&& metadata.ImageHeight is >= 32 and <= 1080
-		&& (long)metadata.ImageWidth * metadata.ImageHeight <= 2_073_600
+		&& metadata.ImageWidth is >= 64 and <= MaximumRoiWidth
+		&& metadata.ImageHeight is >= 32 and <= MaximumRoiHeight
+		&& (long)metadata.ImageWidth * metadata.ImageHeight <= MaximumRoiPixels
 		&& metadata.ContentType is "image/png" or "image/jpeg"
 		&& metadata.ImageLength is >= 1 and <= FrameMessage.MaximumImageBytes;
 
@@ -32,9 +36,9 @@ public static class TransportProtocol
 		&& IsPositiveUInt64(metadata, "generation")
 		&& IsPositiveUInt64(metadata, "frame_id")
 		&& IsPositiveUInt64(metadata, "dictionary_revision")
-		&& TryInt(metadata, "image_width", 64, 1920, out var width)
-		&& TryInt(metadata, "image_height", 32, 1080, out var height)
-		&& (long)width * height <= 2_073_600
+		&& TryInt(metadata, "image_width", 64, MaximumRoiWidth, out var width)
+		&& TryInt(metadata, "image_height", 32, MaximumRoiHeight, out var height)
+		&& (long)width * height <= MaximumRoiPixels
 		&& metadata.GetProperty("content_type").ValueKind == JsonValueKind.String
 		&& metadata.GetProperty("content_type").GetString() is "image/png" or "image/jpeg"
 		&& TryInt(metadata, "image_length", 1, FrameMessage.MaximumImageBytes, out _);
@@ -161,9 +165,9 @@ public static class TransportProtocol
 			|| !IsPositiveUInt64(value, "frame_id")
 			|| !IsPositiveUInt64(value, "dictionary_revision")
 			|| !IsUuid(value, "correlation_id")
-			|| !TryInt(value, "image_width", 64, 1920, out var width)
-			|| !TryInt(value, "image_height", 32, 1080, out var height)
-			|| (long)width * height > 2_073_600
+			|| !TryInt(value, "image_width", 64, MaximumRoiWidth, out var width)
+			|| !TryInt(value, "image_height", 32, MaximumRoiHeight, out var height)
+			|| (long)width * height > MaximumRoiPixels
 			|| !TryInt(value, "server_processing_ms", 0, 30_000, out _)
 			|| value.GetProperty("status").ValueKind != JsonValueKind.String
 			|| value.GetProperty("status").GetString() is not ("ok" or "empty")

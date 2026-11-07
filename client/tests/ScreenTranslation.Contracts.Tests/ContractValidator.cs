@@ -7,6 +7,8 @@ internal static class ContractValidator
 {
 	private const string UuidPattern = "D";
 	private const ulong MaxUInt64 = ulong.MaxValue;
+	private const int MaxRoiWidth = 1280;
+	private const int MaxRoiHeight = 300;
 
 	public static bool IsValid(string schema, JsonElement value)
 	{
@@ -95,8 +97,8 @@ internal static class ContractValidator
 		["contract_version", "session_id", "generation", "frame_id", "dictionary_revision", "image_width", "image_height", "content_type", "image_length"])
 		&& Int(value, "contract_version", 1, 1) && Uuid(value, "session_id")
 		&& UInt(value, "generation", 1, MaxUInt64) && UInt(value, "frame_id", 1, MaxUInt64)
-		&& UInt(value, "dictionary_revision", 1, MaxUInt64) && Int(value, "image_width", 64, 1920)
-		&& Int(value, "image_height", 32, 1080) && EnumString(value, "content_type", ["image/png", "image/jpeg"])
+		&& UInt(value, "dictionary_revision", 1, MaxUInt64) && Int(value, "image_width", 64, MaxRoiWidth)
+		&& Int(value, "image_height", 32, MaxRoiHeight) && EnumString(value, "content_type", ["image/png", "image/jpeg"])
 		&& Int(value, "image_length", 1, 4194304);
 
 	private static bool Stream(JsonElement value)
@@ -123,7 +125,7 @@ internal static class ContractValidator
 			["type", "session_id", "generation", "frame_id", "dictionary_revision", "correlation_id", "status", "image_width", "image_height", "regions", "server_processing_ms"])) return false;
 		if (!Uuid(value, "session_id") || !UInt(value, "generation", 1, MaxUInt64) || !UInt(value, "frame_id", 1, MaxUInt64)
 			|| !UInt(value, "dictionary_revision", 1, MaxUInt64) || !Uuid(value, "correlation_id") || !EnumString(value, "status", ["ok", "empty"])
-			|| !Int(value, "image_width", 64, 1920) || !Int(value, "image_height", 32, 1080)
+			|| !Int(value, "image_width", 64, MaxRoiWidth) || !Int(value, "image_height", 32, MaxRoiHeight)
 			|| !Int(value, "server_processing_ms", 0, 30000)) return false;
 		var regions = value.GetProperty("regions");
 		if (regions.ValueKind != JsonValueKind.Array || regions.GetArrayLength() > 500) return false;
@@ -135,8 +137,8 @@ internal static class ContractValidator
 		if (!Object(value, ["rect", "source", "translation", "confidence"], ["rect", "source", "translation", "confidence"])) return false;
 		var rect = value.GetProperty("rect");
 		if (rect.ValueKind != JsonValueKind.Null && (!Object(rect, ["left", "top", "right", "bottom"], ["left", "top", "right", "bottom"])
-			|| !Int(rect, "left", 0, 1920) || !Int(rect, "top", 0, 1080)
-			|| !Int(rect, "right", 1, 1920) || !Int(rect, "bottom", 1, 1080)
+			|| !Int(rect, "left", 0, MaxRoiWidth) || !Int(rect, "top", 0, MaxRoiHeight)
+			|| !Int(rect, "right", 1, MaxRoiWidth) || !Int(rect, "bottom", 1, MaxRoiHeight)
 			)) return false;
 		if (!String(value, "source", 1, 2048) || !String(value, "translation", 1, 2048)) return false;
 		var confidence = value.GetProperty("confidence");
