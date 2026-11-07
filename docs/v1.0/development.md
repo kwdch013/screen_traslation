@@ -297,6 +297,7 @@ Dependabot-onlyの判定条件はPR authorがGitHub API上の`dependabot[bot]`�
 | #271 | `140ea156fe6a51f8df49479d5bdbc89661d60b6b` | [run 42360197706](https://github.com/kwdch013/screen_traslation/actions/runs/42360197706) success | [run 42360196687](https://github.com/kwdch013/screen_traslation/actions/runs/42360196687) failure | CI失敗。Gate拒否証明にしない |
 | #272 | `a5a36e1a9cb0d803743016172a8f9cbfa925fae6` | [run 42360210833](https://github.com/kwdch013/screen_traslation/actions/runs/42360210833) success | [run 42360210461](https://github.com/kwdch013/screen_traslation/actions/runs/42360210461) failure | CI失敗。Gate拒否証明にしない |
 | #273 | `5646239554e39b3bd3f2d18e0295ef5a79f69f69` | [run 42360216052](https://github.com/kwdch013/screen_traslation/actions/runs/42360216052) success | [run 42360214991](https://github.com/kwdch013/screen_traslation/actions/runs/42360214991) success | BEHIND。受理証明にしない |
+| #119 | `eb9c4712914fd2e01b315444614192b28e69f4dc` | [run 42385660477](https://github.com/kwdch013/screen_traslation/actions/runs/42385660477) workflow success。status `AI Review Gate=pending`、説明「独立レビュー待ち」 | [run 42385662121](https://github.com/kwdch013/screen_traslation/actions/runs/42385662121) の全jobとrequired `test` success | base `29f6545be979da4590aa2c61eff98f4a3ba6587f`、Draft=false、mergeable、review未承認、`mergeStateStatus=BLOCKED`。未承認通常PRの拒否を実証 |
 
 #### #118受入状況
 
@@ -304,11 +305,11 @@ Dependabot-onlyの判定条件はPR authorがGitHub API上の`dependabot[bot]`�
 - [x] Ruleset `19132355`と`26752581`の対象ref、required context、strict、merge方式をAPIで読み戻した。
 - [x] developで実在・成功を確認した`test`と`AI Review Gate`をrequiredにし、設定を読み戻した。
 - [x] Dependabot-only PR #269についてGate success、CI success、GitHub `CLEAN`、squash mergeまで確認した。
+- [x] PR #119で、未承認通常PRのGate status pendingと`mergeStateStatus=BLOCKED`を、CI success・最新base・Draftでない同一HEADで確認した。
 - [ ] 未承認通常PR、Contributor本人承認、古いHEAD、Gate success + CI failure、独立承認+CI successの5ケースをrequired化前後で全て実証する。現時点で一式未完了。
-- [ ] required化後、未承認通常PRのGate statusと`mergeStateStatus=BLOCKED`を、Draft・BEHIND・CI未完了と区別して同一HEADで観測する。
 - [ ] 実証URL・SHA・run・Ruleset・統合状態を全ケース分記録し、Issue #118の残る受入条件を完了する。
 
-`BLOCKED`だけではGateが原因とは限りません。現在、通常PRで独立承認が無い状態のGate statusと`BLOCKED`を同一HEADで切り分けて示す証拠はありません。過去のGate failure/pending、#271/#272のCI failure、#268/#270/#273のBEHINDを代替証拠にしません。残る検証は専用TaskとPRで行う必要があり、今回そのTask/PRは作成していません。Dependabotの受理経路と通常PRの独立承認受理は別ケースです。
+PR #119の読み戻しでは、Rulesetのbase SHAと一致する`develop`に対して、PRがDraftでなく、`mergeable=MERGEABLE`、レビュー未承認、CI run 42385662121の全jobがsuccess、required status `AI Review Gate=pending`（説明「独立レビュー待ち」）、`mergeStateStatus=BLOCKED`だった。同一HEADのCIが成功し、BEHINDやDraftではない状態でGateの未承認待ちが統合を止めることを確認した。残る検証はContributor本人承認、古いHEAD、Gate success + CI failureと独立承認+CI success、およびrequired化前後の全5ケース一式である。Dependabotの受理経路は通常PRの独立承認受理とは別ケースである。
 
 ### 基盤テスト
 

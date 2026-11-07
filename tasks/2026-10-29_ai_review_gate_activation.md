@@ -122,13 +122,15 @@ Issue #118は6受入条件が未完了のためOpen・in-progressとClaimを維�
 | #269 Dependabot | `8977602ea22299e6c0843e99c099cef240877634` | run [42383837601](https://github.com/kwdch013/screen_traslation/actions/runs/42383837601) success。status `AI Review Gate=success`、説明「AI Review 対象外: Dependabot。人手で確認して merge」 | run [42383836734](https://github.com/kwdch013/screen_traslation/actions/runs/42383836734) の全jobと`test` success | CI完了後 `mergeStateStatus=CLEAN`。差分人手確認済みのため2026-11-07 15:02:11 UTCにsquash merge。merge SHA `29f6545be979da4590aa2c61eff98f4a3ba6587f` |
 | #268 / #270 / #273 | 各PRのlatest HEAD | status success | `test` success | `BEHIND`のため受理証明に使わない |
 | #271 / #272 | 各PRのlatest HEAD | status success | `test` failure | CI拒否の証拠であり、AI Review Gate拒否の証拠ではない |
+| #119 | `eb9c4712914fd2e01b315444614192b28e69f4dc` | workflow run [42385660477](https://github.com/kwdch013/screen_traslation/actions/runs/42385660477) success。status context `AI Review Gate=pending`、説明「独立レビュー待ち」 | CI run [42385662121](https://github.com/kwdch013/screen_traslation/actions/runs/42385662121) の全job・required `test` success | base `29f6545be979da4590aa2c61eff98f4a3ba6587f`、Draft=false、`mergeable=MERGEABLE`、reviewDecision空、`mergeStateStatus=BLOCKED`。未承認通常PRの拒否を確認 |
 
 #269では `@dependabot rebase` 後のHEAD `8977602...` にGate statusが発行され、Ruleset required、CI `test` success、GitHub `CLEAN` の順に確認してmergeした。Dependabot-only更新をrequired Gateで受理できる経路の実証となった。statusは `commits/8977602ea22299e6c0843e99c099cef240877634/status` APIで、workflow runとは別に読み戻した。
 
 ### 未充足の受入条件
 
 - required化前後それぞれの5ケース全ては実施していない。Contributor自身承認、古いHEAD、Gate success + CI failure、正常な通常PRの4パターンを同一規律で実証できていない。
-- required化後、Draft・BEHIND・CI未完了と区別した「未承認の通常PR」のGate status pending/failureと`mergeStateStatus=BLOCKED`を、同一HEAD・Ruleset下で同時に示す証跡がない。
+- Contributor本人承認、古いHEAD、Gate success + CI failure、独立承認+CI successの通常PRケース、およびrequired化前後の5ケース一式は未実施。
+- #119で未承認通常PRの拒否は確認したが、#118の全受入条件を完了するには残るケースと5ケース一式の証跡が必要。
 - #269の受理証明はDependabot-onlyの例外経路であり、通常PRの独立承認+CI成功による受理と同一視しない。
 - 完了条件に足りない実証は、独立した検証Issueに紐づく最小のTask/PRで行う案を残す。今回そのTask/PRは起票・作成していない。
 
@@ -140,6 +142,14 @@ python3 -m unittest discover -s src/tests -p 'test_development_branch.py' -v
 python3 -m py_compile src/tests/test_ai_review_gate_documentation.py
 ```
 
-- 文書確認テスト2件成功、既存branch文書テスト2件成功、py_compile成功。文書テストは実装前に2件失敗することを確認してから文書を更新した。
+- 文書確認テスト2件成功、既存branch文書テスト5件成功、Web文書テスト11件成功、py_compile成功。文書テストは実装前に2件失敗することを確認してから文書を更新した。
 - `ruff` はホストに未導入で実行不可。Docker buildは禁止条件のため、コンテナテストは実施していない。
-- `git diff --check` は末尾の余分な空行を除去後に成功を確認した。
+- `git diff --check` 成功。
+
+### #119の未承認通常PR実証
+
+- HEAD `eb9c4712914fd2e01b315444614192b28e69f4dc`。PRはDraftではなく、base `29f6545be979da4590aa2c61eff98f4a3ba6587f`、`mergeable=MERGEABLE`、`reviewDecision`空。
+- [Gate workflow run 42385660477](https://github.com/kwdch013/screen_traslation/actions/runs/42385660477)はsuccess。commit statuses APIの`AI Review Gate`はpending、「独立レビュー待ち」。
+- [CI run 42385662121](https://github.com/kwdch013/screen_traslation/actions/runs/42385662121)のcontracts/web/windows-client/server/required `test`が全てsuccess。
+- 同じ読み戻し時点で`mergeStateStatus=BLOCKED`。未承認、Gate pending、CI success、最新base、非Draftを同一HEADで確認した。
+- 独立レビューは未実施。PR #119はレビュー待ちのままとし、承認・mergeしていない。
