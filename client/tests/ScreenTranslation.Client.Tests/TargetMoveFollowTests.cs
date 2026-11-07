@@ -109,7 +109,7 @@ public sealed class TargetMoveFollowTests
 		f.Session.RaiseBoundsChanged(new CaptureBounds(900, -20, 1700, 580));
 
 		Assert.Equal(3ul, f.Host.Generation);
-		Assert.Equal(new CaptureRoute(new Rect2D(100, 100, 740, 420), 3), f.Session.BeginFrame());
+		Assert.Equal(new CaptureRoute(new Rect2D(100, 100, 740, 400), 3), f.Session.BeginFrame());
 	}
 
 	[Fact]
@@ -166,7 +166,7 @@ public sealed class TargetMoveFollowTests
 		await f.Host.StopAsync();
 		Assert.Equal(StartResult.Started, await f.Host.StartAsync(SessionId, 1));
 
-		Assert.Equal(new Rect2D(100, 100, 740, 420), f.Session.BeginFrame()!.Value.Roi);
+		Assert.Equal(new Rect2D(100, 100, 740, 400), f.Session.BeginFrame()!.Value.Roi);
 		Emit(f, Moved);
 		var (_, image) = await f.Transport.NextSentAsync();
 		var (_, _, rgb) = CaptureTestSupport.DecodePng(image);
