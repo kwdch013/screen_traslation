@@ -123,7 +123,7 @@ public sealed class AppWiringTests : IAsyncDisposable
 		Assert.Single(surface.Rendered);
 
 		var hides = surface.HideCount;
-		Assert.True(host.SelectRegion(new Rect2D(-1180, 100, -740, 420)));
+		Assert.True(host.SelectRegion(new Rect2D(-1180, 100, -740, 400)));
 		Assert.True(surface.HideCount > hides);
 		now += 1_000_000_000;
 		Assert.Equal(CapturePipelineOutcome.Submitted, Emit(seed: 2));
