@@ -99,7 +99,7 @@ class ApiContractSchemaTests(unittest.TestCase):
 				schema_text = (self.contracts / "schemas" / f"{schema_name}.schema.json").read_text(encoding="utf-8")
 				self.assertIn('"maximum": 1280', schema_text)
 				self.assertIn('"maximum": 300', schema_text)
-		fixtures = self.read_json(self.contracts / "fixtures/compatibility.json")
+		fixtures = self.read_json(self.contracts / "fixtures/compatibility.json")["cases"]
 		for fixture in fixtures:
 			if fixture["id"] in ("frame-valid-maximum", "stream-result-valid-maximum"):
 				with self.subTest(fixture=fixture["id"]):

@@ -173,7 +173,7 @@ internal sealed class HostFixture : IAsyncDisposable
 	public CapturePipelineOutcome? EmitFrame(int seed = 0) =>
 		Session.Emit(() => TestScreens.Capture(Display.Bounds, Interlocked.Read(ref Now), seed));
 
-	public string ResultJson(ulong generation, ulong frameId, int width = 640, int height = 320, ulong revision = 1) => $$"""
+	public string ResultJson(ulong generation, ulong frameId, int width = 640, int height = 300, ulong revision = 1) => $$"""
 		{"type":"result","session_id":"{{SessionId}}","generation":{{generation}},"frame_id":{{frameId}},"dictionary_revision":{{revision}},
 		 "correlation_id":"{{Guid.NewGuid()}}","status":"ok","image_width":{{width}},"image_height":{{height}},
 		 "regions":[{"rect":{"left":10,"top":20,"right":110,"bottom":60},"source":"src","translation":"訳文","confidence":0.9}],"server_processing_ms":1}

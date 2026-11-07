@@ -24,7 +24,7 @@ public sealed class OverlayPresentedTests
 
 	private static JsonElement Result(ulong generation, ulong frameId, string regions) => JsonDocument.Parse($$"""
 		{"type":"result","session_id":"{{SessionId}}","generation":{{generation}},"frame_id":{{frameId}},"dictionary_revision":1,
-		 "correlation_id":"{{Guid.NewGuid()}}","status":"ok","image_width":640,"image_height":320,
+		 "correlation_id":"{{Guid.NewGuid()}}","status":"ok","image_width":640,"image_height":300,
 		 "regions":{{regions}},"server_processing_ms":10}
 		""").RootElement.Clone();
 

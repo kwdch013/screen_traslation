@@ -52,7 +52,7 @@ public sealed class OverlayControllerTests
 	private static JsonDocument Result(ulong generation, ulong frameId, string translation = "訳文", string rect = """{"left":10,"top":20,"right":110,"bottom":60}""") =>
 		JsonDocument.Parse($$"""
 			{"type":"result","session_id":"{{SessionId}}","generation":{{generation}},"frame_id":{{frameId}},"dictionary_revision":1,
-			 "correlation_id":"{{Guid.NewGuid()}}","status":"ok","image_width":640,"image_height":320,
+			 "correlation_id":"{{Guid.NewGuid()}}","status":"ok","image_width":640,"image_height":300,
 			 "regions":[{"rect":{{rect}},"source":"src","translation":"{{translation}}","confidence":0.9}],"server_processing_ms":10}
 			""");
 
@@ -207,7 +207,7 @@ public sealed class OverlayControllerTests
 		var hides = f.Surface.HideCount;
 		using var empty = JsonDocument.Parse($$"""
 			{"type":"result","session_id":"{{SessionId}}","generation":1,"frame_id":2,"dictionary_revision":1,
-			 "correlation_id":"{{Guid.NewGuid()}}","status":"empty","image_width":640,"image_height":320,"regions":[],"server_processing_ms":1}
+			 "correlation_id":"{{Guid.NewGuid()}}","status":"empty","image_width":640,"image_height":300,"regions":[],"server_processing_ms":1}
 			""");
 
 		Assert.True(f.Controller.HandleResult(empty.RootElement));
