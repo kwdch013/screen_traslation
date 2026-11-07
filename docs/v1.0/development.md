@@ -114,11 +114,11 @@ GitHubのrename動作は[公式のブランチ名変更手順](https://docs.gith
 以下は既定ブランチdevelop上で行う段階導入手順です。#67はゲートのコード・workflow・ローカルテストをdevelopへ導入済みです。有効化とGitHub上の統合拒否/受理の実証は、同じPhase #65の必須Task [#118](https://github.com/kwdch013/screen_traslation/issues/118) が担当します。信頼済みscriptがdefault branchのdevelop上にあるため、mainへの先行リリースを挟まず、develop上のPRで検証します。#67の完了だけで実証済みとは扱わず、#118とPhase結合テストの完了までは #65 を閉じません。
 
 1. 現在のRuleset JSON、リポジトリのmerge設定、branch SHA、open PR一覧をgit管理外の `tmp/` へ保存する。Ruleset名・対象・required contextを読み、既存の `test` 保護を保持する。
-2. 既存Ruleset `19132355` の `refs/heads/dev` / `refs/heads/main` 対象を点検し、develop/main向けに整理する案とする。developはsquash限定、mainはmerge commit限定とし、PR必須・force push禁止を維持する。develop側の保護を確認してから既存Rulesetを更新する。Phaseを使う場合は `refs/heads/phase/**` にsquash限定・PR必須・force push禁止を適用し、完了後削除できるよう削除禁止は付けない。今回のTaskでは実設定を変更しない。
-3. リポジトリのsquashとmerge commitを有効、rebase mergeとマージ後ブランチ自動削除を無効にする。mainのmerge commit許可を確認してから切り替える。共有Rulesetを残すと制約が重なるため、別Rulesetの保護を確認後に旧共有Rulesetを更新・整理する。
+2. Rulesetの現状を読み戻す。2026-11-07時点では `protect-develop` (ID `19132355`) が `develop` を対象にPR必須・required `test`・squashのみ、`protect-main` (ID `26752581`) が `main` を対象にPR必須・required `test`・merge commitのみを設定している。リポジトリ設定はsquash/merge commit有効、rebase無効、マージ後のブランチ自動削除有効。実変更時は最新JSONを保存し、既存の `test` 保護を維持する。
+3. required化の前にDependabot-only PRでも `AI Review Gate` statusがsuccessになることを、信頼済みdevelop上のworkflow実行とGitHub statusで確認する。これはゲート対象外を表す成功で、独立レビュー承認を意味しない。通常PRの未承認はpending、ポリシー違反はfailureであることも確認する。Rulesetの実変更は別途明示承認後に行う。
 4. #67でscripts・hooks・AI Review Gate workflowを導入する。未稼働の `AI Review Gate` はまだrequiredにしない。導入PRは別エージェント・別worktreeの独立レビューとゲートCLIのローカル実行で検証し、developへ統合する。
-5. develop上の検証PRで `test` と `AI Review Gate` が最新HEADへ発行されることを確認する。未承認はstatus pendingでmerge不可、Contributor本人の承認と承認後に古くなったHEADはfailureで拒否され、別Work Unitによる最新HEAD承認はsuccessとなることを確認する。
-6. status contextが実在し成功履歴を持つことをread-backしてから、Ruleset #19132355をdevelop/main向けに整理する計画に従い、developに `test` と `AI Review Gate` をrequired設定する。mainはリリース保護としてmerge commitとrequired checkを維持する。strict値とPhase適用範囲は設定前に差分案で明示する。CodeQLの `analyze` は新たにrequired化しない。
+5. develop上の検証PRで `test` と `AI Review Gate` が最新HEADへ発行されることを確認する。通常PRの未承認はstatus pendingでmerge不可、Contributor本人の承認と承認後に古くなったHEADはfailureで拒否され、別Work Unitによる最新HEAD承認はsuccessとなることを確認する。Dependabot-only PRはstatus successでもAI承認済みとは扱わず、人手で依存差分とCIを確認する。
+6. `AI Review Gate` のstatus contextが実在し、通常PRの成功・pending・failureとDependabot-only PRのsuccessの各履歴をread-backしてから、Owner承認済みの差分案に沿って `protect-develop` のrequired contextsへ `AI Review Gate` を追加する。対象は `develop`、既存 `test` を保持し、mainのRulesetは今回変更しない。strict値とPhase適用範囲は設定前に明示する。CodeQLの `analyze` は新たにrequired化しない。
 7. required化後、5ケースを再実行する: 未承認(pending)・Contributor本人の承認・古いHEAD・CI失敗は統合不可、独立承認+CI成功+conversation解決済みは統合可能。ゲート失敗をLabel変更やbypassで回避しない。
 8. 検証PR URL、対象SHA、workflow実行URL、各status結果、Ruleset変更前後の案と実変更、統合可否、確認日時を #118・本文書・tasks/作業記録へ記録する。今回の計画更新TaskではRuleset / repository設定を実変更しない。
 
@@ -277,7 +277,7 @@ PR側のscriptを実行せず、常にdefault branchをcheckoutします。workf
 
 構造化承認がまだ無く、ほかに違反も無い状態はCLIで`PENDING`と表示し、commit status `AI Review Gate`を説明「独立レビュー待ち」の`pending`で発行します。workflow job `gate`は成功終了しますが、requiredなcommit statusはpendingのままなのでmergeできません。自己承認・古いHEAD・最新の変更要求・証跡不備・Issue状態不整合・`pr/block`は`FAIL`としてstatusをfailureにし、CLI終了コード1を返します。PASS/PENDINGは終了コード0です。`test`などCIの成功とconversation解決は別のrequired条件です。
 
-Dependabotが作成したPRは、AIエージェントのWork Unitが当てはまらないため`AI Review Gate`の規則違反とせず、「AI Review 対象外」として扱います（`scripts/ai_review_gate_dependabot.py`）。免除は次をすべて満たす場合だけです。(1) PR作成者がGitHub APIの`dependabot[bot]`（type `Bot`）、(2) PR内の全commitについてGitHubが解決した作者が`dependabot[bot]`（type `Bot`）、committerが`dependabot[bot]`または`web-flow`で、署名がGitHubにより検証済み、(3) commit一覧が250件未満で全件確認できる。PR本文の記載・同名ユーザー・署名未検証のcommit・人手/AIの追加commitは免除せず、従来の規則（marker・trailer・承認）を適用します。免除PRのstatusは説明「AI Review 対象外: Dependabot。人手で確認して merge」の`pending`、CLIは`EXEMPT`で終了コード0です。承認や自動mergeの経路は作らず、mergeはOwnerまたは人手の確認で行います。判定は信頼済みscriptがGitHub APIの値だけで行い、PR側のコードや本文を判定に使いません。実際のDependabot PRでの動作は、本変更がdevelopへ入った後にしか確認できません（#186）。
+Dependabotが作成したPRは、AIエージェントのWork Unitが当てはまらないため`AI Review Gate`の規則違反とせず、「AI Review 対象外」として扱います（`scripts/ai_review_gate_dependabot.py`）。免除は次をすべて満たす場合だけです。(1) PR作成者がGitHub APIの`dependabot[bot]`（type `Bot`）、(2) PR内の全commitについてGitHubが解決した作者が`dependabot[bot]`（type `Bot`）、committerが`dependabot[bot]`または`web-flow`で、署名がGitHubにより検証済み、(3) commit一覧が250件未満で全件確認できる。PR本文の記載・同名ユーザー・署名未検証のcommit・人手/AIの追加commitは免除せず、従来の規則（marker・trailer・承認）を適用します。免除PRのstatusは説明「AI Review 対象外: Dependabot。人手で確認して merge」の`success`、CLIは`EXEMPT`で終了コード0です。このsuccessはrequired checkの例外通過を表し、AIレビュー承認や依存更新の安全性を表しません。自動mergeの経路は作らず、merge前に人手で依存差分とCIを確認します。判定は信頼済みscriptがGitHub APIのPR作者・各commit作者/committer・署名検証結果だけで行い、PR側のコードや本文を判定に使いません。commit追加後は新しいPR HEADに対して`synchronize`で再評価します。GitHubのアカウント解決と署名検証に対する信頼は残るため、PR由来コードを実行せず、default branch上のworkflow/scriptを実行する境界を維持します。実際のDependabot PRでの動作は、本変更がdevelopへ入った後に確認します（#186）。
 
 この公開リポジトリで確認したGitHub公式情報:
 

@@ -39,7 +39,7 @@ class GateResult:
 	PASS = "PASS"
 	PENDING = "PENDING"
 	FAIL = "FAIL"
-	# Dependabot 単独の PR。AI Review の対象外で、承認・merge の経路は作らない (status は pending)
+	# Dependabot 単独の PR。required checkを通過可能にするが、承認・自動mergeの経路は作らない
 	EXEMPT = "EXEMPT"
 
 	def __init__(self, head_sha):
@@ -245,7 +245,7 @@ def publish_result(client, args, pr_number, result):
 		GateResult.PASS: "success",
 		GateResult.PENDING: "pending",
 		GateResult.FAIL: "failure",
-		GateResult.EXEMPT: "pending",
+		GateResult.EXEMPT: "success",
 	}[result.state]
 	description = {
 		GateResult.PASS: "独立レビュー承認済み",

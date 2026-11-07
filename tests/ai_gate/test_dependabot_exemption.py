@@ -50,13 +50,13 @@ class DependabotExemptionTests(unittest.TestCase):
 		self.assertEqual(result.errors, [])
 		self.assertFalse(result.ok)
 
-	def test_exempt_status_is_pending_with_reason_and_exit_zero(self):
+	def test_exempt_status_is_success_with_reason_and_exit_zero(self):
 		client = make_client()
 		args = argparse.Namespace(repo="octo/repo", publish_status=True, status_context="AI Review Gate")
 		with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
 			state = self.gate.evaluate_one(client, args, 7)
 		self.assertEqual(state, "EXEMPT")
-		self.assertEqual(client.statuses, ["pending", "pending"])
+		self.assertEqual(client.statuses, ["pending", "success"])
 		self.assertIn("AI Review 対象外: Dependabot", client.status_descriptions[-1])
 		self.assertIn("人手で確認して merge", client.status_descriptions[-1])
 		self.assertNotIn(self.gate.GateResult.FAIL, [state])

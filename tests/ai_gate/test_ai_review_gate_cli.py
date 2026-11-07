@@ -105,7 +105,7 @@ class GateCliTests(unittest.TestCase):
 
 	def test_main_returns_success_for_pending_and_failure_for_fail(self):
 		argv = ["gate", "--token", "t", "--repo", "octo/repo", "--pr-number", "7"]
-		for state, expected_code in (("PENDING", 0), ("FAIL", 1)):
+		for state, expected_code in (("PENDING", 0), ("EXEMPT", 0), ("FAIL", 1)):
 			with self.subTest(state=state), \
 				mock.patch.object(self.gate, "GitHubClient"), \
 				mock.patch.object(self.gate, "evaluate_one", return_value=state), \
