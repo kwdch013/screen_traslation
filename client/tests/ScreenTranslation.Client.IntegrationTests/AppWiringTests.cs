@@ -23,7 +23,7 @@ public sealed class AppWiringTests : IAsyncDisposable
 	private static readonly TimeSpan Watchdog = TimeSpan.FromSeconds(20);
 	private static readonly Guid SessionId = Guid.Parse("55555555-5555-4555-8555-555555555555");
 	private static readonly CaptureTarget Display = new("display:2", CaptureTargetKind.Display, "ディスプレイ2", new CaptureBounds(-1280, 0, 0, 720), 192);
-	private static readonly Rect2D Roi = new(-1180, 100, -540, 420);
+	private static readonly Rect2D Roi = new(-1180, 100, -540, 400);
 
 	private sealed class ScriptedSocket : IStreamSocket
 	{
@@ -112,13 +112,13 @@ public sealed class AppWiringTests : IAsyncDisposable
 		Assert.Equal(CapturePipelineOutcome.Submitted, Emit());
 		var first = await ReceiveFrameAsync((width, height, rgb) =>
 		{
-			Assert.Equal((640, 320), (width, height));
+			Assert.Equal((640, 300), (width, height));
 			// 負座標を含む物理座標のROI左上が先頭画素になる
 			Assert.Equal((Roi.Left, Roi.Top), ReadCoordinate(rgb.AsSpan(0, 3)));
 		});
 		Assert.Equal((SessionId, 1ul, 1ul), (first.SessionId, first.Generation, first.FrameId));
 
-		socket.Inject(Result(1, 1, 640, 320));
+		socket.Inject(Result(1, 1, 640, 300));
 		Assert.True(await surface.RenderSignal.WaitAsync(Watchdog));
 		Assert.Single(surface.Rendered);
 
@@ -127,11 +127,11 @@ public sealed class AppWiringTests : IAsyncDisposable
 		Assert.True(surface.HideCount > hides);
 		now += 1_000_000_000;
 		Assert.Equal(CapturePipelineOutcome.Submitted, Emit(seed: 2));
-		var second = await ReceiveFrameAsync((width, height, _) => Assert.Equal((440, 320), (width, height)));
+		var second = await ReceiveFrameAsync((width, height, _) => Assert.Equal((440, 300), (width, height)));
 		Assert.Equal((2ul, 1ul), (second.Generation, second.FrameId));
 
 		// 旧世代の結果は、遅れて届いても表示しない
-		socket.Inject(Result(1, 2, 640, 320));
+		socket.Inject(Result(1, 2, 640, 300));
 		await host.StopAsync();
 		var rendered = surface.Rendered.Count;
 		Assert.Equal([OverlayClearReason.Stopped], ended);
