@@ -18,7 +18,7 @@ public sealed partial class RealServerTests
 {
 	private static readonly TimeSpan Watchdog = TimeSpan.FromSeconds(60);
 	private static readonly CaptureTarget Display = new("display:2", CaptureTargetKind.Display, "ディスプレイ2", new CaptureBounds(0, 0, 1280, 720), 96);
-	private static readonly Rect2D Roi = new(100, 100, 740, 420);
+	private static readonly Rect2D Roi = new(100, 100, 740, 400);
 
 	private static RealServerEnvironment Env => RealServerEnvironment.FromEnvironment()!;
 

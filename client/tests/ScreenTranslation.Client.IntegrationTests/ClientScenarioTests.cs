@@ -36,7 +36,7 @@ public sealed class ClientScenarioTests
 		var first = await rig.EmitAndReceiveAsync(seed: 1);
 		Assert.Equal((firstSession!.Value, 1ul, 1ul, 1ul), (first.Metadata.SessionId, first.Metadata.Generation, first.Metadata.FrameId, first.Metadata.DictionaryRevision));
 		var (width, height, rgb) = DecodePng(first.Png);
-		Assert.Equal((640, 320), (width, height));
+		Assert.Equal((640, 300), (width, height));
 		Assert.Equal((ScenarioRig.Roi.Left, ScenarioRig.Roi.Top), ReadCoordinate(rgb.AsSpan(0, 3)));
 
 		// 結果受信→重畳→履歴: 領域はROI原点を加えた物理座標へ戻る
@@ -69,7 +69,7 @@ public sealed class ClientScenarioTests
 		Assert.NotEqual(firstSession, server.ActiveSession);
 		var second = await rig.EmitAndReceiveAsync(seed: 2);
 		Assert.Equal((server.ActiveSession!.Value, 1ul, 1ul, 2ul), (second.Metadata.SessionId, second.Metadata.Generation, second.Metadata.FrameId, second.Metadata.DictionaryRevision));
-		Assert.Equal((440, 320), (second.Metadata.ImageWidth, second.Metadata.ImageHeight));
+		Assert.Equal((440, 300), (second.Metadata.ImageWidth, second.Metadata.ImageHeight));
 		await ScenarioRig.EventuallyAsync(() => rig.RenderedTexts().Length == 2, "新sessionの表示");
 		// 再選択後の新sessionの履歴は HistoryOfANewSessionStartedAfterReselect_IsRecorded で確認する
 
@@ -117,10 +117,10 @@ public sealed class ClientScenarioTests
 
 		switch (kind)
 		{
-			case "OldGeneration": await server.SendAllAsync(ScenarioContractServer.Messages.Result(session, 2, 1, 1, 640, 320, "NG")); break;
-			case "OtherSession": await server.SendAllAsync(ScenarioContractServer.Messages.Result(Guid.NewGuid(), 1, 1, 1, 640, 320, "NG")); break;
-			case "OldRevision": await server.SendAllAsync(ScenarioContractServer.Messages.Result(session, 1, 1, 7, 640, 320, "NG")); break;
-			case "UnsentFrame": await server.SendAllAsync(ScenarioContractServer.Messages.Result(session, 1, 99, 1, 640, 320, "NG")); break;
+			case "OldGeneration": await server.SendAllAsync(ScenarioContractServer.Messages.Result(session, 2, 1, 1, 640, 300, "NG")); break;
+			case "OtherSession": await server.SendAllAsync(ScenarioContractServer.Messages.Result(Guid.NewGuid(), 1, 1, 1, 640, 300, "NG")); break;
+			case "OldRevision": await server.SendAllAsync(ScenarioContractServer.Messages.Result(session, 1, 1, 7, 640, 300, "NG")); break;
+			case "UnsentFrame": await server.SendAllAsync(ScenarioContractServer.Messages.Result(session, 1, 99, 1, 640, 300, "NG")); break;
 			default:
 				// 取得から5秒を超えた結果は、同じframeでも採用しない
 				rig.Advance(TimeSpan.FromSeconds(5) + TimeSpan.FromTicks(1));

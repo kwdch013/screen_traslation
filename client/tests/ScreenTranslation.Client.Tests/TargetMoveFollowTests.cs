@@ -46,7 +46,7 @@ public sealed class TargetMoveFollowTests
 		var (metadata, image) = await f.Transport.NextSentAsync();
 		var (width, height, rgb) = CaptureTestSupport.DecodePng(image);
 
-		Assert.Equal((2ul, 640, 320), (metadata.Generation, width, height));
+		Assert.Equal((2ul, 640, 300), (metadata.Generation, width, height));
 		// ROIはウィンドウ相対のまま(ウィンドウ左上から+100,+100)。先頭画素は移動後の物理座標になる
 		Assert.Equal((Roi.Left + 50, Roi.Top + 30), CaptureTestSupport.ReadCoordinate(rgb.AsSpan(0, 3)));
 	}
@@ -109,7 +109,7 @@ public sealed class TargetMoveFollowTests
 		f.Session.RaiseBoundsChanged(new CaptureBounds(900, -20, 1700, 580));
 
 		Assert.Equal(3ul, f.Host.Generation);
-		Assert.Equal(new CaptureRoute(new Rect2D(100, 100, 740, 420), 3), f.Session.BeginFrame());
+		Assert.Equal(new CaptureRoute(new Rect2D(100, 100, 740, 400), 3), f.Session.BeginFrame());
 	}
 
 	[Fact]
@@ -166,7 +166,7 @@ public sealed class TargetMoveFollowTests
 		await f.Host.StopAsync();
 		Assert.Equal(StartResult.Started, await f.Host.StartAsync(SessionId, 1));
 
-		Assert.Equal(new Rect2D(100, 100, 740, 420), f.Session.BeginFrame()!.Value.Roi);
+		Assert.Equal(new Rect2D(100, 100, 740, 400), f.Session.BeginFrame()!.Value.Roi);
 		Emit(f, Moved);
 		var (_, image) = await f.Transport.NextSentAsync();
 		var (_, _, rgb) = CaptureTestSupport.DecodePng(image);

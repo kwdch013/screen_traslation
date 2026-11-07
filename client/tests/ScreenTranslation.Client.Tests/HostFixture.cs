@@ -122,7 +122,7 @@ internal sealed class FakeTransport : ITranslationTransport
 internal sealed class HostFixture : IAsyncDisposable
 {
 	public static readonly CaptureTarget Display = new("display:2", CaptureTargetKind.Display, "ディスプレイ2", new CaptureBounds(1000, 0, 1800, 600), 96);
-	public static readonly Rect2D Roi = new(1100, 100, 1740, 420);
+	public static readonly Rect2D Roi = new(1100, 100, 1740, 400);
 	public static readonly Guid SessionId = Guid.Parse("44444444-4444-4444-8444-444444444444");
 
 	public long Now = 100_000_000_000;
@@ -173,7 +173,7 @@ internal sealed class HostFixture : IAsyncDisposable
 	public CapturePipelineOutcome? EmitFrame(int seed = 0) =>
 		Session.Emit(() => TestScreens.Capture(Display.Bounds, Interlocked.Read(ref Now), seed));
 
-	public string ResultJson(ulong generation, ulong frameId, int width = 640, int height = 320, ulong revision = 1) => $$"""
+	public string ResultJson(ulong generation, ulong frameId, int width = 640, int height = 300, ulong revision = 1) => $$"""
 		{"type":"result","session_id":"{{SessionId}}","generation":{{generation}},"frame_id":{{frameId}},"dictionary_revision":{{revision}},
 		 "correlation_id":"{{Guid.NewGuid()}}","status":"ok","image_width":{{width}},"image_height":{{height}},
 		 "regions":[{"rect":{"left":10,"top":20,"right":110,"bottom":60},"source":"src","translation":"訳文","confidence":0.9}],"server_processing_ms":1}

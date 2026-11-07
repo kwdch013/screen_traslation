@@ -16,7 +16,7 @@ public sealed class TargetMoveFollowGapTests
 	private static readonly CaptureTarget Window = new("hwnd:1A2B", CaptureTargetKind.Window, "ウィンドウ", WindowBounds, 96);
 	private static readonly CaptureBounds Moved = new(1050, 30, 1850, 630);
 	private static readonly Rect2D MovedRoi = new(Roi.Left + 50, Roi.Top + 30, Roi.Right + 50, Roi.Bottom + 30);
-	private static readonly Rect2D LocalRoi = new(100, 100, 740, 420);
+	private static readonly Rect2D LocalRoi = new(100, 100, 740, 400);
 
 	private static async Task<HostFixture> ConnectedWindowAsync()
 	{

@@ -27,7 +27,7 @@ public sealed class TransportTests
 	public void FrameMessage_EnforcesMaximumImageAndMessageLengths()
 	{
 		var image = new byte[4_194_304];
-		var metadata = new FrameMetadata(1, SessionId, 1, 1, 1, 1920, 1080, "image/jpeg", image.Length);
+		var metadata = new FrameMetadata(1, SessionId, 1, 1, 1, 1280, 300, "image/jpeg", image.Length);
 		var message = FrameMessage.Create(metadata, image);
 
 		Assert.True(message.Bytes.Length <= FrameMessage.MaximumMessageBytes);
@@ -74,7 +74,7 @@ public sealed class TransportTests
 		var imageLength = maximumCase.GetProperty("image_payload_bytes").GetInt32();
 		var metadataLength = maximumCase.GetProperty("metadata_bytes").GetInt32();
 		var image = new byte[imageLength];
-		var metadata = new FrameMetadata(1, SessionId, 1, 1, 1, 1920, 1080, "image/jpeg", imageLength);
+		var metadata = new FrameMetadata(1, SessionId, 1, 1, 1, 1280, 300, "image/jpeg", imageLength);
 		var built = FrameMessage.Create(metadata, image).Bytes.ToArray();
 		var originalMetadataLength = (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(built.AsSpan(4, 4));
 		var messageAtLimit = new byte[8 + metadataLength + imageLength];

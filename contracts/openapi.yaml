@@ -314,6 +314,9 @@ paths:
         binaryMessage:
           metadataSchema: ./schemas/frame-metadata.schema.json
           imageFormats: [image/png, image/jpeg]
+          maximumImageWidth: 1280
+          maximumImageHeight: 300
+          maximumImagePixels: 384000
           maximumImageBytes: 4194304
           maximumMetadataBytes: 4096
           maximumMessageBytes: 4198408

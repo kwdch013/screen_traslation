@@ -7,13 +7,13 @@ namespace ScreenTranslation.Client.Tests;
 
 public sealed class OverlayResultMapperTests
 {
-	// 左モニター(負座標)上の 640x320 ROI
-	private static readonly Rect2D Roi = new(-1900, 50, -1260, 370);
+	// 左モニター(負座標)上の 640x280 ROI
+	private static readonly Rect2D Roi = new(-1900, 50, -1260, 330);
 
 	[Fact]
 	public void TryMap_AddsRoiOriginToImageRects()
 	{
-		using var doc = Result(640, 320, """{"left":10,"top":20,"right":110,"bottom":60}""", "こんにちは");
+		using var doc = Result(640, 280, """{"left":10,"top":20,"right":110,"bottom":60}""", "こんにちは");
 
 		Assert.True(OverlayResultMapper.TryMap(doc.RootElement, Roi, out var regions));
 
@@ -25,7 +25,7 @@ public sealed class OverlayResultMapperTests
 	[Fact]
 	public void TryMap_NullRectBecomesUnplacedRegion()
 	{
-		using var doc = Result(640, 320, "null", "位置不明");
+		using var doc = Result(640, 280, "null", "位置不明");
 
 		Assert.True(OverlayResultMapper.TryMap(doc.RootElement, Roi, out var regions));
 
@@ -35,7 +35,7 @@ public sealed class OverlayResultMapperTests
 	[Fact]
 	public void TryMap_RectTouchingImageEdgeIsAllowedBecauseIntervalIsHalfOpen()
 	{
-		using var doc = Result(640, 320, """{"left":0,"top":0,"right":640,"bottom":320}""", "全面");
+		using var doc = Result(640, 280, """{"left":0,"top":0,"right":640,"bottom":280}""", "全面");
 		Assert.True(OverlayResultMapper.TryMap(doc.RootElement, Roi, out var regions));
 		Assert.Equal(Roi, regions[0].PhysicalRect);
 	}
@@ -57,7 +57,7 @@ public sealed class OverlayResultMapperTests
 	[InlineData("""{"left":0,"top":10,"right":10,"bottom":5}""")]
 	public void TryMap_RectOutsideImageOrEmpty_RejectsWholeResult(string rect)
 	{
-		using var doc = Result(640, 320, rect, "x");
+		using var doc = Result(640, 280, rect, "x");
 		Assert.False(OverlayResultMapper.TryMap(doc.RootElement, Roi, out var regions));
 		Assert.Empty(regions);
 	}
@@ -65,7 +65,7 @@ public sealed class OverlayResultMapperTests
 	[Fact]
 	public void TryMap_EmptyStatusWithoutRegions_YieldsNoRegions()
 	{
-		using var doc = JsonDocument.Parse("""{"type":"result","status":"empty","image_width":640,"image_height":320,"regions":[]}""");
+		using var doc = JsonDocument.Parse("""{"type":"result","status":"empty","image_width":640,"image_height":280,"regions":[]}""");
 		Assert.True(OverlayResultMapper.TryMap(doc.RootElement, Roi, out var regions));
 		Assert.Empty(regions);
 	}

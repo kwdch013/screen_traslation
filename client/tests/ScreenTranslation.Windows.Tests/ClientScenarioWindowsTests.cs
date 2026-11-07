@@ -63,7 +63,7 @@ public sealed class ClientScenarioWindowsTests
 			Assert.Equal(ScreenTranslation.Client.Capture.CapturePipelineOutcome.Submitted, connected.Emit(seed: 1));
 			var frame = ReceiveFrame(connected);
 			Assert.Equal((connected.Grants.Issued[0], 1ul, 1ul, 1ul), (frame.SessionId, frame.Generation, frame.FrameId, frame.DictionaryRevision));
-			Assert.Equal((640, 320), (frame.ImageWidth, frame.ImageHeight));
+			Assert.Equal((640, 280), (frame.ImageWidth, frame.ImageHeight));
 
 			// 結果受信→実HWNDのオーバーレイ表示→履歴の更新
 			connected.Socket.Inject(WindowsScenarioChain.Result(frame, "訳文"));

@@ -11,7 +11,7 @@ public sealed class OverlayPresentedTests
 {
 	private const long Second = 1_000_000_000;
 	private static readonly Guid SessionId = Guid.Parse("22222222-2222-4222-8222-222222222222");
-	private static readonly Rect2D Roi = new(100, 200, 740, 520);
+	private static readonly Rect2D Roi = new(100, 200, 740, 500);
 
 	private sealed class Surface : IOverlaySurface
 	{
@@ -24,7 +24,7 @@ public sealed class OverlayPresentedTests
 
 	private static JsonElement Result(ulong generation, ulong frameId, string regions) => JsonDocument.Parse($$"""
 		{"type":"result","session_id":"{{SessionId}}","generation":{{generation}},"frame_id":{{frameId}},"dictionary_revision":1,
-		 "correlation_id":"{{Guid.NewGuid()}}","status":"ok","image_width":640,"image_height":320,
+		 "correlation_id":"{{Guid.NewGuid()}}","status":"ok","image_width":640,"image_height":300,
 		 "regions":{{regions}},"server_processing_ms":10}
 		""").RootElement.Clone();
 
