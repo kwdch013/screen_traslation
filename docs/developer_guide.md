@@ -239,9 +239,9 @@ docker compose run --rm app
 2. 専用worktreeのWork Unitを取得し、Claim Commentと状態ラベルで着手を記録する。通常のBase / Merge targetはdevelopとし、mainからTaskブランチを切らない。
 3. TDDで失敗するテストを先に追加し、Redを確認してから実装し、Greenと回帰確認を行う。
 4. 作業を `tasks/` の日本語Markdownへ記録し、関連文書も更新する。
-5. prefixと日本語のメッセージでコミットし、develop（またはPhase）宛ての詳細なPRを作る。コミットには `AI-Work-Unit:`、PR本文の先頭には `<!-- ai-pr-work-unit: <UUID> -->`、本文には `Closes #<Issue番号>` を含める。
+5. prefixと日本語のメッセージでコミットし、develop（またはPhase）宛ての詳細なPRを作る。コミットには `AI-Work-Unit:`、PR本文の先頭には `<!-- ai-pr-work-unit: <UUID> -->` を含める。受入条件を満たしたIssueは `Closes #<Issue番号>`、未達条件が残るIssueは `Refs #<Issue番号>` でリンクする。
 6. 実装と別のエージェント・別worktreeへIssueとPRをセットで渡し、最新HEADの独立レビューを受ける。
-7. 承認CommentとAI Review Gateの通過後、Task / Phaseはsquash mergeする。squash本文にContributor全員の `AI-Work-Unit:` を残す。本文の `Closes #<Issue番号>` によってdevelopへのmerge時にIssueが自動closeされることを確認する。
+7. 承認CommentとAI Review Gateの通過後、Task / Phaseはsquash mergeする。squash本文にContributor全員の `AI-Work-Unit:` を残す。`Closes`でリンクしたIssueはdevelopへのmerge時に自動closeされることを確認する。
 
 1 Task = 1 Issue = 1 branch = 1 PRとし、別要件を同じPRへ混ぜません。Work Unit / Claim / hooks / AI Review Gateは #67 の基盤です。[操作・検証コマンド](v1.0/development.md#work-unitclaim独立レビューの操作)を参照してください。
 
