@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "description": "画像座標・モニター別DPI・ROI境界の言語非依存fixture",
+  "rounding": "nearest_integer_ties_away_from_zero",
+  "rectangle_convention": "half_open_left_top_inclusive_right_bottom_exclusive",
+  "conversions": [
+    {
+      "id": "dpi-100-negative-monitor-origin",
+      "operation": "physical_to_logical",
+      "monitor_origin_physical": [-1920, 0],
+      "dpi": 96,
+      "input_point": [-1870, 230],
+      "expected_point": [50, 230]
+    },
+    {
+      "id": "dpi-150-monitor-local",
+      "operation": "physical_to_logical",
+      "monitor_origin_physical": [0, 0],
+      "dpi": 144,
+      "input_point": [1500, 600],
+      "expected_point": [1000, 400]
+    },
+    {
+      "id": "dpi-200-monitor-local-negative-y",
+      "operation": "physical_to_logical",
+      "monitor_origin_physical": [1920, -200],
+      "dpi": 192,
+      "input_point": [2120, -100],
+      "expected_point": [100, 50]
+    },
+    {
+      "id": "dpi-125-round-positive-half-away",
+      "operation": "logical_to_physical",
+      "monitor_origin_physical": [-2400, -300],
+      "dpi": 120,
+      "input_point": [2, -2],
+      "expected_point": [-2397, -303]
+    },
+    {
+      "id": "dpi-125-round-negative-fraction",
+      "operation": "logical_to_physical",
+      "monitor_origin_physical": [-2400, 0],
+      "dpi": 120,
+      "input_point": [1, -1],
+      "expected_point": [-2399, -1]
+    },
+    {
+      "id": "dpi-150-second-monitor-context",
+      "operation": "physical_to_logical",
+      "monitor_origin_physical": [1920, 0],
+      "dpi": 144,
+      "input_point": [2070, 720],
+      "expected_point": [100, 480]
+    },
+    {
+      "id": "image-origin-subtraction-negative-roi",
+      "operation": "physical_to_image",
+      "roi": [-1920, 200, -1600, 440],
+      "input_point": [-1870, 230],
+      "expected_point": [50, 30]
+    },
+    {
+      "id": "dpi-125-positive-rounding-boundary",
+      "operation": "logical_to_physical",
+      "monitor_origin_physical": [0, 0],
+      "dpi": 120,
+      "input_point": [2, 0],
+      "expected_point": [3, 0]
+    },
+    {
+      "id": "dpi-125-negative-rounding-boundary",
+      "operation": "logical_to_physical",
+      "monitor_origin_physical": [0, 0],
+      "dpi": 120,
+      "input_point": [-2, 0],
+      "expected_point": [-3, 0]
+    }
+  ],
+  "roi_cases": [
+    {
+      "id": "contained-negative-origin",
+      "monitor": [-1920, 0, 0, 1080],
+      "roi": [-1800, 100, -1200, 500],
+      "allowed": true
+    },
+    {
+      "id": "right-edge-equals-monitor-edge",
+      "monitor": [0, 0, 1920, 1080],
+      "roi": [1800, 900, 1920, 1080],
+      "allowed": true
+    },
+    {
+      "id": "crosses-adjacent-monitor-boundary",
+      "monitor": [0, 0, 1920, 1080],
+      "roi": [1800, 100, 2000, 500],
+      "allowed": false
+    },
+    {
+      "id": "extends-outside-monitor-top",
+      "monitor": [0, 0, 1920, 1080],
+      "roi": [100, -1, 500, 300],
+      "allowed": false
+    },
+    {
+      "id": "zero-width-roi",
+      "monitor": [0, 0, 1920, 1080],
+      "roi": [100, 100, 100, 200],
+      "allowed": false
+    }
+  ]
+}

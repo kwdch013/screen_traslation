@@ -1,0 +1,119 @@
+[
+ {
+  "id": "clear-01",
+  "group": "clear",
+  "expected_text": "Press any key to start the game.",
+  "file": "clear-01.png",
+  "width": 503,
+  "height": 84,
+  "sha256": "0cb9729005b0eb6ffc1e8b50e36ec38a24a0fec90d5e8a4ea9158a45429a46d0"
+ },
+ {
+  "id": "clear-02",
+  "group": "clear",
+  "expected_text": "Your quest log has been updated.",
+  "file": "clear-02.png",
+  "width": 518,
+  "height": 84,
+  "sha256": "27e6a8f259ed41cb9df6c087539235e7e0d54299e1a314f7aa7098e3b4ac35e2"
+ },
+ {
+  "id": "clear-03",
+  "group": "clear",
+  "expected_text": "Do you want to save your progress?",
+  "file": "clear-03.png",
+  "width": 552,
+  "height": 84,
+  "sha256": "f5baebf218e2499464eb472935cd97292b437ad8145725633ef61e5856bb66d1"
+ },
+ {
+  "id": "clear-04",
+  "group": "clear",
+  "expected_text": "Settings\nChange the audio and video options.",
+  "file": "clear-04.png",
+  "width": 564,
+  "height": 128,
+  "sha256": "6c92f3c7e72573263ae0244a244dea5c72691f309d672b49d58fea1e1ddbad1d"
+ },
+ {
+  "id": "clear-05",
+  "group": "clear",
+  "expected_text": "Not enough gold to buy this item.",
+  "file": "clear-05.png",
+  "width": 519,
+  "height": 84,
+  "sha256": "a1e3bf5f1cc897a54ea9dd29520c3daa409de5add3832cb2cc4646e7840304f4"
+ },
+ {
+  "id": "clear-06",
+  "group": "clear",
+  "expected_text": "Warning: low health. Find a safe place to rest.",
+  "file": "clear-06.png",
+  "width": 688,
+  "height": 84,
+  "sha256": "95a050333502fde972307d5ee528f98dbae420cb2d1160d255095c6b3b9637fe"
+ },
+ {
+  "id": "complex-01",
+  "group": "complex",
+  "expected_text": "Open the door and go inside.",
+  "file": "complex-01.png",
+  "width": 472,
+  "height": 96,
+  "sha256": "3f72fd826cc49357029700ccfae647feebe398fc14aa1985e1cb0afd263c0b7c"
+ },
+ {
+  "id": "complex-02",
+  "group": "complex",
+  "expected_text": "The merchant has new items for sale.",
+  "file": "complex-02.png",
+  "width": 593,
+  "height": 96,
+  "sha256": "0e1d3e257deb091c89c5162aa48f30bd994f3d464d1c817b18d4c0779cdc231a"
+ },
+ {
+  "id": "complex-03",
+  "group": "complex",
+  "expected_text": "Defeat all enemies to continue.",
+  "file": "complex-03.png",
+  "width": 504,
+  "height": 96,
+  "sha256": "03bf79cfe189ae159b9f2c56a9d19bac6606dd3bf76b4bcd3c15a3f578e65803"
+ },
+ {
+  "id": "complex-04",
+  "group": "complex",
+  "expected_text": "Return to the village before night.",
+  "file": "complex-04.png",
+  "width": 538,
+  "height": 96,
+  "sha256": "033b224792b2ed6def1ee13157b13c2a81577678c2cc821a4d937cf0850bae9f"
+ },
+ {
+  "id": "empty-white",
+  "group": "empty",
+  "expected_text": "",
+  "file": "empty-white.png",
+  "width": 320,
+  "height": 96,
+  "sha256": "694e27ecb4e64ffc3b866a76bad35d69aca6d7a8c481b5fe239d12633bca6ce8"
+ },
+ {
+  "id": "empty-black",
+  "group": "empty",
+  "expected_text": "",
+  "file": "empty-black.png",
+  "width": 320,
+  "height": 96,
+  "sha256": "a4f19222a662c5bebd3e0245c1181e2799e2d48633966dd734c66d2cb2aa50ba"
+ },
+ {
+  "id": "unreadable-noise",
+  "group": "unreadable",
+  "expected_text": "",
+  "file": "unreadable-noise.png",
+  "width": 320,
+  "height": 96,
+  "sha256": "2f86d1c6951765ff7cd2aeec89a28cd4b7ee5bca524bf952edf7e10b1e15df8b"
+ }
+]

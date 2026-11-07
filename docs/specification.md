@@ -201,3 +201,11 @@ data: {"generation":1,"frame_id":42,"captured_at":123.4,"processed_at":123.5,"fr
 - LLM OCR は既定でローカルの OpenAI 互換 API `http://127.0.0.1:8000/v1` を参照する。矩形付きJSON配列をプロンプトで要求するが、API固有のJSONモードには依存しない。
 - 設定・辞書のプロセス間排他は同じ端末内を対象とし、複数マシン間やネットワークファイルシステム上の同期は保証しない。
 - 現行 Docker Compose はコンテナ内テスト用であり、ホストブラウザ向けのポート公開を定義しない。
+
+## v1.0 の要求との関係
+
+本書は現行Web版の仕様です。次版の要求は[version_1要件書](../requirements/version_1/requirements.md)、操作・計測の判定は[v1.0受入計画](v1.0/acceptance.md)、要件IDとTaskの対応は[ロードマップ](../plan/version_1/roadmap.md)を参照してください。2026-10-29にOwner承認済みの要求で、実装・実測・本人受入は未実施です。本書のAPI・状態・セキュリティ契約を変更するものではありません。
+
+## v1.0 の方式候補と脅威モデル
+
+次版の[基本・詳細設計](v1.0/design/architecture.md)、[技術選定ADR](v1.0/design/adr/README.md)、[脅威モデル](v1.0/design/security.md)は#57で設計採用済みです。実装・Windows実機検証・性能/品質合格は未実施です。WGC/キャプチャ除外は#135相当、混在DPI/負座標/重畳は#136相当のWindows実機Taskで確認します。現行Web版の起動/利用契約は維持し、新版を導入済みとは扱いません。

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-translation.invalid/contracts/v1/settings-update.schema.json",
+  "title": "設定更新要求",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["capture_fps"],
+  "properties": {"capture_fps": {"type": "integer", "minimum": 1, "maximum": 5}}
+}

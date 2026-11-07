@@ -1,0 +1,106 @@
+using ScreenTranslation.Client.Settings;
+using ScreenTranslation.Client.ViewModels.Settings;
+
+namespace ScreenTranslation.Windows;
+
+/// <summary>サーバー設定・用語辞書の編集モデルを、接続設定と管理用の資格情報から組み立てて画面へ渡す。</summary>
+public partial class MainWindow
+{
+	private IServerSettingsApi? _serverSettingsApi;
+	private TranslationSettingsViewModel? _translationSettings;
+	private GlossaryViewModel? _glossary;
+	private ConnectionSettings? _serverSettingsConnection;
+
+	private void InitializeServerSettings()
+	{
+		ServerSettings.LoadRequested += ComposeServerSettingsAsync;
+		ServerSettings.AdminCredentialSaveRequested += SaveAdminCredentialAsync;
+		Closed += (_, _) => ResetServerSettings();
+	}
+
+	private async Task ComposeServerSettingsAsync()
+	{
+		ClientSettings? settings;
+		try
+		{
+			settings = await _settingsStore.LoadAsync();
+		}
+		catch (Exception)
+		{
+			ServerSettings.ShowCredentialMessage("保存済み設定を読み取れません。接続設定を保存し直してください。");
+			return;
+		}
+		if (settings is null)
+		{
+			ServerSettings.ShowCredentialMessage("先にサーバー接続先を設定して保存してください。");
+			return;
+		}
+
+		ResetServerSettings();
+		try
+		{
+			// 管理操作には管理用の資格情報を使う(端末資格情報とは別に保護保存。画面・ログには出さない)
+			_serverSettingsApi = _services.CreateServerSettingsApi(settings.Connection);
+		}
+		catch (ArgumentException)
+		{
+			ServerSettings.ShowCredentialMessage("接続設定が正しくありません。サーバー接続先と証明書の指紋を確認して保存し直してください。");
+			return;
+		}
+
+		_serverSettingsConnection = settings.Connection;
+		_translationSettings = new TranslationSettingsViewModel(_serverSettingsApi);
+		_glossary = new GlossaryViewModel(_serverSettingsApi);
+		// 辞書の保存成功(辞書のrevision)を実行中のsessionへ反映する。翻訳設定のrevisionは別系列のため、sessionのrevisionには使わない
+		_glossary.Saved += OnGlossarySaved;
+		// 翻訳設定の保存成功は、値(取得頻度)だけを実行中の取得・送信の上限へ反映する
+		_translationSettings.Saved += OnTranslationFpsConfirmed;
+		// 読み込み成功時もサーバーの現在値へ揃える(起動時は既定値のままで、サーバーが低いfpsだと上限を超えて送り得るため)
+		_translationSettings.Loaded += OnTranslationFpsConfirmed;
+		ServerSettings.Attach(_translationSettings, _glossary);
+		ServerSettings.ShowCredentialMessage(string.Empty);
+		await Task.WhenAll(_translationSettings.LoadAsync(), _glossary.LoadAsync());
+	}
+
+	/// <summary>任意のスレッドから呼ばれる。操作モデルは接続設定の変更で作り直されるため、呼ばれた時点のものへ渡す。</summary>
+	private void OnGlossarySaved(ulong revision) => _operations?.ApplyDictionaryRevision(revision);
+
+	private void OnTranslationFpsConfirmed(int captureFps) => _operations?.ApplyCaptureFps(captureFps);
+
+	/// <summary>接続設定が変わったときは、古い接続先の編集内容を持ち越さない(別のサーバーの値と取り違えない)。</summary>
+	private void ResetServerSettingsIfConnectionChanged(ConnectionSettings saved)
+	{
+		if (_serverSettingsConnection is null || _serverSettingsConnection == saved) return;
+		ResetServerSettings();
+		ServerSettings.ShowCredentialMessage("接続設定が変わったため、サーバー設定の表示をリセットしました。もう一度読み込んでください。");
+	}
+
+	private void ResetServerSettings()
+	{
+		ServerSettings.Attach(null, null);
+		_translationSettings?.Dispose();
+		_glossary?.Dispose();
+		(_serverSettingsApi as IDisposable)?.Dispose();
+		(_translationSettings, _glossary, _serverSettingsApi, _serverSettingsConnection) = (null, null, null, null);
+	}
+
+	private async Task<bool> SaveAdminCredentialAsync(string credential)
+	{
+		try
+		{
+			await _adminCredentialStore.SaveAsync(credential);
+			ServerSettings.ShowCredentialMessage("管理用の資格情報をWindowsユーザー保護で保存しました。");
+			return true;
+		}
+		catch (ArgumentException)
+		{
+			ServerSettings.ShowCredentialMessage("管理用の資格情報を入力してください。");
+			return false;
+		}
+		catch (Exception)
+		{
+			ServerSettings.ShowCredentialMessage("管理用の資格情報を保護して保存できませんでした。");
+			return false;
+		}
+	}
+}

@@ -1,0 +1,40 @@
+{
+  "description": "状態契約で許可される遷移と拒否する遷移",
+  "states": ["Disconnected", "ConnectedStopped", "Starting", "Streaming", "Stopping"],
+  "transitions": [
+    {"from":"Disconnected","action":"connect_ready","to":"ConnectedStopped"},
+    {"from":"ConnectedStopped","action":"explicit_start","to":"Starting"},
+    {"from":"Starting","action":"session_acquired","to":"Streaming"},
+    {"from":"Starting","action":"start_failed","to":"ConnectedStopped"},
+    {"from":"Streaming","action":"explicit_stop","to":"Stopping"},
+    {"from":"Stopping","action":"release_complete","to":"ConnectedStopped"},
+    {"from":"Streaming","action":"connection_lost","to":"Disconnected"},
+    {"from":"ConnectedStopped","action":"connection_lost","to":"Disconnected"},
+    {"from":"Streaming","action":"roi_changed","to":"ConnectedStopped"}
+  ],
+  "cases": [
+    {"id":"connect-does-not-auto-start","from":"Disconnected","action":"connect_ready","to":"ConnectedStopped","expected":"accept"},
+    {"id":"explicit-start","from":"ConnectedStopped","action":"explicit_start","to":"Starting","expected":"accept"},
+    {"id":"session-acquired","from":"Starting","action":"session_acquired","to":"Streaming","expected":"accept"},
+    {"id":"failed-start-returns-stopped","from":"Starting","action":"start_failed","to":"ConnectedStopped","expected":"accept"},
+    {"id":"stop-invalidates-session","from":"Streaming","action":"explicit_stop","to":"Stopping","expected":"accept"},
+    {"id":"release-after-stop","from":"Stopping","action":"release_complete","to":"ConnectedStopped","expected":"accept"},
+    {"id":"connection-loss-clears-session","from":"Streaming","action":"connection_lost","to":"Disconnected","expected":"accept"},
+    {"id":"connect-must-not-start-streaming","from":"Disconnected","action":"connect_ready","to":"Streaming","expected":"reject","rejection":"lifecycle"},
+    {"id":"implicit-start-is-rejected","from":"ConnectedStopped","action":"auto_start","to":"Streaming","expected":"reject","rejection":"lifecycle"},
+    {"id":"stopped-client-cannot-stop-stream","from":"ConnectedStopped","action":"explicit_stop","to":"Stopping","expected":"reject","rejection":"lifecycle"},
+    {"id":"stopping-cannot-resume-old-session","from":"Stopping","action":"old_result","to":"Streaming","expected":"reject","rejection":"lifecycle"}
+  ],
+  "result_cases": [
+    {"id":"current-result-before-expiry","result":{"state":"Streaming","session_id":"11111111-1111-4111-8111-111111111111","generation":3,"last_applied_frame_id":8,"latest_sent_frame_id":10,"dictionary_revision":7,"now_monotonic_ns":10000000000,"result_session_id":"11111111-1111-4111-8111-111111111111","result_generation":3,"result_frame_id":9,"result_dictionary_revision":7,"captured_monotonic_ns":9500000000},"expected":"accept"},
+    {"id":"exactly-five-seconds-is-valid","result":{"state":"Streaming","session_id":"11111111-1111-4111-8111-111111111111","generation":3,"last_applied_frame_id":8,"latest_sent_frame_id":10,"dictionary_revision":7,"now_monotonic_ns":10000000000,"result_session_id":"11111111-1111-4111-8111-111111111111","result_generation":3,"result_frame_id":9,"result_dictionary_revision":7,"captured_monotonic_ns":5000000000},"expected":"accept"},
+    {"id":"old-session-result","result":{"state":"Streaming","session_id":"11111111-1111-4111-8111-111111111111","generation":3,"last_applied_frame_id":8,"latest_sent_frame_id":10,"dictionary_revision":7,"now_monotonic_ns":10000000000,"result_session_id":"22222222-2222-4222-8222-222222222222","result_generation":3,"result_frame_id":9,"result_dictionary_revision":7,"captured_monotonic_ns":9500000000},"expected":"reject","rejection":"session"},
+    {"id":"old-generation-result","result":{"state":"Streaming","session_id":"11111111-1111-4111-8111-111111111111","generation":3,"last_applied_frame_id":8,"latest_sent_frame_id":10,"dictionary_revision":7,"now_monotonic_ns":10000000000,"result_session_id":"11111111-1111-4111-8111-111111111111","result_generation":2,"result_frame_id":9,"result_dictionary_revision":7,"captured_monotonic_ns":9500000000},"expected":"reject","rejection":"generation"},
+    {"id":"reverse-frame-result","result":{"state":"Streaming","session_id":"11111111-1111-4111-8111-111111111111","generation":3,"last_applied_frame_id":9,"latest_sent_frame_id":10,"dictionary_revision":7,"now_monotonic_ns":10000000000,"result_session_id":"11111111-1111-4111-8111-111111111111","result_generation":3,"result_frame_id":9,"result_dictionary_revision":7,"captured_monotonic_ns":9500000000},"expected":"reject","rejection":"frame_order"},
+    {"id":"unsent-future-frame-result","result":{"state":"Streaming","session_id":"11111111-1111-4111-8111-111111111111","generation":3,"last_applied_frame_id":8,"latest_sent_frame_id":9,"dictionary_revision":7,"now_monotonic_ns":10000000000,"result_session_id":"11111111-1111-4111-8111-111111111111","result_generation":3,"result_frame_id":10,"result_dictionary_revision":7,"captured_monotonic_ns":9500000000},"expected":"reject","rejection":"frame_order"},
+    {"id":"old-revision-result","result":{"state":"Streaming","session_id":"11111111-1111-4111-8111-111111111111","generation":3,"last_applied_frame_id":8,"latest_sent_frame_id":10,"dictionary_revision":8,"now_monotonic_ns":10000000000,"result_session_id":"11111111-1111-4111-8111-111111111111","result_generation":3,"result_frame_id":9,"result_dictionary_revision":7,"captured_monotonic_ns":9500000000},"expected":"reject","rejection":"revision"},
+    {"id":"expired-result","result":{"state":"Streaming","session_id":"11111111-1111-4111-8111-111111111111","generation":3,"last_applied_frame_id":8,"latest_sent_frame_id":10,"dictionary_revision":7,"now_monotonic_ns":10000000001,"result_session_id":"11111111-1111-4111-8111-111111111111","result_generation":3,"result_frame_id":9,"result_dictionary_revision":7,"captured_monotonic_ns":5000000000},"expected":"reject","rejection":"expiry"},
+    {"id":"future-monotonic-capture","result":{"state":"Streaming","session_id":"11111111-1111-4111-8111-111111111111","generation":3,"last_applied_frame_id":8,"latest_sent_frame_id":10,"dictionary_revision":7,"now_monotonic_ns":10000000000,"result_session_id":"11111111-1111-4111-8111-111111111111","result_generation":3,"result_frame_id":9,"result_dictionary_revision":7,"captured_monotonic_ns":10000000001},"expected":"reject","rejection":"expiry"},
+    {"id":"stopped-state-does-not-accept-result","result":{"state":"ConnectedStopped","session_id":"11111111-1111-4111-8111-111111111111","generation":3,"last_applied_frame_id":8,"latest_sent_frame_id":10,"dictionary_revision":7,"now_monotonic_ns":10000000000,"result_session_id":"11111111-1111-4111-8111-111111111111","result_generation":3,"result_frame_id":9,"result_dictionary_revision":7,"captured_monotonic_ns":9500000000},"expected":"reject","rejection":"lifecycle"}
+  ]
+}

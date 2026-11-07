@@ -1,0 +1,940 @@
+# v1.0 サーバー試験
+
+## C#クライアント試験
+
+OS非依存のCore・Clientロジックと契約fixtureは.NET 10 SDKコンテナ内で実行します。通常のアプリイメージの`src/tests`はこの追加試験の影響を受けません。
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+Windowsの`windows-client` CIは`client/ScreenTranslation.sln`全体をビルド・実行します。`ScreenTranslation.Client.IntegrationTests`ではKestrelの契約準拠モックをloopbackに起動し、試験ごとに一時CA/サーバー証明書を生成して実TLS/WSS接続します。OSの信頼ストアは変更しません(非対話のCIでダイアログ待ちになりブロックするため)。試験側の証明書検証で、試験ごとに生成した一時CAを`X509Chain`のCustomRootTrustとしてのみ信頼します。サーバー証明書はPFX経由(`UserKeySet | Exportable`、`PersistKeySet`は使わない)で読み込み、試験終了時に破棄します。固定ホスト/IP・秘密鍵・実資格情報はソースやfixtureへ保存しません。
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTranslation.Client.IntegrationTests.csproj --configuration Release --filter Category=ConnectionIntegration
+```
+
+接続・フレーム送信、401/403/409の認証/所有権拒否、503 `MODEL_NOT_READY`、HTTP protocol拒否、WSS切断後の再接続、期限切れ・SANなし・未信頼CAの証明書拒否、取消後に届く遅延応答の無視を確認します。通信の開始/完了は`TaskCompletionSource`と取消tokenで同期します。30秒のtimeoutはハング時のwatchdog専用であり、合否の時間条件には使いません。通信層の自動再接続だけではsessionを再開しないことも既存のClient単体試験で確認します。
+
+WPF画面での設定変更中の接続取消、ウィンドウ終了後の遅延UI更新なし、終了中の再接続なしはOwner実機手順に記録します。手順: (1) サーバー応答を保留した状態で接続先を変更して保存し、旧接続の遅延完了が新しい状態表示を上書きしないことを確認、(2) 接続を取消した直後に旧サーバーから応答させ、状態表示とsocket数が増えないことを確認、(3) 再接続待ち中にウィンドウを閉じ、閉じた後のUI更新/再接続がなくsocketが解放されることを確認、(4) TLS・認証・MODEL_NOT_READY・切断・再接続停止時の日本語状態と復旧案内を確認。担当: Owner。結果: **未実施(Windows実機が必要)**。混在DPI/負座標は #136 系、キャプチャ除外と実画面取得は #135/#148 系の実機Taskで確認します。実Windows/Linux間通信・サーバー実処理を含むE2Eは #108 等で行います。この未実施項目をCI成功やTask合格として数えません。
+
+2026-10-31にLinux .NET SDKコンテナでCore 1件・Client 70件・接続結合12件・Contracts 4件を実行し、すべて成功しました。CPU負荷をかけた同一試験の3反復も成功しました。WPF実機確認とWindows hosted runnerの結果は別扱いにし、手動項目を合格に含めません。実行詳細とmutation確認は[Issue #90作業記録](../../tasks/2026-10-31_issue-90_connection-windows-tests.md)を参照してください。
+
+## 実キャプチャから送信までの結合試験 (Issue #95)
+
+`CaptureSendPipeline`(`client/src/ScreenTranslation.Client/Capture/`)が、取得フレーム→ROI切り出し→変化判定→PNG符号化→最新優先送信を接続します。世代切替・停止・送信失敗では変化判定の基準(`FrameProcessor.ResetBaseline`)を捨て、送られなかった画素が「無変化」と判定されて二度と送られない状態を防ぎます。取得時の世代が現在と異なるフレームは処理せず、sessionが無い間も何も送りません。
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| OS非依存の連鎖 | `client/tests/ScreenTranslation.Client.IntegrationTests/CaptureTests.cs` (`Category=CaptureSendIntegration`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 負座標を含む96/144/192 DPIの仮想デスクトップで、論理座標から変換した物理ROIの画素が受信PNGと1対1で一致(契約の許容誤差2 physical px以内かつ実際は0)。再選択で待機中の旧領域画像が送られず、旧世代フレームは拒否され、通信中の送信が取り消される。対象終了/最小化/取得拒否/DPI変更で送信が止まり取得sessionが破棄される。送信失敗後に同一画素が再送対象になる。20回の再選択でsessionが全て1回だけ停止・破棄される |
+| 配線の単体 | `client/tests/ScreenTranslation.Client.Tests/CaptureSendPipelineTests.cs` | 同上 | 基準リセット、旧世代拒否、session無し拒否、送信失敗と呼び出し側取消の区別 |
+| Win32実取得 | `client/tests/ScreenTranslation.Windows.Tests/CaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 座標を画素値にした試験ウィンドウをWin32 `PrintWindow`で実際に取得し、ROIと受信画像が1対1で一致すること、取得対象の終了後は取得不可で旧画像が送られないこと、再選択後は新領域だけが送られることを確認 |
+| WGC実取得 (Issue #179) | `client/tests/ScreenTranslation.Windows.Tests/WgcCaptureIntegrationTests.cs` (`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 専用スレッドでメッセージループを回す既知パターンのウィンドウをWindows Graphics Captureで取得し、`FrameArrived`から読み出した画素がROIどおり(0 px誤差)に`CapturedFrame`→PNG→送信まで届くこと、ROI未選択ならGPU面を読み出さないこと、開始/停止を25回反復し、毎周「フレームプール・キャプチャセッション・D3Dデバイス・取得項目・対象監視・SoftwareBitmap」の生成数と破棄数が一致すること(Issue #204。`CaptureResourceLedger`の計測フックで直接検証し、1周1個の漏れも検出する。実ハンドル数はGC後の差分で見る補助指標で、揺れを吸収する余裕を持たせた閾値)。限界: 台帳が数えるのはDisposeの呼び出しだけで、破棄後もネイティブ側の参照が残る漏れは数えられず、補助指標のハンドル数(60未満)では25周で1周1ハンドルの漏れは検出できない。またCaptureItemにはDisposeが無いため「イベント購読の解除=破棄」とみなしていると停止後にフレームが届かないこと、対象ウィンドウを閉じるとTargetUnavailableで無効化されることを確認 |
+| WGC画素の変換 (Issue #179) | `client/tests/ScreenTranslation.Client.Tests/BgraFrameConverterTests.cs`・`CaptureFrameRouterTests.cs` | .NET SDKコンテナ | 行詰め(stride)付きBGRAの詰め直し、開始位置、内容サイズでの切り出し、元バッファの複製、不正寸法の拒否と例外メッセージへ画素値を含めないこと。ROI・世代を画素の読み出し前に採取して旧世代フレームを拒否すること |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=CaptureIntegration
+```
+
+CaptureIntegrationはWindows専用で、Linuxでは対象プロジェクトがビルドされません。Linuxでのskipをこの試験の合格として扱いません。`CaptureIntegrationTests`はWin32 `PrintWindow`、`WgcCaptureIntegrationTests`はWGCで取得した画素を使います。
+
+### WGC画素読み出しの設計と制約 (Issue #179)
+
+- `WindowsCaptureSession.OnFrameArrived`(`client/src/ScreenTranslation.Windows/Capture/`)は、ROIと世代を**画素の読み出し前に**`ICapturedFrameSink.TryBeginFrame`から採取します。ROI未選択(null)ならGPU面を読み出しません。読み出し中に再選択されても旧世代のまま渡され、`CaptureSendPipeline`が`StaleGeneration`として拒否します。
+- 読み出しは`WgcFrameReader`が`SoftwareBitmap.CreateCopyFromSurfaceAsync`でBGRA8へ複製し、`BgraFrameConverter`が行詰めを除いた`CapturedFrame`(stride=幅×4、内容サイズで切り出し)へ変換します。フレーム・GPU面・SoftwareBitmap・読み出しバッファはフレームごとに解放します。停止(`StopAsync`)と破棄(`DisposeAsync`)の両方でフレームプール・取得session・D3Dデバイス・取得対象を解放します(反復しても二重解放しない)。
+- 読み出しや受け渡しが失敗した場合は、例外の内容を捨てて`CaptureDenied`で無効化し取得を止めます。画像データはログにも例外メッセージにも出しません。取得除外・保護コンテンツなどでWGCが使えない場合に、`PrintWindow`や画面複製などの別方式へ無断でフォールバックしません。D3Dデバイスだけは、GPUが無い環境でソフトウェア描画(WARP)へ切り替えます(取得方式はWGCのまま)。
+- WGCは`WS_EX_NOACTIVATE`のウィンドウを取得対象にできません(CIで`E_INVALIDARG`を確認)。取得対象のWinRTオブジェクトは`MarshalInspectable.FromAbi`で変換します(COMのRCWへ直接キャストすると`InvalidCastException`)。
+- 対象終了などの無効化は`WindowsCaptureTargetWatcher`のWinEventフックで検出します。アウトオブコンテキストのフックは設定したスレッドがメッセージを処理しないとコールバックが届かないため、`StartAsync`はUIスレッド(メッセージループあり)から呼びます。CIの対象終了試験ではメッセージ処理スレッド(`PumpingThread`)で開始し、WGCのClosedイベントの到着には依存しません(最初の30秒タイムアウトの原因は、メッセージを処理しないスレッドで開始していたこと)。
+- マウスカーソルは翻訳対象の画像へ含めません(`IsCursorCaptureEnabled=false`)。対象のサイズが変わったらフレームプールを作り直し、以降のフレームは新しい内容サイズで届きます(ROIが範囲外になれば`Rejected`で再選択を案内)。
+- アプリ全体の配線(`CaptureFrameRouter`と`CaptureLifecycleController`の接続、取得fps上限に合わせた読み出しの間引き)はIssue #180で`TranslationSessionHost`に実装しました(下の「アプリ構成の配線」)。`WindowsCaptureSessionFactory`は`ICapturedFrameSink`を指定した場合だけ画素を読み出します。
+- Issue #180で読み出しのコピーを削減しました。`CopyToBuffer`の書き込み先を管理配列(`AsBuffer`)にしてWinRTの`Buffer`と`DataReader`経由の2回の複製をなくし(`Buffer`を作らないため破棄漏れも起きない)、行詰めなしなら`BgraFrameConverter.ToCapturedFrameOwned`が配列をそのまま`CapturedFrame`にします(内容サイズが面より小さい等で詰め直しが要るときだけ複製)。削減量の実測は未実施です(実GPUのOwner実機手順で記録)。
+
+### Owner実機手順 (混在DPI・複数モニター・画面表示)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、モニター構成(解像度・DPI・配置)、合否をIssueへ記録し、この欄を更新してください。
+
+1. 倍率が異なる2台以上のモニター(例: 100%と150%)、および主モニターより左/上に置いた(負座標の)モニターを用意する。
+2. 各モニターの既知の目盛り/文字を持つウィンドウでROIを選択し、取得開始する。受信側(またはサーバーログの画像寸法)でROI寸法が選択した物理pxと一致し、目盛り位置のずれが2 physical px以下であることを確認する。
+3. 取得中に対象ウィンドウを閉じる/最小化する/DPIが異なる別モニターへ移動する/取得権限を拒否する。送信が止まり、旧領域の画像がそれ以降送られず、取得sessionが解放される(再開始まで送信されない)ことを確認する。
+4. 負荷(別プロセスでCPUを飽和)をかけた状態でROIを再選択し、再選択前の領域の画像が受信されないことを確認する。
+5. 取得除外(自己キャプチャ除外/WDA)が失敗した場合に送信が停止することを確認する(#135/#136系)。
+
+### Owner実機手順 (WGCの実GPU取得・Issue #179)
+
+hosted runnerのソフトウェア描画(GPUなし)ではなく実GPUと実際の画面で確認する項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、GPU、モニター構成(解像度・DPI・配置)、合否をIssueへ記録し、この欄を更新してください。CI成功をこの項目の実施として数えません。
+
+1. 実GPUのWindows 10 2004以降/Windows 11で、座標目盛りを持つウィンドウをWGCで取得し、ROI寸法・目盛り位置が選択した物理pxと一致する(ずれ2 physical px以下)ことを確認する。
+2. 4Kや100%/150%など倍率の異なるモニターで、ウィンドウをモニター間で移動したときに送信が止まり(DPI変更)、再選択後は新しい物理pxのROIで送られることを確認する。
+3. 取得開始/停止/対象変更を100回以上反復し、タスクマネージャー(またはPerfMon)でプロセスのハンドル数とGPU専用メモリが増え続けないことを確認する(Issue #204: CIは生成数・破棄数の一致までを見る。100回以上の反復での実GPUメモリ・ハンドルは**未実施**)。
+4. 画面取得から除外されたウィンドウ(WDA_EXCLUDEFROMCAPTURE)や保護コンテンツ(DRM動画等)を対象にして、別方式へ切り替わらず、取得できない/黒画像を送らない動作になるか確認し、結果を#135の記録へ追記する(黒画像の検出は現状未実装のため、結果によりTaskを追加する)。
+5. ウィンドウをリサイズしたとき、新しい大きさのフレームが送られず、取得が停止して対象とROIの選び直しを求められることを確認する(Issue #198。追従しない設計)。同じ大きさの移動は「ウィンドウ移動・リサイズへの追従 (Issue #198)」の手順で確認する。
+
+## アプリ構成の配線 (Issue #180)
+
+`TranslationSessionHost`(`client/src/ScreenTranslation.Client/App/`)が、`CaptureLifecycleController`・`CaptureFrameRouter`・`CaptureSendPipeline`(`FrameProcessor`/`FrameSender`)・WSS接続(`StreamTransportClient`、抽象は`ITranslationTransport`)・`TranslationOverlayController`を組み立て、UIから呼ぶ操作(`ConnectAsync`・`SelectTargetAsync`・`SelectRegion`・`StartAsync`・`StopAsync`)を提供します。Windowsでは`WindowsCaptureRuntime.CreateSessionHost`が実WGCの工場を渡して組み立てます。開始/停止ボタン・ホットキー・履歴は#98(下の「操作・ホットキー・字幕履歴」)で、翻訳設定・辞書の画面は#99で、これらのAPIを呼びます。
+
+| 項目 | 振る舞い |
+| --- | --- |
+| 開始前のPrepare必須 (fail-closed) | `StartAsync`は`TranslationOverlayController.Prepare`でキャプチャ除外を確認できるまで`OverlayUnavailable`を返し、取得セッションを作らず、`ActivateSession`も呼ばず、画像を送らない。取得スレッドの読み出し判定も`CanStream`がfalseなら経路を返さない |
+| 失効のタイマー配線 | ホストが失効確認ループを持ち、次の失効時刻(最大250ms間隔)ごとに`Tick`を呼ぶ。取得から5秒を超えた表示は製品経路で消える |
+| 停止・再選択・対象消失・切断・除外失敗・送信失敗 | 世代無効化(`GenerationInvalidated`)・切断(`ConnectionLost`)・除外失敗(`FailedClosed`)・送信例外を受けた同期処理で、取得経路の遮断→待機画像と通信中の送信の破棄と変化判定の基準破棄(`ResetBaseline`)→表示消去を行ってから、取得セッションの停止・解放が進む(停止完了を待たずに旧領域は送られず、表示は消える)。理由は`SessionEnded`で通知 |
+| 世代 | 開始・ROI再選択ごとに世代を1進め、`FrameSender`・`StreamTransportClient`・結果採否・オーバーレイへ同じ値を渡す。ROI再選択は旧画像・通信中の送信・表示を破棄してから新ROIの世代2以降で送る。旧世代フレームは送信直前の照合でも取り下げる |
+| 取得fpsの間引き | `CaptureFrameRouter.TryBeginFrame`が、取得fps上限で破棄される見込みのフレームはGPU→CPUの読み出し前にnullを返す(読み出しコストを払わない) |
+| 停止後の1フレーム | `WindowsCaptureSession`が配信直前に停止を再確認する。残る隙間はホストが先に`pipeline.EndSession`しているため`NoSession`/`StaleGeneration`で拒否される |
+| 解放・並行 | `DisposeAsync`は冪等で並行呼び出しも同じ完了を待つ(`WindowsCaptureRuntime`との二重破棄でも例外にならない)。停止は取得セッションの停止(操作ロック待ち)より先に送信と表示を止める。`ConnectAsync`を2回呼んでも受信ループは1本、`StartAsync`は直列化されPrepareは1回。送信ループの失敗は、そのループ自身が現在のセッションのときだけセッションを止める(停止→即再開の窓で新セッションを止めない)。ループが止まらなくても解放は`ShutdownTimeout`(既定10秒)で先へ進む |
+| 切断後の再開 | 切断・送信失敗後は自動では送信を再開しない。利用者の明示操作(`StartAsync`)まで待つ |
+| 例外内容 | `Faulted`には画像・訳文・session_idを含めない固定文言だけを渡す |
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 構成の単体 | `client/tests/ScreenTranslation.Client.Tests/TranslationSessionHostTests.cs`(`HostFixture.cs`、共有代替`client/tests/Shared/AppHostTestSupport.cs`) | .NET SDKコンテナ | Prepare失敗時に取得セッションを作らない、前提不足の結果、ROIの物理座標への変換と画素一致、fps間引き、停止中に取得停止が未完でも表示が消え経路が遮断される、停止後に届く旧フレームの拒否、停止→再開で同一画像を再送(基準破棄)、再選択後は世代2・frame_id 1・新寸法だけが送られる、対象消失、切断、送信失敗、5秒失効のTick、表示中の除外喪失、破棄。注入クロックと手動ティッカーで固定sleepに依存しない |
+| 組み立て済みの結合 | `client/tests/ScreenTranslation.Client.IntegrationTests/AppWiringTests.cs`(`Category=CaptureSendIntegration`) | 同上 | 実`StreamTransportClient`・実PNG符号化・実オーバーレイ制御・実ライフサイクルを通し、ROI選択→(負座標の物理ROI左上が先頭画素の)WSSバイナリ送信→resultの表示→再選択でのオーバーレイ消去と世代2以降の送信→停止と表示消去、および切断で表示消去・取得解放・利用者通知を確認 |
+| Windows構成 | `client/tests/ScreenTranslation.Windows.Tests/WindowsCaptureSessionFactoryTests.cs` | Windowsのみ(`windows-client` CI) | `WindowsCaptureRuntime.CreateSessionHost`が実WGC工場でホストを組み立て、対象未選択ではPrepareも呼ばないこと |
+
+**未実施(Owner実機手順)**: 実WGC・実HWND(WDA)・実WSSサーバーを通した通し(ROI選択→実画面取得→送信→サーバー結果の重畳→再選択/停止/切断で1秒以内に表示が消える)、混在DPI・複数モニター、実GPUでの読み出しコスト削減量の計測。結果は**未実施**で、CI成功をこれらの実施として数えません。手順は上の「Owner実機手順」に、通しとして次を加えます。
+
+1. 実サーバーへ接続し、ウィンドウまたはモニターとROIを選び、開始する(開始前にオーバーレイのキャプチャ除外が確認できないと開始されないこと)。
+2. 訳文が重畳され、取得から5秒たつと消えることを確認する。
+3. 再選択・停止・対象ウィンドウを閉じる・ネットワークを切断のそれぞれで、訳文が1秒以内に消え、旧領域の画像が送られないこと、切断後は自動で送信が再開されないことを確認する。
+
+## 操作・ホットキー・字幕履歴 (Issue #98)
+
+`OperationsViewModel`(`client/src/ScreenTranslation.Client/ViewModels/`)が、`TranslationSessionHost`(抽象は`ISessionOperations`)・session取得(`ISessionGrantProvider`)・領域選択(`IRegionSelector`)・ホットキー登録(`IHotkeyRegistrar`)・字幕履歴(`TranslationHistory`)をまとめ、接続/準備中/翻訳中/停止中/エラーの表示と操作の可否(`OperationSnapshot`)を状態契約([session-state.md](../../contracts/session-state.md))に合わせて返します。WPFの`OperationPanel`は描画と呼び出しだけを持ち、判断を持ちません。
+
+| 項目 | 振る舞い |
+| --- | --- |
+| 二重実行の抑止 | 接続・開始は処理中の再要求を無視する(開始のsession取得・取得開始は1回)。停止は開始中でも受け付けて開始を取り消し、停止中の再要求は同じ停止の完了を待つ。開始の完了と停止が交差してもホストを止め、動いたままにしない。UIスレッドは待たない |
+| 切断中の停止・再接続 | 切断を検知すると未接続へ移り、停止は何もしない。再接続しても自動では開始せず、利用者の明示操作を待つ。停止中・開始中の切断も最終状態は未接続になる |
+| 再選択 | 実行中・開始中ならいったん停止(送信と表示を止めsessionを解放)してから領域選択を開く。選択画面は翻訳しない。選び直した領域は新しいセッションの対象で、自動では再開しない。取り消し・DPI/画面構成変化による無効化・範囲外は理由を示し、元の領域と履歴を保つ |
+| 履歴 | 採用・表示した結果だけを最新順に最大100件(メモリのみ。永続ログへ保存しない)。停止・切断・対象消失後も閲覧でき、再選択・新セッション・終了で消す。履歴の記録先は(session, 世代)で見分け、世代の下限はsessionごとに持つ(新sessionの世代は1から始まるため、旧sessionの下限を持ち越さない。#242)。消去後に遅れて届く旧世代の結果と、旧sessionの結果(世代の値によらず)は拒否する。開始の完了前に届く新sessionの最初の結果は、開始に成功した場合だけ残す。直前と同じ行は重ねて記録せず、字幕が消えた(空の結果)後に同じ文が出れば記録する。位置不明(`rect: null`)の訳文も記録し「(位置不明)」と示す |
+| ホットキー | 設定で有効にしたときだけ登録する(既定は無効)。割り当ては「Ctrl+Alt+T」形式で、修飾キーなし・未対応のキー・重複は登録せず理由を示す。競合(他アプリが使用中)・OS拒否は理由とボタンでの代替操作を示し、他のキーの登録は続ける。設定を直して「ホットキーを再登録」で再実行できる。押下はボタンと同じ操作で、押し続けても連続通知しない(`MOD_NOREPEAT`) |
+| 移動追従・リサイズ (#198との整合) | 移動追従は世代が進むが停止せず、翻訳中のまま履歴も保つ(履歴の世代下限は再選択・新セッションでだけ上げる)。リサイズは停止して対象とROIを破棄し、選び直すまで開始させない。履歴は停止と同じく閲覧できる。同じ対象を選び直すと再選択として履歴を消す(`OperationTargetChangeTests`) |
+| 開始完了との交差 | 開始の完了処理では、停止要求・終了通知・切断の判定と「翻訳中」への遷移を同じ排他区間で行う。割り込まれても動いたまま・誤って翻訳中にならない。接続の完了前に切れた場合も接続済みにしない(`OperationInterleavingTests`) |
+| 終了 | ホットキーの解除→履歴の消去→ホストの解放(取得・通信・オーバーレイ)→sessionの解放。何度でも・同時に呼べ、終了後の操作・ホットキー・遅れて届く結果は何も起こさない |
+| 文言・ログ | 利用者向けは日本語で、画像・原文・訳文・session_id・例外本文を含めない。履歴の`ToString`も本文を出さない |
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 操作の状態契約 | `client/tests/ScreenTranslation.Client.Tests/OperationTests.cs`・`OperationReselectTests.cs`・`OperationDisposeTests.cs`(代替は`OperationFakes.cs`/`OperationFixture.cs`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 連打(20回の開始で1回だけ)、開始中・session取得中・取得開始中の停止、取消と完了の交差、停止中の再要求と開始、切断中・開始中・停止中の切断、停止失敗、各理由での停止、処理中の再選択・対象変更、取消/DPI無効化/範囲外、終了。ゲートで処理中の状態を作り、固定sleepを同期条件にしない |
+| 履歴 | `TranslationHistoryTests.cs`・`OperationHistoryTests.cs`・`OverlayPresentedTests.cs` | 同上 | 100件ちょうどと101件目、1結果が100件超、重複抑制と空結果後の再記録、世代による消去と遅延結果の拒否、停止・切断後の保持、新セッション・終了での消去、再選択後の新session(世代1)の記録と旧sessionの遅れた結果の拒否、開始失敗したsessionの結果を残さないこと、位置不明の保持、同時追加、本文を`ToString`へ出さないこと、不採用の結果は通知しないこと |
+| ホットキー | `HotkeyGestureTests.cs`・`OperationHotkeyTests.cs` | 同上 | 割り当ての解析/正規化、無効・競合・重複・OS拒否の説明、再登録、連打・停止中・未接続・例外、旧版の設定ファイルの読み込み |
+| 実Windows API | `client/tests/ScreenTranslation.Windows.Tests/OperationsWindowsTests.cs`(`Category=Operations`) | Windowsのみ(`windows-client` CI) | `RegisterHotKey`の登録・押下通知・解除、同じキーの二重登録が競合になること、解放後に再登録できること、例外を窓手続きから出さないこと、実レジストラ経由で競合の説明が出て終了後に登録が残らないこと |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=Operations
+```
+
+`Category=Operations`はWindows専用で、Linuxでのskipを合格として扱いません。この試験は実際のキー入力・他アプリとの実競合・画面の見た目を検証しません。
+
+### Owner実機手順 (操作・ホットキー・履歴)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、モニター構成、合否をIssueへ記録し、この欄を更新してください。session取得のHTTPSクライアントは #210 で実装済みです。手順3以降は実サーバーへの接続(資格情報の登録と接続先の設定)が必要です。
+
+1. 設定でホットキーを有効にして保存し接続する。「ホットキーを再登録」で状態欄に各キーの登録結果が出ることを確認する。他のアプリが使うキー(例: 常駐ツールの割り当て)を指定すると、競合の理由とボタンで操作できる旨が出て、もう一方のキーは使えることを確認する。
+2. キーボードだけで、設定欄→接続→対象の選択→領域の再選択→開始/停止ボタンまで操作でき、状態の文言が読み上げ/拡大表示で判別できることを確認する(見た目・フォーカス順)。
+3. 翻訳中に開始/停止のホットキーを連打し、状態が「翻訳中」「停止中」「待機中」のいずれかに収まり、停止から1秒以内に字幕が消え、旧領域の画像が送られないことを確認する。
+4. 翻訳中に領域の再選択(ボタンとホットキー)を行い、選択中は翻訳が止まり、選び直した後は自動で再開せず、履歴が消えていることを確認する。取り消した場合は履歴が残ることを確認する。
+5. 履歴が最新100件で、停止後も閲覧でき、101件目以降で古い順に消え、位置不明の訳文が「(位置不明)」付きで残ることを確認する。再選択・再度の開始・アプリ終了後(再起動して)に履歴が復元されないことを確認する。
+6. サーバーを停止して切断し、状態が「未接続」になり、停止ボタンが誤動作せず、再接続しても自動で翻訳が再開されないことを確認する。
+
+## 翻訳設定・用語辞書の編集と競合表示 (Issue #99)
+
+`TranslationSettingsViewModel`・`GlossaryViewModel`(`client/src/ScreenTranslation.Client/ViewModels/Settings/`)が、サーバーの設定(`capture_fps`)と用語辞書を「読込→編集→If-Match付き保存」で扱います。状態機械は共通の`RevisionedEditor<T>`で、OSにもUIにも通信にも依存しません。通信は`ServerSettingsApiClient`(`Api/`)が#210の`ControlApiClient`(認証・TLS・本文上限・エラー分類)を再利用して行い、WPFの`Views/Settings/ServerSettingsPanel`は描画と呼び出しだけを持ちます。
+
+| 項目 | 振る舞い |
+| --- | --- |
+| 端末ローカル項目との分離 | 字幕の重畳表示・ホットキー・接続先は端末の設定ファイル(`ClientSettings`)に残し、サーバーへ送らない。サーバーへ送るのは取得頻度(1～5)と辞書だけ |
+| 保存 | 読み込んだrevisionを引用符付き十進数で`If-Match`に付けて`PUT`する。成功すると応答のrevisionと値を採用し、「これから送信する新しいフレームから反映され、処理中のフレームは変わらない」と表示する(契約の`X-Effective-From: next-frame`) |
+| 競合(409 `REVISION_CONFLICT`) | 上書きせず、編集内容とrevisionを保持したまま「先に更新されていたため保存しなかった。再読込してください」と表示する。再読込は未保存の編集があると確認(破棄の同意)が要り、同意なしでは通信も破棄もしない。同意すると最新の値に置き換え、競合表示を消す |
+| 保存失敗 | 401/403/422/413/5xx・期限切れ・接続不可・証明書拒否・応答不正のそれぞれを別の固定の日本語で表示し、編集内容は必ず保持する(消すのは成功の読込と「編集を取消」だけ)。サーバーが返した文言・トークン・URL・session_id・例外本文は表示しない。応答待ちの期限切れ・取消は「保存されたか確認できない。再読込して確認」と案内する |
+| 権限不足 | 更新は管理権限のみ。端末資格情報(GETは可)で保存すると、403を「管理権限の資格情報が必要」と案内し、編集は保持する。管理用の資格情報は端末資格情報とは別ファイルにDPAPIで保護保存する |
+| 二重送信・同時操作 | 保存・読込は同時に1つだけ(処理中の再要求は無視)。保存中の編集は受け付け、保存成功でも上書きせず未保存として残す。保存中は取消・再読込できない。通信は排他区間の外で行う |
+| 入力検証 | 取得頻度は1～5。辞書は前後の空白を除き、空・各128文字(コードポイント)超・1000件超・原文の重複(大文字小文字を区別しない)を送信前に拒否して入力を保つ。最終判断はサーバー(422)に従う |
+| 応答の検査 | `settings`/`glossary`のschemaに厳密に適合する200だけ受け入れる(余計な項目・範囲外・型違い・上限超過・200以外の2xxは「応答を解釈できない」) |
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 通信部品 | `client/tests/ScreenTranslation.Client.Tests/ServerSettingsApiClientTests.cs`(`Category=SettingsApi`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | If-Match・本文・契約fixture・応答schema違反・エラー分類・資格情報なし |
+| 編集モデル | `SettingsViewModelTests.cs`・`GlossaryViewModelTests.cs`(`Category=SettingsApi`。代替は`SettingsFakes.cs`) | 同上 | 保存・競合・再読込の確認・各失敗での保持・二重送信20並行・保存中の編集・破棄・入力検証・秘匿 |
+| 実サーバー結合 | `client/tests/ScreenTranslation.Client.IntegrationTests/RealServerSettingsTests.cs`(`Category=RealServerIntegration`) | `client/compose.real-server.yml`(本物のサーバーアプリ。設定専用の待受を別に持つ) | 管理tokenでの保存→再取得、古いrevisionの競合と編集保持・再読込、辞書の追加/削除の往復、クライアント検証を迂回した重複のサーバー拒否、端末tokenでの保存が権限不足になること |
+| WPF画面 | `client/tests/ScreenTranslation.Windows.Tests/ServerSettingsPanelTests.cs`(`Category=SettingsApi`) | Windowsのみ(`windows-client` CI) | 取得頻度の選択肢、拒否された追加で入力を残すこと、競合時に一覧と再読込案内を保つこと |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+docker compose -f client/compose.real-server.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=SettingsApi
+```
+
+`Category=SettingsApi`のWPF試験はWindows専用で、Linuxでのskipを合格として扱いません。この試験は実際のキー入力・見た目・混在DPIを検証しません。
+
+### Owner実機手順 (設定・用語辞書)
+
+結果は**未実施**です。Windows実機で行い、結果をIssue #99または#110へ記録します。
+
+1. 接続設定と端末資格情報を保存し、管理用の資格情報を保存する。「読み込み・再読込」で現在の取得頻度と用語一覧が表示されること。
+2. 取得頻度と用語を変更して保存し、翻訳中の字幕が「保存後の新しいフレーム」から変わること(処理済みのフレームの字幕は変わらない)。
+3. 2台目の画面(または別端末)で同じ設定を先に保存してから1台目で保存し、競合の案内が出て編集内容が残ること。再読込で確認が出て、同意すると最新の値になること。
+4. 保存中にネットワークを切る・サーバーを止めて保存し、失敗の案内が出ても入力が消えないこと。画面に資格情報やサーバーの内部情報が出ないこと。
+5. 端末資格情報だけ(管理用を未保存)で保存し、権限不足の案内が出ること。
+6. 文字の見え方(選択状態・エラー色・折り返し)、混在DPI・複数モニター間でのウィンドウ移動後の表示、キー操作(Tab順・Enter)を目視する。
+
+## MainWindowの配線を検証する起動スモーク試験 (Issue #231)
+
+#98では`MainWindow`のコンストラクタが`InitializeOperations()`を呼んでおらず、接続ボタンが動かなかった。Windowsの試験が各パネル(`OperationPanel`・`ServerSettingsPanel`)の単体生成にとどまり、`MainWindow`内のイベント購読(配線)を検証していなかったため、#98の独立レビュー・CI・UI試験が検出できなかった。この試験は、実際に生成した`MainWindow`の配線を検証する。
+
+`MainWindow`は、保存先と通信・OSに触れる部品(操作モデルの組み立て、設定・用語辞書API)を`MainWindowServices`から受け取る。製品は既定(`MainWindowServices.CreateDefault()`、従来と同じ構成)を使い、試験だけがフェイクへ差し替える。
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 配線の列挙・判定ロジック | `client/tests/Shared/EventWiringInspector.cs`、`client/tests/ScreenTranslation.Client.Tests/EventWiringInspectorTests.cs` | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 公開イベントの列挙(同一アセンブリで宣言された型のみ。WPF基盤のイベントは対象外)、購読有無の判定(フィールド型イベントの保持デリゲートがnullか)、購読の忘れの報告、検査不能なイベントと実在しない許可リスト項目の不合格 |
+| 実`MainWindow`の購読 | `client/tests/ScreenTranslation.Windows.Tests/MainWindowWiringTests.cs`(`Category=MainWindowWiring`)`EveryPublicEventOfEveryPanel_IsSubscribedByTheMainWindow` | Windowsのみ(`windows-client` CI) | STAスレッドで`MainWindow`を生成し、論理ツリーのパネルの全公開イベントを列挙して、購読者がいることを検査する。**パネルに公開イベントを足して配線を忘れると、この試験が落ちる**。購読不要のイベントは`NoSubscriptionNeeded`に理由付きで書く(現在は無し) |
+| 主要操作の到達 | 同上 `Connect_Start_Stop_Reselect_AndHotkeyReapply_ReachTheHost` ほか | 同上 | 実ウィンドウのボタンのクリックイベントから、接続・対象選択・開始・停止・領域の再選択・ホットキー再登録がフェイクのホスト/選択器/レジストラへ届くこと、ウィンドウを閉じるとホストを片付けること、接続設定の保存が保存先へ、設定の読み込みと管理用資格情報の保存が(フェイクの)APIと保存先へ届くこと |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=MainWindowWiring
+```
+
+`Category=MainWindowWiring`はWindows専用で、Linuxでのskipを合格として扱いません(`windows-client` CIがPassedになることを確認する)。Linuxコンテナでは配線検査ロジックの単体試験と、Windows試験プロジェクトのビルド(`dotnet build -p:EnableWindowsTargeting=true`)までを確認する。
+
+**意図的に壊したときに試験が落ちること(mutation)**: `MainWindow`から`InitializeOperations()`または`InitializeServerSettings()`の呼び出しを除く、`ConnectRequested`などのパネルのイベント購読を除く、のいずれでも、購読の検査と操作の到達の試験が落ちる。確認方法と結果はPR #231の本文に記録する。
+
+**WPF試験の直列化**: `MainWindow`を生成する試験を既存のWPF試験(`ServerSettingsPanelTests`・`OverlayWindowsTests`)と並列に実行すると、`windows-client`で複数のSTA試験が応答しなくなったため、WPFを生成する試験クラスは`[Collection("WpfSta")]`で直列に実行する。新しいWPF試験クラスを足すときも同じコレクションに入れる。付け忘れは`WpfSerializationTests`(`windows-client`)が検出する。Windows.Testsの全試験クラスについて、メタデータとILから`WindowsBase`・`PresentationCore`・`PresentationFramework`・`System.Xaml`の型(派生型を含む)を使う試験クラスを、補助クラス経由も含めて洗い出し、`[Collection("WpfSta")]`が無ければ型名付きで落とす。WPFを使っても直列化が不要な型は、`WpfSerializationTests`の許可リストに理由付きで載せる(理由が空白だと落ちる。`EventWiringInspector`の許可リストも同様)。判定ロジックはOS非依存で`WpfSerializationInspectorTests`が検証する。並列で応答しなくなる根本機構(STAスレッド・Dispatcher・`Application`・ハンドルのどれか)は**未特定**のため、直列化を不要にする判断はしていない。`OperationsWindowsTests`も`Dispatcher`を生成するため、このコレクションに入れた。
+
+**接続設定が不正なときの表示**: `OperationsComposition.Create`が投げる`ArgumentException`は、`MainWindow`が「接続設定が正しくありません」と表示して操作モデルを付けない。組み立て中の他の引数不正も同じ文言になるが、利用者が取れる対処(接続先と指紋の確認・保存し直し)は同じため許容し、`MainWindowWiringTests`で固定する。
+
+**この試験が検証しないこと(未実施)**: 見た目、実際のマウス・キー入力、混在DPI・複数モニター、実WGC・実サーバーとの通し。これらは上記のOwner実機手順で確認する。フィールド型でないイベント(`add`/`remove`を自前実装したもの)は購読の有無を調べられないため、許可リストに理由を書かない限り不合格にする。
+
+## Windowsクライアント全体の操作結合テスト (Issue #100)
+
+R3の各Phase(画面取得・領域選択・送信・結果の重畳・操作とホットキー・設定と辞書)の部品を、個別試験の書き写しではなく**層をまたぐ1本の流れ**で確認する。流れは「設定(保存した接続先)→接続→対象選択→ROI選択→画像送信→結果受信→重畳→辞書更新→再選択(世代1から)→停止」。**どの相手・どの環境で確認したか**を次の表で区別する。
+
+| 区分 | 場所・分類 | 相手・環境 | 確認すること |
+| --- | --- | --- | --- |
+| 契約に基づくテスト用サーバーとの通し | `client/tests/ScreenTranslation.Client.IntegrationTests/ClientScenarioTests.cs`・`ClientScenarioFaultTests.cs`(土台は`ScenarioContractServer.cs`・`ScenarioRig.cs`)。`Category=ClientScenarioIntegration`と`Category=ClientIntegration` | 実TLSのHTTPS制御API・WSSを契約どおりに話す**テスト用サーバー**(Kestrel。OCR・翻訳エンジンは無い)。Linuxコンテナ(`client/compose.test.yml`)と`windows-client` CI(solution全体)の両方で実行 | 保存済み設定から接続→POST→WSS開き直し→PNG送信(負座標・DPI192のROI左上の画素)→結果→重畳の物理座標→履歴→辞書保存でrevisionが進み実行中のsessionへ反映(次のフレームから新revision・世代とframe_idは維持・通信は切れない・保存前に送ったフレームの旧い結果は表示しない)→再選択でDELETE・表示と履歴の消去→再開始(新session・世代1・新revision)→停止。遅れた結果(旧世代・別session・旧revision・未送信frame・取得から5秒超過)が表示にも履歴にも混入しない/表示の5秒失効/切断(表示消去・送信停止・切断中の停止は何もしない)/`OCR_TIMEOUT`の案内と通信維持/503 `MODEL_NOT_READY`(POST)の案内と回復/除外を確認できないときの非送信・非取得/表示直前の除外喪失/DPI変更通知での停止/ホットキーの競合表示とキーでの開始・停止/応答が飛んでいる最中の終了 |
+| 本物のサーバーアプリとの通し | `ClientScenarioRealServerTests.cs`(`Category=RealServerIntegration`) | `client/compose.real-server.yml`(Linuxコンテナの本物のサーバー。OCR・翻訳だけ固定の代替)。接続先は環境変数で受け取り、**未設定ならskip(合格として数えない)** | 接続→開始→翻訳(`訳:Hello`)→管理資格情報で辞書保存→再選択→再開始→翻訳→停止→別端末が開始できる |
+| Windows実ウィンドウ・実HWND・実RegisterHotKey | `client/tests/ScreenTranslation.Windows.Tests/ClientScenarioWindowsTests.cs`(土台は`WindowsScenarioChain.cs`)。`Category=ClientIntegration`、WPF試験なので`[Collection("WpfSta")]` | `windows-client` CI(Windows hosted runner)。画面取得・ネットワーク・キャプチャ除外APIは代替 | 実`MainWindow`のボタン操作→実操作モデル→実セッションホスト→実`StreamTransportClient`(WSSは台本の代替ソケット)→実HWNDのオーバーレイ窓の表示・消去・破棄。実`RegisterHotKey`の競合が画面に出てボタンで開始できること。除外を確認できない実オーバーレイ窓では取得も送信もしないこと。DPI/画面構成の変化通知で選択が無効になる案内 |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+docker compose -f client/compose.real-server.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=ClientIntegration
+dotnet test client/tests/ScreenTranslation.Client.IntegrationTests/ScreenTranslation.Client.IntegrationTests.csproj --configuration Release --filter Category=ClientIntegration
+```
+
+**skipの扱い**: 実サーバー結合(`RealServerIntegration`)は接続先の環境変数が無いとskipする。skipは合格に数えない。`windows-client` CIでは本物のサーバーを起動しないため、この区分はWindows上では常にskipで、Linuxの`client/compose.real-server.yml`の結果だけで確認する。時計は注入(固定sleepを同期条件にしない)し、待機の上限はハング検出のwatchdogで合否の時間条件ではない。
+
+### 未解決事項 (この通しで見つかった・確認できていない項目)
+
+次は**現行クライアントが期待どおりでない**(または未実装の)項目です。通ったことにはしません。(解決済み: フレーム単位の非致命エラーで通信全体が閉じる不具合は #226 で解決し、`KnownGap_FrameLevelError_CurrentlyClosesTheWholeStream`は`FrameLevelError_KeepsTheStreamOpenNotifiesAndTheNextFrameIsTranslated`として仕様の期待へ書き換えた。下の「フレーム単位の非致命エラー (#226)」を参照)(解決済み: 再選択後の新sessionで履歴が記録されない不具合は #242 で解決し、`KnownGap_HistoryOfANewSessionStartedAfterReselect_IsNotRecorded`は`HistoryOfANewSessionStartedAfterReselect_IsRecorded`として仕様の期待へ書き換えた。下の履歴の行を参照)(解決済み: 実行中sessionへの辞書revision適用は #241 で解決し、`KnownGap_DictionaryUpdateDuringStreaming_...`は仕様の期待へ書き換えた。下の「実行中sessionへの辞書revision適用 (Issue #241)」を参照)試験は現行の挙動を「既知の未解決(`KnownGap_`)」として固定してあり、修正されると落ちるので、期待を仕様へ改めてこの表から外してください。
+
+| 項目 | 現行の挙動(試験で確認) | 関連 |
+| --- | --- | --- |
+| 全画面の複雑背景のOCR予算 | Owner判断待ち。この通しでは検証していない | #224 |
+
+### Owner実機手順 (Windowsクライアント全体)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要)**。実施した場合は日付、Windows版、モニター構成(解像度・DPI・配置)、GPU、接続先の種別(実サーバーか)、合否をIssueへ記録し、この欄を更新してください。CI成功をこの項目の実施として数えません。
+
+1. 実サーバーに接続し、実際のウィンドウとディスプレイで、対象選択→ROI選択→開始→字幕の重畳→辞書の編集→再選択→停止を通す。字幕が対象の上に出て、操作を邪魔せず(クリック透過・フォーカスを奪わない)、翻訳結果が自分自身の字幕を再翻訳しない(自己キャプチャが無い)こと。
+2. 混在DPI(100%と150%以上)・複数モニター・負座標のディスプレイで、同じ流れを通し、ROIと字幕の位置がずれないこと。ウィンドウを別DPIのモニターへ移したとき、停止して選び直しの案内が出ること。
+3. ホットキーを他アプリと競合させ、理由と代替のボタン操作が表示されること。実際のキー入力で開始・停止すること。
+4. 翻訳中にネットワークを切る/サーバーを止め、1秒以内に字幕が消え、再接続しても自動では再開しないこと。アプリを閉じる操作を応答の途中で行っても固まらず、サーバーのsessionが残らないこと。
+5. 翻訳中に辞書を保存し、開始し直さずに、保存後に取得したフレームから辞書の訳語で字幕が更新され、通信が切れず、保存前に送ったフレームの旧い訳が保存後に表示されないことを確認する(「実行中sessionへの辞書revision適用 (Issue #241)」)。
+
+## 実行中sessionへの辞書revision適用 (Issue #241)
+
+辞書の保存成功(`PUT /api/v1/glossary`の200の新revision)を、実行中のsessionへ反映する。契約(`contracts/session-state.md`「設定・辞書更新」): 保存成功で新revisionを即時activeにし、**次に取得するframeから**新revisionを付ける。generationとframe_idはrevision変更だけでは戻さない。旧revisionの結果は新revision適用後に表示しない。
+
+### 経路と規則
+
+`GlossaryViewModel.Saved`(保存成功の新revision) → `OperationsViewModel.ApplyDictionaryRevision` → `TranslationSessionHost.ApplyDictionaryRevision`(`MainWindow.ServerSettings.cs`が配線)。ホストは`sync`の下で、送信側(`FrameSender`)・通信部品(`StreamTransportClient`)・表示側の結果採否(`ResultAcceptanceTracker`)・ホスト自身の値を同時に新revisionへ移す。
+
+| 場面 | 規則 |
+| --- | --- |
+| 更新後に取得するフレーム | 新revisionで送る。generation・frame_idは維持。静止画面(変化なし)は再送しない |
+| 更新時に待機中の画像(まだ送っていない) | 破棄しない。送信時に組み立てるメタデータが新revisionになるため、新revisionで送る(旧revisionで送って破棄されることがない) |
+| 更新時に通信中・送信済みのフレーム | 旧revisionのまま。その結果は採用しない(表示にも履歴にも出さない) |
+| 旧revisionで組み立てた直後に更新が割り込んだフレーム | 通信部品の照合で取り下げる(送信失敗として停止しない) |
+| 古い・同じrevision、停止中、破棄後 | 何もしない(逆行しない)。停止中の通知は覚えておき、次の開始で取得時より新しければそのrevisionで始める(取得から開始までの間の保存を取りこぼさない) |
+| 反映に失敗した | 旧revisionを送り続けないよう停止して案内する |
+| 翻訳設定(取得頻度)の保存 | **sessionのrevisionを更新しない**。サーバーの設定と辞書は別系列のrevisionで、sessionのrevisionを動かすのは辞書の保存だけのため(`GlossaryViewModel`だけが`Saved`を持つ) |
+
+### サーバーの挙動(コードを読んで確認した事実)
+
+- 旧(より小さい)revisionのフレームは、WSSを閉じず、処理せず破棄する(`app.py`の`stale_revision`、観測は`stale_dictionary_revision`)。応答は無い。処理中に旧revisionになった結果・errorも配信直前の`is_frame_current`で破棄される(`result_delivery.py`)。契約と一致する。
+- sessionより**大きい**revisionのフレームは、WSSをcode 1008で閉じる(`app.py`)。クライアントが先走って新revisionを使うと切断される。辞書のPUTは保存確定と同じtickで`set_dictionary_revision`を呼んでから200を返すため、200を受けた後に新revisionを送るのは安全。設定のrevisionを辞書revisionとして適用すると、この経路で切断される(上の表のとおり適用しない)。
+- sessionの生存は、かつて**フレームの受信でだけ**更新されていた(`SessionManager.heartbeat`の呼び出し元は`app.py`のフレーム受信のみ。クライアントは生存通知を送らなかった)。#94の「静止画面は再送しない」と組み合わさり、無通信が`disconnect_timeout`(製品の既定5秒)を超えるとsessionが失効した。#245で、クライアントが接続中に1秒間隔の生存通知(`keepalive`。[contracts README](../../contracts/README.md))を送り、サーバーが受信で生存を更新するようにした。実サーバー結合の試験用サーバーは、開始直後の切断を避けるために一時的に`REAL_SERVER_DISCONNECT_TIMEOUT`を3秒にしていた(#241)が、これは上記の欠陥の回避だったため外し、製品既定の5秒で動かす。
+- #100・#241の起票時の「更新後に表示が止まり、通信も切れた」の切れ方は、旧revisionのフレームを受けたことによるものではない(サーバーは旧revisionで切断しない)。原因は特定していない(推測: 更新直後の処理中フレームでの`PROCESSING_FAILED`をクライアントが通信全体の切断として扱う #226 / #202。確認していない)。サーバーが契約と食い違う挙動は見つかっていない。
+
+### 試験
+
+| 区分 | 場所 | 内容 |
+| --- | --- | --- |
+| 単体(決定的) | `client/tests/ScreenTranslation.Client.Tests/HostDictionaryRevisionTests.cs`・`CaptureSendPipelineTests`・`GlossaryViewModelTests`・`OperationTests` | 次のフレームの新revision・generation/frame_id維持・静止画面の非再送・旧revisionの結果の拒否・待機画像・更新が割り込むフレーム(`BeforeSendProbe`で順序を固定)・古い/同じrevision・停止/破棄との交差(`Barrier`)・領域切替後も新revision・停止中の通知の持ち越し・反映失敗時の停止・`Saved`の発火条件 |
+| 契約サーバー結合 | `ClientScenarioFaultTests`(`DictionaryUpdateDuringStreaming_*`) | 旧`KnownGap_`試験を仕様の期待へ書き換え。更新後のフレームは新revision・サーバーの破棄数0・訳が表示され・通信は切れない。送信中のフレームの旧い結果は表示されない |
+| 実サーバー結合 | `ClientScenarioRealServerTests`(`client/compose.real-server.yml`。固定の翻訳を`GlossaryRuntime`経由にして辞書の訳語を反映) | 開始し直さずに、辞書の訳語(`Hello`→`こんにちは`)が表示され、世代は1のまま通信が維持される。辞書を戻すと元の訳に戻る |
+| Windows配線 | `MainWindowWiringTests.GlossarySave_ReachesTheRunningSessionAsTheNewRevision`(`windows-client` CI) | 実`MainWindow`で辞書を保存すると、操作モデル経由でホストへ新revisionが届く |
+
+未検証: 別の端末・別の管理操作が先に辞書を更新した場合(このクライアントが保存していない新revision)は、サーバーのsessionのrevisionだけが進み、このクライアントは旧revisionのまま送り続けて破棄される。サーバーはstate/heartbeatに現在のrevisionを載せるため検知は可能だが、本Taskでは扱わない。
+
+## 静止画面の生存通知 (Issue #245)
+
+画面が静止してフレームが送られない間も、クライアントは接続中(session有効)に1秒間隔で`keepalive`(text)を送り、サーバーは資格情報とsession・generationを照合して生存を更新する。契約は[contracts README](../../contracts/README.md)、方式の選択理由は[ADR-0005](design/adr/0005-session-lifecycle.md)。
+
+### 再現した事実
+
+- 修正前のサーバーは、sessionの生存をフレーム受信でしか更新せず、クライアントからのtextは契約違反としてcode 1003で閉じていた(コードの事実)。
+- 製品既定(5秒)の実サーバーに対し、フレームも生存通知も送らないクライアントを接続すると、`SilentClient_IsDetectedAndOwnershipIsReleasedWithinTheContractTime`のとおり他端末が約5秒後〜15秒以内に開始できる(sessionが失効して所有権が解放される)。静止画面のクライアントは修正前、この状態と同じだった。
+- 修正後は、同じ製品既定の実サーバーで9秒間フレームを出さなくても、`SessionSurvivesAStaticScreenLongerThanTheServerDisconnectTimeout_AndTranslatesAfterwards`のとおりsessionは維持され(他端末は409のまま)、変化したフレームで同じsession・generation 1のまま翻訳が返る。
+
+### 試験
+
+| 区分 | 場所 | 内容 |
+| --- | --- | --- |
+| サーバー単体(注入時計・製品既定5秒) | `server/tests/test_stream_keepalive.py` | フレームが無くても生存通知が1秒ごとにあれば12秒間失効しない / 生存通知もフレームもなければ5秒で失効 / 他のsession・古いgenerationは更新せず1008 / 形式違反は1003で更新しない / 1秒に10件超は1008 / 検証関数とレート制限 |
+| サーバー単体(認証・失効・所有権。Issue #249) | `server/tests/test_stream_keepalive_auth.py` | 実際の資格情報ファイルで`revoke`した後の同一接続のkeepaliveが1008で閉じ生存を延ばさない(`authenticate()`の除去・失効の見逃しで失敗)/ フレームも同じ失効で1008 / 失効前は延ばす(対照)/ 他の資格情報のsession未割当接続は他端末のsession_idを指定しても延ばせない / 所有者交代後の旧接続は新sessionを延ばせない / `check_keepalive`単体: 認証失敗は形式違反(1003)より先に1008・所有者不一致とsession未割当は1008で更新しない。**所有者不一致(`_require_owner`)はストリーム経由では`active_for_owner`が所有者で束縛するため到達しない。到達不能な防御として残し、`check_keepalive`と`SessionManager`の直接呼び出しで固定する(mutationで除去を検出)** |
+| 契約fixture | `contracts/fixtures/client-text.json`。Python: `server/tests/contracts/test_contract_fixtures.py`、C#: `TransportKeepaliveContractTests` | スキーマの合否と、サーバー(`parse_keepalive`)・クライアント(`IsValidClientTextMessage`)の検証が一致 |
+| クライアント単体(注入ティッカー) | `client/tests/ScreenTranslation.Client.Tests/TransportKeepaliveTests.cs`・`HostSessionBindingTests` | フレームなしでも毎tickで契約どおりの通知を送る / session有効化前は送らない / `DeactivateSession`・切断・開き直し後は送らない / 世代切替でも1本 / 送信失敗は再試行せず終了し、受信ループが既存の切断経路で通知 / ホストの停止で`DeactivateSession`を呼ぶ |
+| 実サーバー結合(**実時間に依存**) | `client/tests/ScreenTranslation.Client.IntegrationTests/RealServerKeepaliveTests.cs`(`client/compose.real-server.yml`、サーバーの`disconnect_timeout`は製品既定5秒) | 9秒の静止画面でsessionと接続が維持され、その後の変化フレームで翻訳が返る / 沈黙するクライアントは契約時間内(5秒+10秒)に解放される。サーバーの切断検知が実時計で動くため、5秒超の実際の経過を待つ(経過そのものが検証対象。閾値には余裕を持たせた) |
+
+mutationで落ちることを確認した: サーバーの生存更新の除去(`test_session_survives_...`、`..._stale_generation_...`が失敗)、クライアントの通知送出の除去(`ActiveSession_SendsAContractKeepalive...`ほかが失敗)、`DeactivateSession`の無効化(`Deactivate_StopsKeepalive...`が失敗)、ホストの停止時の通知除去(`Stop_DeactivatesTheTransportSession...`が失敗)。
+
+未検証: Windows実機での長時間運用(R4)。送信失敗時の切断通知は、実際の`ClientWebSocket`が送信に失敗した接続の受信も失敗させることに依存する(代替のsocketで再現)。
+
+## セッション取得・解放のHTTPSクライアント (Issue #210)
+
+`client/src/ScreenTranslation.Client/Api/`が、`POST /api/v1/sessions`(取得)と`DELETE /api/v1/sessions/{session_id}`(解放)を呼ぶ。共通の`ControlApiClient`(認証付きHTTPS・TLS検証・エラー分類。設定・辞書の編集 #99 が再利用する)と、`ISessionGrantProvider`の実装`SessionApiClient`から成る。
+
+| 観点 | 振る舞い |
+| --- | --- |
+| TLS | OSの検証に従い、設定された証明書SHA-256指紋があれば追加で固定する(WSSと同じ`ServerCertificatePin`)。検証の無効化・緩和、OS信頼ストアの変更、リダイレクト追従、Cookieの経路は持たない(公開APIに検証を差し替える引数がないこととソース走査を`ControlApiSecurityTests`で固定) |
+| 応答の検証 | 201の本文が`session.schema.json`に適合し、開始直後のgeneration=1、revision>=1、session_idが正規のUUIDのときだけ受理。余計な項目・型違い・64 KiB超・201以外は`InvalidResponse`。エラー本文は`error.schema.json`に適合するものだけ解釈し、message・correlation_idの中身は使わない |
+| 利用者への通知 | 409(使用中)・401・403・503(準備中)・資格情報なし・期限切れ・到達不能・証明書拒否・応答不正・サーバー異常を別々の日本語で通知し(`SessionGrantFailure`)、次の操作を示す。画面は待機中へ戻り、再度の開始で再試行できる。サーバーの文言・URL・session_id・トークンは出さない |
+| 解放 | 204と、解放済み(404)を成功とする(冪等)。403は例外。失敗してもローカルの停止は維持する。解放の前に「想定内の切断」として準備する(サーバーはDELETEで結び付いたWSSを閉じるため、準備しないと停止のたびに未接続になる)。想定内の切断(10秒以内に1回)は通知せず、未割当のWSSへ静かにつなぎ直す。つなぎ直せなければ通常の切断として通知する。解放(DELETE)が成功した場合、10秒の窓の間に起きた別原因の切断も最初の1回は同じく通知されない(限界。事実と推測は[運用](operations.md#想定内切断の窓の限界)。窓は短くしていない)。競合試験は固定sleepを使わず、受信ループの処理完了を内部通知で待つ(`onlyIfCurrent`ガード除去の変異を連続20回検出) |
+| WSSの結び付け | サーバーはWSSのUpgrade時にsessionを結び付ける。開始ではPOSTの後、session有効化の前にWSSを開き直す(`ReopenStreamAsync`)。再選択後の再開はDELETE→明示的な新規POSTで、サーバーのgenerationは1に戻る |
+| 取消・期限 | 呼び出し側の取消は取消のまま伝え、要求ごとの期限(既定10秒)は`Timeout`として区別する。終了時は待たずに始めた解放の完了を待ってから通信部品を片付ける |
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 単体・契約fixture | `SessionApiClientTests`・`ControlApiClientTests`・`ControlApiSecurityTests`・`OperationSessionApiTests`・`OperationUnbindTests`・`TransportReopenTests`・`HostSessionBindingTests`(`client/tests/ScreenTranslation.Client.Tests`) | .NET SDKコンテナ(`client/compose.test.yml`に含む) | `contracts/fixtures`の`control-data.json`・`errors.json`・`compatibility.json`のsession例を使い、全エラーの分類、不正応答の拒否、機微情報を出さないこと、タイムアウト・取消・切断、操作モデルとの結合(理由の表示と再試行)、WSS開き直し |
+| 実サーバー結合 | `RealServerTests`(Category=RealServerIntegration)・`client/compose.real-server.yml`・`client/tests/real-server/serve.py` | Linuxコンテナ2つ(外向き通信なし) | serverイメージの本物のアプリ(実TLS・実WSS・認証・セッション管理。OCR・翻訳エンジンだけ固定の代替)に、クライアントの通信部品で接続する。接続→対象と領域→開始(POST→WSS開き直し)→フレーム送信→サーバーの訳が字幕に表示→別端末の409→停止(DELETE)→別端末が取得、同じ端末の再開、401/403/404、準備中(503)、未信頼証明書、到達不能 |
+
+```bash
+docker compose -p <名前> -f client/compose.real-server.yml run --build --rm test
+docker compose -p <名前> -f client/compose.real-server.yml down -v
+```
+
+実サーバー結合は、起動のたびに一時CA・サーバー証明書・端末資格情報を生成し、共有volumeでテストコンテナへ渡す(固定の秘密・接続先をリポジトリへ置かない)。接続先は環境変数(`REAL_SERVER_URL`など)で受け取り、未設定ならスキップする。CIの`contracts`ジョブで実行する。
+
+この結合で、WSSのsubprotocol `screen-translation.v1`をサーバーが選択していない不具合が判明したため、サーバーに最小の修正を入れた(`server/tests/test_stream_subprotocol.py`)。
+
+未検証: Windows実機での実接続(DPAPI保存の資格情報、実Linuxサーバーとの通し)、実エンジン(OCR・翻訳)を通した通し(#108/#109)、証明書指紋の固定(OS検証も通る証明書が前提)の実接続。Owner手順: 資格情報を登録して接続先を設定し、(1)開始できる (2)他端末で使用中のとき「他の端末が使用中」の文言が出て、その端末を停止すると再度の開始で通る (3)サーバー停止中に開始すると到達不能の文言が出て、復旧後に開始できる、を確認する。担当: Owner。結果: **未実施(Windows実機が必要)**。
+
+## ウィンドウ移動・リサイズへの追従 (Issue #198)
+
+取得中の対象ウィンドウが動いたときの扱いです。設計の根拠は[ADR-0002](design/adr/0002-windows-client.md)にあります。要件はREQ-F-002 / REQ-F-005 / REQ-NF-008(ACC-06 / ACC-07)です。
+
+| 事象 | 振る舞い |
+| --- | --- |
+| 同じ大きさのまま移動(同じDPI) | ROIをウィンドウ相対のまま追従させる。物理ROIは新しい左上に合わせ直し、世代を1進めて旧位置の待機画像・通信中の送信・表示を破棄する。移動前に読み出し済みのフレームは旧世代として拒否し、旧位置の画像に対する結果も表示しない。取得は止めない |
+| 大きさが変わる(リサイズ) | 追従しない。ROIの意味(ウィンドウのどの部分か)が変わるため、送信と表示を止めて`SessionEnded(TargetResized)`と`Faulted`で通知し、対象とROIを破棄する。検知は取得セッションの失効として届き、操作ロックを得てから停止に入るため、停止は即時ではない(ロック待ちの間は旧ROIの送信が続きうる。新しい大きさのフレームは読み出さない)。対象の選び直し(最新の位置・大きさ)とROI再選択が終わるまで開始できない。WGCが新しい大きさのフレームを返した場合も、そのフレームは読み出さず送らずに同じ停止にする |
+| DPIの異なるモニターへの移動 | 既存どおり`DpiChanged`で停止する(ROIの物理画素数が変わるため) |
+| 画面(モニター)対象 | 位置・DPIの変化は従来どおり停止。追従しない |
+| 停止処理中に届いた移動通知 | 停止は先に`active`を落とすため、取得セッションの停止待ち(購読解除前)に届いた通知は無視する。世代・経路・オーバーレイを再オープンしない |
+| ROI選択時 | ウィンドウ対象は選択時に最新位置を取り直して変換する(対象選択後に動いていても正しい)。取り直せない(対象消失)ときは受け付けない(停止中ならROIも破棄)。実行中に大きさが変わっていれば切り替えず、リサイズ通知の停止に任せる |
+| 停止中の移動 | 監視は取得中だけ。開始時に最新位置を再確認し、選択後に動いていれば移動は追従、大きさが違えば停止する |
+
+**検知**: `WindowsCaptureTargetWatcher`が`EVENT_OBJECT_LOCATIONCHANGE`で`GetWindowRect`を前回の位置と比べ、大きさが同じなら`IBoundsReportingCaptureSession.BoundsChanged`、違えば`Resized`の失効を出す。OS非依存の判定(追従か停止か、ROIの再計算、世代と表示の扱い)は`TranslationSessionHost`が持つ。移動中は位置が変わるたびに世代が進む。
+
+**限界**: ウィンドウ矩形は`GetWindowRect`(影などの不可視枠を含みうる)で、WGCの取得画像の原点との差は未検証です。ROI各隅の誤差2 physical px以下は実機で確認するまで主張しません。
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 追従・停止の判定 | `client/tests/ScreenTranslation.Client.Tests/TargetMoveFollowTests.cs` | .NET SDKコンテナ | 移動でROIがウィンドウ相対のまま新位置の物理座標になる(先頭画素の座標を確認)、世代が移動ごとに進み同じ位置の通知は無視、移動前に読み出したフレームと待機画像の破棄、旧位置の結果は表示せず新世代の結果は移動後のROIへ表示、リサイズ(通知・取得側失効の両方)で停止し対象とROIが破棄され選び直すまで開始不可、選び直し後の再開と世代の単調性、停止後・画面対象の通知は無視、追従に失敗したら停止 |
+| 停止処理中の通知・最新位置の取り直し | `client/tests/ScreenTranslation.Client.Tests/TargetMoveFollowGapTests.cs` | .NET SDKコンテナ | 取得セッションの開始ゲートで操作ロックを保持したまま停止を要求し、購読が残る間に届いた移動通知が世代・経路・オーバーレイを動かさない(`active`ガード削除で失敗)、選択後に動いたウィンドウでROIを最新位置で変換する/最新位置の外は拒否/実行中は世代を進める(取り直し除去で失敗)、対象消失・供給元の例外でfail-closed(停止中はROI破棄、実行中は経路を変えない)、実行中のリサイズは切り替えない、画面対象では問い合わせない |
+| 実ウィンドウとWinEvent | `client/tests/ScreenTranslation.Windows.Tests/WgcTargetMoveTests.cs`(`Category=CaptureIntegration`) | Windowsのみ(`windows-client` CI) | 実ウィンドウを`SetWindowPos`で移動すると新しい位置が通知され失効しない、リサイズすると`Resized`で失効し新しい大きさのフレームが配信されない。Linuxでのskipは合格として扱わない |
+
+### Owner実機手順 (移動・リサイズ追従)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要。実測は #136)**。実施した場合は日付、Windows版、モニター構成(解像度・DPI・配置)、合否をIssueへ記録し、この欄を更新してください。
+
+1. 四隅が分かるウィンドウでROIを選んで開始し、同じ大きさのままウィンドウを(a)同じDPIの範囲で動かす、(b)負座標のモニターへ動かす。移動後のROI四隅の物理座標が対象ウィンドウ上の同じ位置に対応し、誤差が2 physical px以下であること、訳文が移動後の位置に重なること、移動前の位置に訳文が残らないことを確認する。
+2. 移動の途中(ドラッグ中)に旧位置の画像が受信されないこと、移動を止めたあとに新しい世代の画像だけが届くことを、サーバー側の受信画像またはデバッグ保存画像で確認する。
+3. ウィンドウの端をドラッグしてリサイズする。送信と表示が止まり、対象とROIの選び直しを求められること、選び直すまで開始できないことを確認する。
+4. DPIが異なるモニターへ跨いで移動する。停止して再選択を求められることを確認する。
+
+## 翻訳オーバーレイと自己キャプチャ防止 (Issue #97)
+
+訳文は対象アプリとは別のトップレベルWPF窓に描きます。窓はフォーカスもクリックも受け取らず、`SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`の設定と読み戻しの一致を確認できた場合だけ描画します。確認できなければ描かず、`FailedClosed`で理由を通知し、`CanStream`がfalseのままになります(呼び出し側は画像送信を始めない)。
+
+| 区分 | 場所・分類 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| OS非依存の状態・変換 | `client/tests/ScreenTranslation.Client.Tests/Overlay*Tests.cs` | .NET SDKコンテナ(`client/compose.test.yml`に含む) | 注入クロックで、取得から5秒ちょうどまで表示し超過で失効、より古い取得・旧generation・非アクティブ・未来の取得時刻の拒否、停止/再選択/対象消失/切断/除外失敗での同期消去と以後の遅延結果の拒否、空結果での消去、画像寸法がROIと異なる結果と画像外領域の破棄、負座標ROIでの物理座標復元、96/144/192 DPIでの窓ローカルDIP変換、除外失敗時の描画禁止、訳文本文を`ToString`へ出さないこと |
+| 実HWNDの検査 | `client/tests/ScreenTranslation.Windows.Tests/OverlayWindowsTests.cs` (`Category=Overlay`) | Windowsのみ(`windows-client` CI) | 拡張スタイル(NOACTIVATE/TRANSPARENT/TOOLWINDOW/LAYERED)、`WM_NCHITTEST`=HTTRANSPARENTと`WM_MOUSEACTIVATE`=MA_NOACTIVATE、表示してもフォアグラウンドにならないこと、除外設定失敗・読み戻し不一致では描画されないこと、実APIの結果が「除外を確認できて表示」または「失敗して非表示」のどちらかに一致すること |
+
+```bash
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+```powershell
+dotnet test client/tests/ScreenTranslation.Windows.Tests/ScreenTranslation.Windows.Tests.csproj --configuration Release --filter Category=Overlay
+```
+
+`Category=Overlay`はWindows専用で、Linuxでのskipを合格として扱いません。この試験は実際のWGC/DXGI/GDIから窓が写らないことを検証しません(WDAの設定成功は各取得経路からの除外を保証しない。[調査](research/capture-exclusion.md))。
+
+### Owner実機手順 (オーバーレイ)
+
+hosted runnerで再現できない項目です。担当: Owner。**結果: 未実施(Windows実機が必要。実測は #135 / #136)**。実施した場合は日付、Windows版、モニター構成、合否をIssueへ記録し、この欄を更新してください。
+
+1. 対象アプリ(テキスト入力できるウィンドウ)を前面にし、取得を開始して訳文を表示する。対象の入力欄でキー入力でき、キャレットとフォーカスが移らず、訳文の上をクリック/ドラッグしても対象が操作できる(クリックが透過する)ことを確認する。
+2. 表示中の訳文が、取得した画像(サーバーログの画像またはデバッグ保存画像)に写っていないことを、WGC・DXGI・GDIそれぞれで3回以上確認する。1回でも写った場合は「除外不成立」とし、送信が止まり理由が表示されることを確認する。
+3. 100% / 150% / 200%のモニターへ対象を移動し、訳文が対応する領域に重なること(四隅の物理px誤差2以下)と、文字の大きさ・折り返し・透明度・「位置不明」行の見た目が読めることを確認する。負座標のモニターでも確認する。
+4. 停止・再選択・対象ウィンドウを閉じる・サーバーを停止して切断、のそれぞれで訳文が1秒以内に消えること、取得から5秒たつと自然に消えること、停止後に遅れて届いた結果で再表示されないことを確認する。
+5. 除外を確認できない状態(別の取得ツールの常駐や古いOSなど)で開始した場合に、開始が止まり理由が通知されることを確認する。
+
+## Pythonサーバーの単体試験
+
+リポジトリルートでPython 3.14の専用コンテナからサーバーの単体・契約試験を実行します。
+
+```bash
+docker compose -f server/compose.test.yml run --build --rm test
+```
+
+## TLS・接続境界のコンテナ結合試験
+
+`integration`サービスは`integration` profileで単体試験と分けて実行します。テストプロセス内で実サーバーをTLS必須・認証ありで起動し、固定版の`httpx`と`websockets`からloopbackの実TCP接続を行います。外向き通信やホスト側ポート公開はありません。
+
+```bash
+docker compose --profile integration -f server/compose.test.yml run --build --rm integration
+```
+
+接続するたびにOpenSSLで一時CA・証明書・秘密鍵を生成し、テスト内で資格情報も生成します。期限切れ・SANなし・未信頼証明書、鍵不一致、不正/期限切れ/失効token、2台目開始、停止後の再開始、無通信WSS切断、HTTP 413、WSS 1009を検証します。通信期限を0.5秒に短縮して切断検知と所有権解放を測り、watchdogと登録処理taskの残留も確認します。HTTP応答は`contracts/schemas/`と`contracts/fixtures/errors.json`、WSS上限は`contracts/fixtures/binary-message-boundaries.json`に照合します。別資格情報のTLS実接続については、所有者以外のDELETEが403 `FORBIDDEN`、2台目POSTが409 `SESSION_IN_USE`となることをHTTP error fixture/schemaに照合し、別資格情報WSSから既存sessionのsession_id/generationを持つ有効frameを送った場合にclose 1008で拒否されることを確認します。各拒否の後もsession状態・owner_id・generationが不変で、所有者本人が停止できることを検証します。
+
+WSSクライアントは、`server/tests/integration/ws_client.py`の`SyncWebSocket`（`websockets.asyncio`を専用イベントループで動かす同期API）を使います。websocketsの同期クライアントは、1つのTLS接続を受信threadとメインthreadが同時に読み書きし、稀にHTTP Upgrade要求がTCPへ送出されず60秒のhandshakeタイムアウトになったためです（Issue #174、[作業記録](../../tasks/2026-10-31_issue-174_integration-flake.md)）。`open_timeout`の延長やリトライでは対処していません。
+
+単体試験の実Uvicorn試験（`server/tests/test_app.py`の`test_real_uvicorn_transport_enforces_http_and_websocket_boundaries`）にも同じ同期クライアントが残っており、CIで同じ`handshake response`タイムアウトが出たため、同じ`SyncWebSocket`へ置き換えました（Issue #203、[作業記録](../../tasks/2026-10-31_issue-203_unit-ws-client.md)）。`integration/`は`__init__.py`を持たない名前空間パッケージなので、単体試験は`from integration.ws_client import SyncWebSocket`で共有します。`server/tests/test_no_sync_ws_client.py`が、`server/tests/`配下にwebsocketsの同期クライアント（`websockets.sync`）の利用が戻らないことを検査します。1009/1008のclose codeと`ConnectionClosed`の検証、`open_timeout=5`は変えていません。
+
+再実行は上記コマンドをそのまま使います。実行記録には実行日、コマンド、`docker compose`/Python/OpenSSL版、`server/requirements-dev.txt`のhttpx・websockets・jsonschema版、テスト件数、成功/失敗を残します。実行時のOpenSSL版は`docker compose --profile integration -f server/compose.test.yml run --rm integration openssl version`で確認できます。
+
+`GET /api/v1/ready`はモデル準備状態の確認であり、session状態取得には使いません。session状態はWSS text state通知（`accepted` / `processing` / `ready` / `stopped`）で受け取り、各通知のsession_id・generation・dictionary_revisionを`contracts/schemas/stream-message.schema.json`で検証します。独立したsession状態取得・再選択APIはありません。再選択時はClientが送信停止・旧generation無効化・表示消去を先に行い、DELETEで旧sessionを解放後、新ROIで利用者が明示的にPOSTして新sessionを作ります。結合試験では現session IDの上下generation不一致frame拒否、現generation frameのsession検証通過、停止後のWSS close、所有権・taskの解放を確認します。Windows実機との通信、画面取得・表示、およびWindows/Linux間E2Eはこのコンテナ試験の対象外で、#108等で実施します。
+
+## 実エンジンと画像処理・結果配信の結合試験 (Issue #80)
+
+実Tesseract・実Argos Translate・実TLS/WSSの本物のappをコンテナ内で組み合わせ、固定画像から訳文までを検証します。ファイルは`server/tests/integration/test_pipeline.py`(画像→訳文の契約・品質、位置不明、多フレーム)と`test_pipeline_resilience.py`(準備失敗→復旧、負荷中の停止/再選択/切断、遅い購読者、後始末)です。共通部品は`pipeline_case.py`・`pipeline_support.py`・`live_server.py`です。
+
+### 事前準備 (モデル)
+
+`integration`サービスは外向き通信を持たない(`network_mode: none`)ため、Argos英日モデルは事前に別サービスで名前付きボリューム`argos-models`へ導入します。
+
+```bash
+docker compose -f server/compose.test.yml --profile model run --build --rm prepare-model
+docker compose -f server/compose.test.yml --profile integration run --build --rm integration \
+	python -B -m unittest discover -s tests/integration -p "test_pipeline*.py" -v
+```
+
+`prepare-model`は`server/tests/fixtures/pipeline/model-manifest.json`の固定manifest(版1.1、120,470,284 bytes、SHA-256 `16300cc4...f716`)で取得・検証してArgosへ導入し、続けて製品と同じ`StanzaResources.provision`(本番の`provision`コマンドと同じ実装)で`server/deploy/stanza-manifest.json`(本番と同じmanifest)のStanza資源4件(resources.jsonと英語のtokenize/mwtモデル、合計約2.2 MB)をサイズ・SHA-256検証つきで同じボリュームへ置きます。所要時間は、初回が約20秒(約115 MiBの取得を含む。開発機1台での実測で、回線条件は統制していない)、取得済みの再実行が約5秒です。ボリュームが残る限りキャッシュされ、ボリュームを削除しない限り再取得しません。モデル未準備のまま試験を実行した場合は**skipせず失敗**し、上記の準備コマンドを表示します。なおこのmanifestのライセンス欄は、利用・再配布条件を未確認のまま試験用に取得するという記録です(同梱・再配布しない)。製品の信頼済みdigestとライセンス確認は#81/#109側の課題です。
+
+CIの`server`ジョブは単体試験のみで、この実エンジン結合試験は含みません(約115 MiBの外部取得が必要なため)。ローカルと独立レビューで上記コマンドを実行し、結果を作業記録とPR本文に残します。
+
+### 固定画像
+
+`server/tests/fixtures/pipeline/`の画像はすべて`generate.py`が自前で描画しており、第三者の画像権利を含みません(文字はコンテナ同梱のDejaVu Sans)。`cases.json`が正解文・分類・SHA-256を持ち、試験が画像との一致を検査します。再生成は`generate.py`の先頭に記載のコマンドで行います。
+
+| 群 | 枚数 | 内容 | 期待 |
+| --- | ---: | --- | --- |
+| clear | 6 | 白地黒文字の英文(複数行1枚) | 総CER 5%以下、`status: ok`、訳文が日本語 |
+| complex | 4 | グラデーション・縞・ノイズ・市松の背景 | 契約に合い、信頼度0.45以上の領域だけを返す。CERは**測定のみ** |
+| empty | 2 | 白一色・黒一色 | `status: empty`、領域なし |
+| unreadable | 1 | 乱数ノイズ | `status: empty`、領域なし |
+
+OCRの評価は[受入計画](acceptance.md)と同じ正規化・総編集距離/正解文字数でCERを計算します。
+
+### 検証内容
+
+- 画像→訳文: 11枚を1sessionでWSS送信し、各結果が`stream-message.schema.json`に合い、`processing`→`ready`→`result`の順と同一`correlation_id`、session・generation・dictionary_revision・画像寸法の一致、領域が画像内であることを確認します。
+- 位置不明: 実OCRの文字はそのまま、位置だけを不明/画像外にして返す薄い包み(`UnpositionedOcr`)で、`rect: null`のまま訳文が配信されることを確認します。実Tesseractは常に位置を返すため、位置不明そのものの実エンジン再現はできていません。
+- 多フレーム: 実OCRを`Event`で保留して後続3枚を待機枠へ入れ、置換された枚が実OCRに渡らず1枚目と最新(4枚目)だけが結果になることを確認します。同期は`Event`と破棄通知の`Condition`だけで、固定sleepは使いません。
+- 準備失敗→復旧: 未導入→`MODEL_NOT_READY`(503)、破損モデル→失敗理由に内容を含めず503のまま、正しいモデル配置後に実エンジンのロードとwarmupでreadyとなり、実画像の翻訳が通ることを確認します。
+- 製品起動経路のready反映(#194): `create_app(readiness=LifecycleReadiness(...))`で、準備中は`/api/v1/ready`・セッション開始が理由付き`MODEL_NOT_READY`(503)、`/api/v1/health`は200、準備完了で自動的に200/201、未導入・破損では理由(パス・内容を含まない)付き503のまま再試行で復旧、停止時は準備ループを取り消してreadyを落とすことを`server/tests/test_lifecycle_readiness.py`で確認します。待機は`threading.Event`・注入sleep・Queueで同期し、固定sleepを条件にしません。実エンジンでは`server/tests/integration/test_startup_ready.py`が、試験側のready補完なしに`LifecycleReadiness`だけで200になり翻訳できることを確認します。
+- readiness指定時のpipeline生成フォールバック禁止(#199): `server/tests/test_pipeline_not_ready.py`が、準備前・準備失敗中・停止開始後・供給元の矛盾(readyなのにエンジンなし)で`_ensure_pipeline`が`PipelineNotReady`となり、`create_default_pipeline`と`build_engines`が呼ばれないこと、WSSのフレームが`MODEL_NOT_READY`のエラーで拒否され処理中として通知されないこと、readyを失った後は既存pipelineも使わないこと、`readiness`未指定の互換経路は従来どおり既定構成を作ることを確認します。lifespanのstart/stopは呼び出し回数のassertで即座に検出し、`test_lifecycle_readiness.py`の待機は全てdeadline付きで、start未実行は無限待ちではなくassert失敗(「準備ループが開始されていない」)になります。準備失敗ログは初回と12回ごとに限られ、パス・内容を含まないことも同ファイルで確認します。
+- 負荷中の停止・再選択・切断: 実OCR保留中に停止/切断/再選択し、旧sessionの結果が配信されず、再選択後の新sessionに旧結果が混ざらないことを確認します。
+- 遅い購読者: 読み出さない購読者を足しても購読キューが上限(8)で止まり、古いイベントの破棄が数えられ、正常な接続は全結果を受け取ります。
+- 後始末: 各試験の終了時に、購読0、worker 0、待機画像0、保持結果0、stream 0、sessionなしを確認します。
+- エンジン/モデル版: Tesseract、pytesseract、argostranslate、ctranslate2、stanza、pillow、モデルmanifest版、導入済みモデル版を試験出力(`engine_versions=`)と作業記録に残します。
+
+### 品質基準に対する結果と未達・未検証
+
+| 項目 | 結果 |
+| --- | --- |
+| 明瞭群CER 5%以下 | 6枚で0.0%。**ただし6枚の小標本**であり、ACC-13の200枚(各100枚)の判定ではない |
+| 複雑背景群CER 15%以下 | #182の改善で、4枚の自作画像は**56.2%から0.0%**(基準内)。**ただし自作4枚の小標本で、手法を当てはめた画像でもある**ため、改善の証明ではない。同じ前処理を未調整の追加画像(自作・非固定、下記)へ当てると背景が左右で明暗に分かれる画像と高コントラストの市松模様では誤り率が53〜100%で、**基準を満たす保証はない**。最終判定はACC-13の正解付き200枚(#109) |
+| 翻訳品質(主旨・重大逆転・用語100%) | 画像経由の明瞭群で日本語訳が出ることのみ確認。固定100文の判定は未実施 |
+| 性能(p50/p95)・8時間・CPU/メモリ | 未実施(#109)。本試験はコンテナの2 CPU/4 GiB上限下で動作する確認のみ |
+| Windows描画を含むE2E | 未実施(#108等) |
+
+「読めない文字を成功扱いにしない」(REQ-NF-003)については、空・ノイズ画像を`empty`で返すこと、信頼度0.45未満の単語を捨てることに加え、#182で**領域の平均信頼度0.60未満を訳文にしない**下限を追加しました。
+
+### 複雑背景OCRの改善 (#182)
+
+OCRは`server/src/screen_translation_server/engines/robust_ocr.py`(server専用。Web版の共有`src/app/ocr.py`は変更しない)で、前処理を`ocr_preprocess.py`、候補選択・信頼度選別を`ocr_select.py`の純粋関数に分けています。依存は追加していません(Pillowのみ)。
+
+方式: ①3倍拡大→メディアンフィルタ(5)→大津の二値化→黒文字・白背景へ正規化→白縁追加でOCR。②平均信頼度が0.80未満なら、2倍拡大+コントラスト正規化のグレースケールでも認識し、信頼度の高い方を採用。③領域平均信頼度0.60未満は捨てる。拡大後が400万画素を超えないよう倍率を下げる(縮小はしない。#190で600万から引き下げ)。OCR1回には期限を設け、超えたら打ち切る([OCRの処理時間予算と病的入力の打ち切り](#ocrの処理時間予算と病的入力の打ち切り-190))。
+
+固定画像13枚(実Tesseract 5.5.0、信頼度下限0.45)での測定:
+
+| 方式 | 明瞭群CER(6枚) | 複雑背景群CER(4枚) | 備考 |
+| --- | --- | --- | --- |
+| 改善前(グレースケール+自動コントラスト+コントラスト1.8倍+2倍拡大) | 0.0% | 56.2% | 2枚無出力、1枚は信頼度0.32の誤認識(下限で除外) |
+| 2倍拡大+コントラスト正規化のみ(コントラスト強調なし) | 0.0% | 9.2% | グラデーション背景で文字周辺の模様を誤読 |
+| 2倍拡大+二値化(メディアン5) | 0.0% | 21.5% | 細い文字が欠け、グラデーション画像が無出力 |
+| 2倍拡大+二値化(メディアンなし) | 0.0% | 11.5% | |
+| **採用: 3倍拡大+メディアン5+大津二値化(+グレースケール候補)** | **0.0%** | **0.0%** | 全体平均信頼度0.95、領域下限0.60でも出力は変わらない |
+
+処理時間(同一コンテナ・2 CPU・各画像3回、中央値/最大): 改善前は明瞭124/387 ms、複雑149/961 ms、改善後は明瞭134/167 ms、複雑169/279 ms。標準ROIとフル画面の中央値・p95は#190で測定しました(下の節)。
+
+試した手法と結果: 倍率(2/3倍)・メディアンの有無と大きさ(0/3/5)・コントラスト強調の有無・局所平均との差による適応しきい値(自作の追加画像で効果が限定的かつ複雑さに見合わず不採用)。
+
+補足の探索(自作・非固定・ゲート外。再現スクリプトは未コミット): 28px/20pxの3文で、背景が左右で明暗分割(白縁取り文字)は誤り率約70%(改善前76%)、高コントラスト市松+縁取りは90〜100%(改善前100%)、色付きノイズ背景と低コントラスト背景は0%(改善前は35%・0%)。大津の二値化は画像全体で単一のしきい値を使うため、明暗が混在する背景に弱いことが原因です。
+
+**誤表示と無表示のトレードオフ**: 領域平均0.60未満を捨てるため、読めない難例では「訳文が出ない」方向に倒れます(例: 市松背景は無出力)。誤認識を訳文として出すより、利用者が読めない状態を選んだ判断です。0.60は固定画像で正しい結果が全て0.9以上、疑わしい誤認識が0.5前後だった観測に基づく仮置きで、適切な値は#109の200枚で再評価が必要です。下限を下げれば無表示は減りますが誤表示が増えます。
+
+**Ownerへ提示すべき事項**
+- 対象要件: REQ-NF-003(複雑背景群CER 15%以下、ACC-13)。自作4枚では基準内だが、200枚での達成は未検証。
+- 未達が見込まれる原因: 背景が明暗で混在する画像(ゲーム画面で多い)・高コントラストの縞/市松と縁取り文字。大津の単一しきい値と、Tesseractが自然画像向けでないことによる。
+- 代替案: ①局所しきい値と文字色クラスタリングによる文字領域の分離、②Web版が持つ`tesseract_llm_fallback`相当(LLM OCR)をserverのオプションに追加(外部送信禁止の要件REQ-F-004との整合が必要)、③複雑背景群の基準・対象の再定義(例: 縁取り文字・高コントラスト背景を対象外にする)、④信頼度下限0.60の緩和(誤表示を許容)。いずれも#109の結果を見て判断する。
+
+### OCRの処理時間予算と病的入力の打ち切り (#190)
+
+背景: #182の独立レビューで、1920x1080の1フレームが2.2〜2.9秒(要件のOCR予算 約1000 msを超過)、全面ランダムノイズが44〜127秒かかり出力0件、改善前との比較が未測定、pipelineの5秒期限後にTesseractが残るかが未確認でした。
+
+**測定の再現**: `docker compose -f server/compose.test.yml --profile measure run --build --rm measure`(`server/tests/tools/measure_ocr_time.py`)。コンテナは2 CPU・外部通信なし、各条件で初回1回を除き15回。画像は字幕帯(28pxの文字1〜4行)を持つ決定的な合成画像で、複雑=斜め縞+グラデーション背景。時間はOCR1回(前処理+Tesseract)の壁時計で、画像のデコード・翻訳・通信は含みません。共有ホスト(他コンテナが動作中、ロードアベレージ4前後)での測定のため、絶対値は揺れます。p95は15回なので最大に近い値です。**これは#109の標準ROI集合300件×3回の判定の代わりではありません。**
+
+| ROI | 背景 | 改善前(前処理なし・#182前) 中央値/p95 ms | #182後・本Task前 中央値/p95 ms | 本Task後 中央値/p95 ms | 本Task後の期限打切 |
+| --- | --- | --- | --- | --- | --- |
+| 600x120 | 単色 | 166 / 220 | 226 / 313 | 210 / 264 | 0/15 |
+| 600x120 | 複雑 | 206 / 299 | 239 / 281 | 251 / 275 | 0/15 |
+| 960x200 | 単色 | 305 / 541 | 401 / 479 | 383 / 523 | 0/15 |
+| 960x200 | 複雑 | 491 / 929 | 492 / 778 | 423 / 458 | 0/15 |
+| 1280x300 | 単色 | 300 / 382 | 526 / 776 | 465 / 535 | 0/15 |
+| 1280x300 | 複雑 | 497 / 780 | 635 / 874 | 575 / 634 | 0/15 |
+| 1920x1080(全画面) | 単色 | 416 / 589 | 802 / 1802 | 592 / 713 | 0/15 |
+| 1920x1080(全画面) | 複雑 | 2636 / 3230 | 14460 / 21041 | 2045 / 2054 | 15/15 |
+
+「#182後・本Task前」は同じ測定スクリプトでこのTaskの変更前(各10回、p95は最大に近い)に測った値です。全面ランダムノイズ(病的入力)の「戻るまでの時間」は、本Task後で1280x300・1920x1080ともに中央値約2.06〜2.08秒・最大2.08秒で、5回すべて期限で打ち切られました(本Task前は44〜127秒、#182の独立レビュー値)。
+
+**判定**
+- 標準ROI(幅960〜1280・高さ200〜300以下の字幕帯)のOCR時間は、本環境(2 CPU・共有ホスト)でp95が最大約700 ms未満となり、OCR予算1000 ms(REQ-NF-002)に収まりました。#182の前処理による増加は、改善前(前処理なし)に対し単色で中央値約45〜165 ms、複雑背景で-70〜+80 ms程度で、精度向上(複雑群56.2%→0.0%)に見合う範囲です。最終判定は#109の実負荷で行います。
+- 全画面(1920x1080)の単色背景は中央値約0.6秒で収まります。**全画面の複雑背景は予算に収まりません**(改善前でも約2.6秒)。期限(2.0秒)で打ち切り、`PROCESSING_FAILED`を返します。「Ownerへ提示すべき事項」を参照してください。
+
+**時間が伸びる原因と見直した値**
+- Tesseractの時間は、画像が大きく背景に縞・ノイズがあるほど非線形に伸びます(1920x1080の縞背景で、二値化後の約170万画素は1.6秒、約620万画素は6〜12秒)。全面ランダムノイズでは数十秒から数分かかります。
+- 前処理(拡大・メディアン5・二値化)は約0.09秒/百万画素で、中断できません。拡大後の画素数の上限を600万から**400万**に下げました。根拠は、標準ROIの最大(1280x300)を3倍拡大した約346万画素を縮めず(精度を維持)、全画面級(1920x1080)だけ倍率を1.7から約1.4へ下げて前処理とTesseractの時間を抑えることです。標準ROIと固定画像(最大564x128)の倍率は変わらないため、固定画像の精度(明瞭0.0%・複雑0.0%、回帰上限は複雑2%・基準15%)は変わりません(結合試験で確認)。
+- Tesseractを`OMP_THREAD_LIMIT=1`の単一スレッドで実行します。2 CPU制限下で既定の複数スレッドが競合し、1920x1080の複雑背景で二値化の認識が約2倍遅くなったためです(標準ROIでは差が小さい)。サーバー全体のCPU 2(REQ-NF-005)に子プロセスを含める点でも都合が良い設定です。
+- 倍率(3倍)は#182の固定画像で最良だったため変更していません。画質のための倍率と時間のトレードオフは、1280x300で3倍=前処理約0.33秒+認識約0.27秒、2倍=約0.16秒+約0.19秒でした(いずれも複雑背景)。標準ROIは予算内なので画質を優先しています。
+
+**期限の設計(`engines/robust_ocr.py`・`engines/tesseract_runner.py`)**
+- 最初の認識(必須)は、前処理の時間を含めて**2.0秒**で打ち切ります(`OCR_DEADLINE_SECONDS`)。内訳の根拠は、取得待ち0.5+通信0.05+OCR 2.0+翻訳2.0+描画0.15=4.7秒で、結果の失効(5秒、`FRAME_FRESHNESS_SECONDS`)より前に必ず戻ることです(`test_ocr_quality.py`で整合を検査)。
+- 結果を良くするだけの追加候補(グレースケール)は、開始から**1.0秒**(要件のOCR予算)までに終わる範囲だけで試し、間に合わなければ取得済みの結果を返します(失敗にしない)。残りが0.15秒未満なら始めません。
+- 期限を超えると`OcrTimeoutError`を送出し、pipelineが`processing_failed`として破棄、クライアントへは`PROCESSING_FAILED`のerrorを返します。「文字なし(`empty`)」とは区別します(読めなかったことを成功扱いにしない)。後続フレームは通常どおり処理されます。
+- 期限を超えたTesseractは、pytesseractの`timeout`ではなく自前の実行(`run_tesseract`)で止めます。pytesseractはkill後にwaitせず、子プロセスが残る経路があるためです。自前の実行は、子プロセスを独立のプロセスグループで起動し、期限で**SIGKILLをグループごと送り、waitで回収**してから戻ります(zombieなし)。画像はstdinで渡し、一時ファイルを作りません。
+- pipelineは`asyncio.to_thread`のOCRを完了まで待つ(中断できないOCRの同時数を増やさない)ため、OCRの期限が全体の上限になります。5秒の失効後にTesseractが残ることはなく、停止・切断の待機もOCR期限(2秒)+αで終わります。
+- ROI上限(2,073,600画素)を超える画像は、OCRエンジンでも縮小せず`OcrInputTooLargeError`で拒否します(通常は受信時の`validate_roi`が`INVALID_IMAGE`で拒否し、再選択を案内します)。
+
+**試験**
+- 単体(`test_tesseract_runner.py`・`test_ocr_quality.py`): 偽の`sh`コマンドでハング・SIGTERM無視・孫プロセス・異常終了・起動失敗を再現し、kill・回収を確認。期限の配分(最初=全体期限、追加=1.0秒−経過、前処理時間を差し引く、残りなしでは起動しない)は注入した時計で決定的に確認。
+- 結合(`integration/test_ocr_time_budget.py`、実Tesseract): 標準ROIサイズ(1280x300)の全面ノイズで、**起動済みのTesseractが期限でkillされ回収される**こと(起動回数を数え、前処理だけで期限切れになった場合と区別)、3回繰り返しても**子プロセス・zombie・スレッドが増えない**こと、直後の通常フレームが同じエンジンで読めること。1920x1080のノイズ(8bit/RGB)と全画面の縞背景は、前処理(メディアン、1920x1080のノイズで約1.3秒)で期限の大半を使うため、Tesseract起動前の期限切れも含めて「期限内に戻り、何も残らない」ことを確認。サーバー経由では、ノイズ(PNG約2 MB、符号化後上限内)が`OCR_TIMEOUT`になり、次のフレームが翻訳結果になること。試験の期限は1.5秒に短縮、実時間の上限はハング検出用の余裕値(期限+8秒)で、1000 ms予算の合否には使いません。
+- 前処理は中断できないため、期限の一部を消費します。拡大後画素数の上限(400万)が、その最悪時間(約0.4〜1.3秒)を抑えます。
+
+**Ownerへ提示すべき事項**
+- 対象要件: REQ-NF-002(OCR予算 約1000 ms)・ROI最大2,073,600画素(幅1920×高さ1080)・REQ-NF-003(読めない文字を成功扱いにしない)・REQ-NF-005(CPU 2)。
+- 未達: **全画面(または全画面級)で背景に縞・模様がある複雑背景のROI**は、OCR予算1000 msにも期限2.0秒にも収まらず、`PROCESSING_FAILED`になります。要件のROI上限は全画面(2,073,600画素)を許していますが、標準ROI集合(字幕帯)の性能判定には含まれないため、要件違反ではなく「許容されたROIで読めない」状態です。
+- 原因: TesseractのページレイアウトがROI全体の模様を文字候補とみなし、画素数と模様の量に対して時間が非線形に増えるため。倍率や単一スレッド化では2秒に収まりませんでした(1920x1080の縞背景で、グレースケールは認識だけで約1.7秒で結果は低信頼度、二値化は前処理約0.9秒+認識約1.8秒。Tesseractの時間は倍率に対して単調ではなく、グレースケールを先に試す順序変更も効果がなかったため採用していません)。
+- 代替案: ①クライアントのROI選択で全画面を避け字幕帯へ狭めるよう案内する(実装済みの再選択案内の文言強化。契約変更なし)。②要件のROI上限を、例えば幅1920×高さ480程度(約92万画素)へ引き下げる(要件変更。字幕用途では十分と見込むが、Ownerの承認が必要)。③ROI内の字幕帯を自動検出して切り出してからOCRする(別Task)。④期限を2.0秒から約2.5秒へ延ばす(失効5秒との余裕は0.5秒に減る。全画面の複雑背景はそれでも収まらず効果が薄い)。
+- (解消済み・#223) 打ち切りは契約のエラーコード`OCR_TIMEOUT`で他の処理失敗(`PROCESSING_FAILED`)と区別され、クライアントは「領域を狭めて選び直してください」を固定文言で案内します(10秒に1回まで)。確認観点は下の「OCR_TIMEOUTの区別と案内(#223)」を参照。
+- #109で確認すること: グレースケールの追加候補は、残り時間が0.15秒未満だと省略されうるため、標準ROI集合で品質への影響がないかを測定に含めます(#223の作業範囲3で判明)。
+- 判定の最終は#109(標準ROI集合300件×3回のp50/p95、CPU・メモリ)です。この節の測定は単一の合成画像による予備測定です。
+
+### OCR_TIMEOUTの区別と案内 (#223)
+
+OCRが時間予算で打ち切られたframeを、契約の`error` `code=OCR_TIMEOUT`でclientへ伝え、一般の処理失敗(`PROCESSING_FAILED`)と区別します。
+
+- 契約: `contracts/schemas/stream-message.schema.json`・`fixtures/stream-text.json`(末尾に追加)・`fixtures/compatibility.json`(受理1件、拒否2件=小文字codeと`message`付き)。C#側の`ContractValidator`も同じ列挙です。
+- サーバー単体(`server/tests/test_ocr_timeout_error.py`): `OcrTimeoutError`だけが`OCR_TIMEOUT`、他は`PROCESSING_FAILED`、打ち切り後も後続frameが処理されること、世代が古い打ち切りは配信されず、配信messageが契約schemaに適合すること。
+- サーバー結合(`integration/test_ocr_time_budget.py`、実Tesseract+実server): 全面ノイズのframeが`OCR_TIMEOUT`になり、次のframeが翻訳結果になること。
+- クライアント(`TransportFrameErrorTests`・`OcrTimeoutNoticeTests`): 送信済み・現在のsession/世代/revision・5秒以内のframeだけ採用し、重複・未送信・古い世代・期限切れは捨てること。stream受信は継続し(他のerrorは従来どおり契約違反で切断)、翻訳中だけ固定文言を10秒に1回まで表示すること。サーバーのmessageは表示に使いません。
+- mutation確認: サーバーのcode判定を別の型へ差し替えるとサーバー単体2件、通知の抑制を外す・clientのcode判定を`PROCESSING_FAILED`へ替えるとclient試験1件ずつが失敗することを確認しました。
+- 未検証: Windows実機でのクライアント通し(#108)。`client/compose.real-server.yml`の実サーバー通しへは打ち切りケースを足していません(client側はスタブ、server側は実Tesseract結合で分けて確認)。
+
+### フレーム単位の非致命エラー (#226)
+
+WSSの`error`は、`code`ごとに致命(streamを閉じる)か非致命(閉じない)かを契約で定めます。正本は`contracts/fixtures/stream-error-handling.json`と[契約README](../../contracts/README.md#wss-errorのcodeごとの扱い)です。非致命は`PROCESSING_FAILED`・`OCR_TIMEOUT`・`MODEL_NOT_READY`・`INVALID_IMAGE`、致命は`AUTHENTICATION_FAILED`・`SESSION_MISMATCH`・`PROTOCOL_VIOLATION`・`MESSAGE_TOO_LARGE`と未知のcodeです。
+
+- 契約(Python `server/tests/contracts/test_stream_error_handling.py`、C# `StreamErrorPolicyTests`): fixtureとschemaの`code`列挙が一致し、各codeの扱いをクライアントの分類が満たす。サーバーが送るcodeは非致命に限る。未知のcodeは致命。
+- クライアント単体(`TransportFrameErrorTests`・`FrameFailureNoticeTests`): 非致命codeは世代・session・revision・送信済みframe・5秒以内を照合して採用し、偽・古い世代・未送信・重複は捨てて受信ループを止めない。致命codeと未知のcodeは従来どおり閉じる。通知は固定文言で、同種は10秒に1回まで(種類ごと)。
+- 契約サーバー結合(`ClientScenarioFaultTests`): `PROCESSING_FAILED`・`INVALID_IMAGE`で通信が切れず、次のフレームが同じ接続で表示される。偽のerrorは採用されない。`PROTOCOL_VIOLATION`・`MESSAGE_TOO_LARGE`は従来どおり閉じる。
+- 実サーバー結合(`ClientScenarioRealServerTests.ProcessingFailure_...`、Linuxコンテナ): 試験専用の待受のOCRに処理失敗を注入し、実サーバーが送る`PROCESSING_FAILED`で通信が閉じず、復旧後の次のフレームが同じ世代で翻訳される。
+- `MODEL_NOT_READY`は#202で送信の一時停止・ready確認・自動再開まで実装した。次の「WSSの`MODEL_NOT_READY`後の待機・ready確認・再開 (#202)」を参照。
+- 未検証: Windows実機での通し(#108)。
+
+### WSSの`MODEL_NOT_READY`後の待機・ready確認・再開 (#202)
+
+仕様の正本は[契約README](../../contracts/README.md#model_not_readyを受けたclientの動作-202)です。serverが準備前・準備失敗中・停止開始後にframeを破棄し`MODEL_NOT_READY`を返したとき、clientは送信を一時停止し、`GET /api/v1/ready`の確認で自動再開します。変化検出(#94)は送信済みの画素を再送しないため、再開時に保持した最新の1画像を新しいframe_idで送ります(これが無いと静止画面は準備完了後も訳されません)。
+
+- クライアント単体(`CaptureSendPipelineSuspendTests`・`FrameSenderTests.DiscardPending_*`): 一時停止で待機画像を破棄し以後の取得は保持のみ(`Held`)。再開で最新の1件だけを取得時刻付け替えで送る。画面が変わらなければ、直前に送って破棄された静止画面と同じ画像が再送される。世代切替では保持画像を持ち越さず、一時停止は維持する。
+- ホスト(`ModelNotReadyHostTests`、`FakeReadinessProbe`と`ManualReadinessDelay`で待機を手動で進め、固定sleepを同期に使わない): 一時停止中はsession・世代・生存通知を維持して送らない/準備完了で最新の1画像だけを再送(破棄された画像ではない)/静止画面の再送/待機中の追加の`MODEL_NOT_READY`で確認ループを増やさない/再開前に送ったframeへの遅れた通知で再び止まらず、再開後のframeへの通知では止まる/間隔2→4→8→10秒(上限)と次の待機での初期化/一時的な失敗は待機を続け状態を1回だけ通知/確認手段の例外は一時的な失敗/401等は固定文言で停止し再確認しない/停止・切断・破棄で確認を取り消し、プローブを片付け、次のsessionに待機を持ち越さない/待機中の再選択は待機を続け旧ROIの画像を新世代へ持ち越さない/他の非致命codeは止めない/確認手段が無い構成は従来どおり通知のみ。
+- 確認手段(`ServerReadinessClientTests`): 契約fixtureどおり、200 `{"ready":true}`だけが準備完了(`{"ready":false}`・余分なフィールド・文字列のtrue・不正JSONは準備完了にしない)、503 `MODEL_NOT_READY`は準備中、401/403/資格情報なし/証明書拒否は停止、到達不能・期限切れ・500系は一時的な失敗、呼び出し側の取消は取消のまま伝わる。
+- 表示(`ServerReadinessNoticeTests`): 固定の日本語、準備完了で自動的に再開の案内へ。別の通知が出ていれば上書きしない。
+- 契約サーバー結合(`ClientScenarioModelNotReadyTests`、実TLSの契約サーバーが準備前は実サーバーと同じくframeを破棄してerrorを返し`/api/v1/ready`が503): 準備待ちの間は接続・session・世代を維持して送らず、準備完了で破棄された静止画面と同じ画像が次のframe_idで再送され訳が表示される/待機中の画面変化は送らず最新の1件だけが再開後に送られる/一時的な確認失敗は固定文言で待機を続けて回復/確認の401は固定文言で停止し再確認しない/待機中の停止は確認を取り消しsessionを解放して再開始で持ち越さない。`ClientScenarioFaultTests`の`MODEL_NOT_READY`の行はこの挙動に移した。
+- 未検証: 実サーバー(準備失敗から復旧に切り替えられる範囲の通し)と、Windows実機での通し(#108)。実サーバーとの通しは、準備完了済みの実サーバーに対する既存の通常経路の確認(`RealServer*`)で、準備失敗中のWSSフレーム破棄は`server/tests/test_pipeline_not_ready.py`(#199)が確認している。クライアント側の再開は契約サーバーで確認し、両者を実サーバーでつなぐ通しは行っていない。
+
+### 未解決事項 (製品側)
+
+- (解消済み・#189) Argos Translateの文分割(Stanza)は既定で翻訳初回に外部(GitHub等)へ資源一覧を取りに行きますが、製品側で外部取得を止め、準備段階で資源を取得・検証する方式にしました([Stanza資源の準備と外向き通信なしの翻訳](#stanza資源の準備と外向き通信なしの翻訳-issue-189))。試験側の`reuse_resources`注入は削除しています。翻訳対象の文章を外部へ送るものではありませんでした。
+- (解消済み・#173) 停止(DELETE)で待機中frameへ`pipeline.cancel`が呼ばれず、停止済みsessionの待機frameにも実OCRが走っていた件は、DELETEで`cancel`を別taskとして呼び、待機frameの取り出し時にもsession・世代・revisionを再照合してOCR前に破棄することで解消しました(`server/tests/test_delivery_diagnostics.py`)。
+
+## stream取消時の購読解除と`wait_until_empty`の不定期失敗 (Issue #232)
+
+`test_stream_connects_pipeline_result_to_text_delivery`の購読解除待ち(`EventHub.wait_until_empty`、10秒のハング防止上限)がCIで不定期に`CancelledError`/`TimeoutError`になる件の調査と解消です。本番コードの順序の問題でした。
+
+### 事実
+
+- CIの失敗証跡: run 41244736366(serverジョブ 124665695773)で上記試験が`wait_until_empty`の待機中に10秒のtimeoutで失敗。試験に変更の無いPRで再実行すると成功する。別の失敗run 41242778554(serverジョブ 124659919611)は`test_real_uvicorn_...`のWSSハンドシェイクtimeoutで、#174/#203と同系統の別症状(本件の対象外)。#195/#210で報告された症状は、ログが残っていないため同一原因かは未確認。
+- 修正前、対象試験を同一プロセスで繰り返し実行(新規`TestClient`)した結果: 無負荷で1/20、1/100、CPU負荷下(コンテナ内でbusy loop 4本、CPU上限2)で8/100。失敗時は全て約10秒かかっていた(timeoutまで待った)。
+- Starlette 1.10.0の`TestClient`のWebSocket終了は、`close(1000)`(disconnect送出)の直後に、アプリ実行の取消スコープ(`cs.cancel`)を取り消す。streamハンドラがdisconnectを処理して`finally`に入るより先に取消が届く順序があり得る。
+- anyioの取消はレベルトリガで、取消済みスコープ内では以後の`await`も毎回中断される。修正前の`stream`の`finally`は、`await asyncio.gather(...)`の**後**に`unsubscribe`を呼んでいたため、取消が先に届くと`gather`で中断され、`unsubscribe`が実行されない。購読が残り、`_empty`が立たず`wait_until_empty`が戻らない。
+- この順序を決定的に作る試験(`server/tests/test_stream_cancellation.py`)は、修正前に`1 != 0`(購読が残る)で失敗し、修正後に成功する。
+
+### 推測(未検証)
+
+- 本番のuvicornでは、切断時にハンドラのtaskは取り消されないため、同じ経路で購読が残る可能性は低い。サーバー停止時の取消などで同種の順序になり得るが、本番での発生は確認していない。
+- `finally`の後半(`streams`の除去・`pipeline.cancel`・`sessions.disconnected`)も取消で飛ばされ得るが、#232では変更していない(sessionは既存の監視で解放される)。購読の解除だけを、最初の`await`より前の同期処理へ移した。後半は[#235](#stream取消時の後始末の保護-issue-235)で解消した。
+
+### 修正
+
+`server/src/screen_translation_server/app.py`の`stream`の`finally`で、background taskの`cancel()`の直後、最初の`await`の前に`unsubscribe`を呼ぶ。待ち時間(10秒)・assertは変更せず、リトライ・limiterのリセットも使わない。
+
+### 修正前後の測定(同じ対象試験を同一プロセスで繰り返し)
+
+| 条件 | 回数 | 失敗 |
+| --- | --- | --- |
+| 修正前・無負荷 | 100(+別に20) | 1(+1) |
+| 修正前・CPU負荷(busy loop 4本、CPU上限2) | 100 | 8 |
+| 修正後・無負荷 | 200 | 0 |
+| 修正後・CPU負荷(同上) | 200 | 0 |
+
+### mutation確認
+
+`unsubscribe`を`await asyncio.gather(...)`の後へ戻すと、`test_stream_cancellation`が失敗します(`subscriber_count_total`が1のまま)。
+
+## stream取消時の後始末の保護 (Issue #235)
+
+#232の続きです。`stream`の`finally`後半(`streams`の除去・`pipeline.cancel`・`sessions.disconnected`)も、anyioのレベルトリガ取消で最初の`await`に中断されると実行されませんでした。`streams`の残留、待機フレームの`pipeline.cancel`漏れ、sessionの`disconnected`通知漏れ(単一アクティブsessionが残り、新しいPOSTが409 `SESSION_IN_USE`のまま)が起き得ました。
+
+### 設計判断
+
+- 後始末を`server/src/screen_translation_server/stream_cleanup.py`へ分け、2段にした。
+  1. 同期段(`release_stream_sync`): background taskのcancel・購読解除・`streams`の除去。最初の`await`より前に完了するので取消の位置に依存しない。
+  2. 非同期段(`finish_stream_cleanup`): `pipeline.cancel`→`sessions.disconnected`を**別task**で実行し、`app.state.cancel_tasks`に登録して`asyncio.shield`で待つ。
+- `anyio.CancelScope(shield=True)`を採らなかった理由: anyioのスコープ取消にしか効かず、uvicornのサーバー停止などが行う`task.cancel()`は防げない。別taskはスコープにも親taskへの`task.cancel()`にも巻き込まれず、#173の`schedule_pipeline_cancel`と同じ構造(`cancel_tasks`)で、shutdownの`drain_cancel_tasks`が完了を待つ。
+- 同期段で`streams`の除去を判定する(`streams.get(session_id) is websocket`)ので、DELETEが先に外した場合は非同期段を実行しない。DELETEの`pipeline.cancel(session, None)`との二重実行・順序逆転は起きない。DELETEは従来どおり`streams`を外し別taskでcancelする(変更なし)。
+- 1項目が失敗・期限切れでも残りを実行する。例外は握りつぶさずERRORログへ項目名と例外の型名だけを記録する(session_id・原文・訳文・例外メッセージは記録しない)。`SessionConflict/Forbidden/NotFound`は従来どおり正常扱い。
+- 遮蔽した後始末が永久に残りサーバー停止を妨げないよう、1項目あたり`STEP_TIMEOUT_SECONDS`(10秒)の期限を付けた。
+
+### 試験
+
+- `server/tests/test_stream_cancellation.py`の`StreamCleanupProtectionTests`: 取消を「`finally`に入る前(`receive`待機中)」「`pipeline.cancel`の実行中」「`sessions.disconnected`の実行中」の3位置へ、anyioスコープ取消とasyncio `task.cancel()`(二重)の2方式で届け、4項目(unsubscribe・`streams`除去・`pipeline.cancel`完了・`disconnected`完了、cancel→disconnectedの順)と、後始末後に新しいstartが409にならないことを確認する。各位置はEventで同期し、固定sleepを同期条件に使わない。
+- 1項目の失敗で残りが実行されること・ログに例外メッセージが出ないこと、ハングした項目が期限で打ち切られ残りが実行されること、DELETEが先に`streams`を外した場合に二重実行しないこと、後始末taskが`cancel_tasks`へ登録されshutdownで待てること。
+- `server/tests/integration/test_stream_shutdown.py`: 実TLSの本物のuvicornでWSS接続中にサーバーを停止し、`streams`・購読・`cancel_tasks`が空で、`pipeline.cancel`が完了し、sessionが解放されることを確認する(モデル不要)。uvicornの停止はdisconnectで`finally`に入るため、この試験は修正前の実装でも通る。本番経路で後始末が欠けないことの回帰確認であり、取消の位置による欠落は上記の単体試験で検出する。
+
+### mutation確認(コンテナ内の`test_stream_cancellation`)
+
+| 変更 | 結果 |
+| --- | --- |
+| `finally`を修正前(#232時点)へ戻す | 失敗(`streams`残留、`pipeline.cancel:done`/`sessions.disconnected:done`が無い、`cancel_tasks`が0) |
+| 別task化をやめ、ハンドラ内で直接`await` | 失敗(5位置・方式で後始末が完了せず) |
+| 同期段の`unsubscribe`を除去 | 失敗(`1 != 0`) |
+| 1項目の例外で残りを止める | 失敗(失敗隔離・ハング試験) |
+| 項目の期限を除去 | 失敗(ハング試験が10秒でtimeout) |
+
+### 未検証
+
+- 本番のuvicornがハンドラのtaskを実際に取り消す経路(例: `timeout_graceful_shutdown`超過)での実測。単体試験は`task.cancel()`とanyio取消の両方式で代替している。
+- `pipeline.cancel`が`STEP_TIMEOUT_SECONDS`で打ち切られた場合、進行中OCRは中断できず後から完了する(従来のshutdown待ちと同じ)。
+
+## サーバー全体の設定更新・再起動結合試験 (Issue #85)
+
+R2(#76〜#84)の各Phaseをまたぎ、認証・準備確認・セッション・実エンジン翻訳・辞書/設定の更新と永続化・停止・再起動・再翻訳を、実TLS/WSSの本物のappで通します。ファイルは`server/tests/integration/test_server_scenario.py`(試験)と`scenario_support.py`(再起動・ログ捕捉・同期の部品)です。事前準備は#80と同じ(`prepare-model`済みのボリュームが必要。未準備なら**skipせず失敗**)。
+
+```bash
+docker compose -f server/compose.test.yml --profile integration run --build --rm integration \
+	python -B -m unittest discover -s tests/integration -p test_server_scenario.py -v
+```
+
+**本番と同じ経路**: 保存先は環境変数`SCREEN_TRANSLATION_DATA_DIR`、pipelineはappが最初のframeで`create_default_pipeline`により作る経路(辞書wrapper・保存済みfpsを引き継ぐ)です。重い実エンジンだけを共有し、pipeline生成関数を差し替えています。
+
+**「再起動」の定義**: 同じ保存先・資格情報・証明書のまま、listener・Session・辞書とキャッシュ・pipelineを止めて新しく作り直します(プロセス再起動の再現)。コンテナの停止・起動、名前付きvolumeの再マウントはこの試験では行わず、実コンテナでの検証は[別の試験(#196)](#実コンテナの停止起動をまたぐ永続とセッション初期化-issue-196)で行います。
+
+### 検証内容
+
+| 試験 | 内容 |
+| --- | --- |
+| 全体シナリオ | 未認証401→準備前503(readyとsession開始)→準備後200→セッション開始→翻訳→辞書(管理token+If-Match)と設定の更新(`ETag`・`X-Effective-From: next-frame`、pipelineのfps反映)→更新前revisionのframeは切断せず破棄→更新後revisionのframeに辞書訳(キャッシュ失効の確認)→停止→再起動→辞書・設定・revisionが一致→旧session_idは404、旧session_id付きframeは1008で拒否、再度POSTが必要で新しいsessionはgeneration 1・保存済みrevisionから開始→再翻訳で辞書が効き、新pipelineが保存済みfpsを使う |
+| 同時更新 | 同じ`If-Match`の2要求をBarrierで同時に解放し、200と409が1件ずつ、409の`ETag`が最新revision、保存値・実行中revisionが勝者と一致、敗者が読み直して再試行できる、再起動後も一致 |
+| 保存失敗 | 保存関数が失敗(例外文字列に目印を含める)したとき500 `INTERNAL_ERROR`、保存済み・実行中の辞書とrevisionが不変でframeも破棄されず、障害解消後に同じrevisionで更新できる |
+| モデル準備失敗 | モデル未導入のlifecycleがunreadyを返す間はsession開始が503 `MODEL_NOT_READY`でも辞書更新は成功し、再起動後に実エンジンで反映される |
+| 処理中の更新 | 実OCRを`Event`で保留中に辞書を更新し、旧revisionのframe結果は配信前に破棄され、次のframeだけが新辞書で配信される |
+| 切断中の更新 | 処理中に切断し、その間に辞書を更新。次のsessionは新revisionから始まり、旧sessionの結果・状態が届かない(購読・worker・待機画像の残留なし) |
+| ログ | 運用の既定(INFO)で出る全ログと自サーバーのDEBUGに、端末/管理token・原文・訳文・辞書訳・保存失敗の例外文字列とパスが出ない。session_idは診断ログに出ない(下の例外を除く) |
+| 待ち時間の上限 | `read_until`に全体の期限を設け(`overall_timeout`、既定180秒)、条件に合わないmessageが続いても失敗が早く分かる。注入クロックの単体試験つき。`drain_until_closed`にも同じ期限 |
+
+同期は`Event`・`Barrier`・破棄通知の`Condition`・サーバーloop内の状態待ちだけで、固定sleepを同期条件にしていません。timeoutは無応答時の失敗検出専用で、watchdogは合否条件にしていません。
+
+### 未解決事項・未検証 (#85)
+
+- **(解消済み・#196)** コンテナの停止・起動をまたぐ名前付きvolumeの永続は実コンテナで検証しました。**未検証**: 8時間連続稼働、性能(p50/p95)、Windows実機を含むE2E、複数端末の同時利用は#108/#109。
+- **(解消済み・#194/#196)** 製品の起動経路(`main()`)のready反映は#194で製品側に実装されました。本試験が試験側で補っていたready反映・ログ検査の除外は撤去済みで(`start`は製品の`LifecycleReadiness`を使い、`LogCapture`は`uvicorn.access`・`argostranslate`を除外しない)、#196で残存がないことを確認しました。
+- **(解消済み・#195)** uvicornのaccessログに`DELETE /api/v1/sessions/{session_id}`のsession_idが出る件、`argostranslate`がINFOで原文・訳文を出す件は、製品側で固定しました([運用ログの秘匿](#運用ログの秘匿-issue-195))。本試験は`uvicorn.access`・`argostranslate`を検査から除外しません。
+- **(解消済み・#189)** Stanza資源の外部取得は製品側で止め、試験側の回避を削除しました。
+
+## 実コンテナの停止・起動をまたぐ永続とセッション初期化 (Issue #196)
+
+#85の「再起動」はプロセス内の作り直しの再現でした。本試験は**本番の`server/compose.yml`を実コンテナで起動**し、`docker compose stop`→`start`と`down`(volume維持)→`up`をまたいで、名前付きvolumeの永続とセッションの初期化を確認します。ファイルは`server/tests/container/`の`test_container_restart.py`(試験)と`stack.py`(ハーネス)です。
+
+**CIでは実行しません。** ホストのDocker Compose v2を操作するため(Docker-in-Dockerが必要)、`ci.yml`には含めず手動で実行します。`SERVER_CONTAINER_TEST=1`が無ければskipされ、`discover -s tests`や`tests/integration`の既存コマンドにも含まれません。
+
+```bash
+python3 -m venv .venv-container && .venv-container/bin/pip install -r server/requirements-dev.txt
+SERVER_CONTAINER_TEST=1 [SERVER_TEST_MODELS_FROM=<準備済みモデルvolume名>] \
+	.venv-container/bin/python -B -m unittest discover -s server/tests/container -v
+```
+
+| 環境変数 | 内容 |
+| --- | --- |
+| `SERVER_CONTAINER_TEST` | `1`のときだけ実行(必須) |
+| `SERVER_TEST_MODELS_FROM` | 準備済みモデルvolumeの名前。**読み取り専用**で借り、試験専用volumeへ複製して取得時間を省く(任意)。複製後も`prepare-model`を通すので外向き通信は必要。未指定ならモデル全体を取得する(約115MiB以上) |
+| `SERVER_TEST_IMAGE` | 使うイメージ名(未指定は`screen-translation-server:local`。他の作業と共有しないよう指定を推奨) |
+| `SERVER_TEST_COMPOSE_FILES` | 追加のcompose(`:`区切り)。ネットワークのアドレスプールが枯渇した環境で、自分専用の外部ネットワークへ向ける等に使う |
+| `SERVER_TEST_KEEP` | `1`で試験後の片付けを省略(失敗調査用。プロジェクト名を出力) |
+
+試験ごとにランダムなプロジェクト名、空きポート、一時CA・証明書(OSの信頼ストアには触れない)、管理/端末tokenを生成し、終了時に**そのプロジェクトのvolume・networkだけ**を`down --volumes`で消します。待機は期限付きのポーリング(ready、healthy)で、固定sleepを同期条件にしていません。
+
+| 確認 | 内容 |
+| --- | --- |
+| 実行環境 | healthyになる。UID 10001で実行され、`/data`は書込可、ルートFSと`/credentials`は書込不可 |
+| 更新 | 辞書(管理token+If-Match)と設定(capture_fps)を更新し、revisionが進む |
+| stop→start | 同じコンテナが再開(`StartedAt`が変わる)。辞書・設定・revisionが一致、台帳のtokenで認証できる。旧session_idの`DELETE`は404、旧session_idのframeはWSSで拒否(切断)される。再POSTで新しいsessionが作られ、generation 1・保存済み辞書revisionから始まる。稼働中だったWSS接続は停止で切れる |
+| down→up | コンテナが作り直される(IDが変わる)が、同じ項目が保持される |
+| ログ | 再起動をまたぐ全コンテナログに、管理/端末token、session_id、辞書の原文・訳文が出ない |
+
+**mutation(#196)**: ①起動時に`/data`を空にする(永続しない構成)→辞書の保持確認で失敗、②`user`を10001以外にして保存先の権限を誤らせる→保存先に書けず失敗(後述の結果欄)、③`Dockerfile`のruntimeステージから`COPY contracts/`を外す→`test_production_compose`の静的検証が失敗。
+
+### この試験で見つかった製品側の不具合(#196で修正)
+
+本番の`runtime`イメージに`contracts/`が含まれず、`events/__init__.py`が読むWSS配信メッセージのスキーマが存在しないため、**sessionを開始してWSSへ接続すると配信が`RuntimeError: WSS stream contract is not available`で失敗**していました(単体・結合試験はテスト用イメージで`contracts/`を持つため検出できませんでした)。`runtime`ステージで`contracts/`をコピーするよう修正し、静的検証(`test_production_compose.py`)も追加しました。
+
+### 未解決事項・制約 (#196)
+
+- **準備段階の通信**: 本番どおり`server-models`は読み取り専用のまま使います。モデルは`prepare-model`で導入するため(`SERVER_TEST_MODELS_FROM`指定時も複製後に再実行し、Stanza資源を取得する。#189)、準備段階だけ外向き通信が必要です。実行時のserverは通信しません。
+- 「restart: unless-stopped」によるホスト/Dockerデーモン再起動後の自動起動、SIGKILL等の異常終了後の保持、実機を含むE2Eは未検証です。
+- セッション初期化の確認はsession_idの無効化とgenerationの再開始までで、mutationによる「セッションが復元されてしまう」場合の検出は未実施です。
+
+## 運用ログの秘匿 (Issue #195)
+
+診断ログ(自サーバーのlogger)に加え、**運用ログ(uvicornのaccessログ・依存ライブラリのログ)**にもsession_id・認証情報・原文・訳文・画像を出さないことを、実際の起動構成(`create_server`/`main()`)で固定します。
+
+| 経路 | 固定方法 |
+| --- | --- |
+| uvicornのaccessログ | `create_server`が`access_log=False`を渡し、`uvicorn.access`にdrop-all filterを付ける。運用側が後からhandlerを足して`hasHandlers()`が真になっても出力しない |
+| argostranslate・stanza | `operational_logging.restrict_dependency_loggers()`が当該logger(既存の子を含む)をWARNING以上だけにfilterで固定する。ライブラリがimport時に`setLevel(INFO)`しても、rootにhandlerやDEBUGを足しても出ない。`create_server`とエンジン読込後(`_load_engines`)で呼ぶ。警告以上の文言は固定文で内容を含まない |
+
+| 試験 | 内容 |
+| --- | --- |
+| `server/tests/test_operational_logging.py` | ライブラリがレベルを戻しても/後から作られた子loggerでも/rootをDEBUGにしても、原文・訳文が出ない。警告以上は残る。filterの重複なし。後からhandlerを足したaccess loggerも空。`create_server`と`main()`が`access_log=False`とfilter設定を呼ぶ |
+| `server/tests/integration/test_operational_log.py` | 実TLS listener(`create_server`)でPOST/DELETE/GETを行い、root・uvicorn系にhandlerを足して捕捉。session_id・端末/管理token・原文・訳文・`/sessions/`・accessログ自体が出ない |
+| `server/tests/integration/test_server_scenario.py` | 検査から`uvicorn.access`と`argostranslate`の除外を外し、全loggerでtoken・訳文・session_idの不在を確認 |
+
+mutation確認(#195): ①`restrict_dependency_loggers`のfilter付与を外す(単体3件失敗・結合失敗)、②`disable_access_logger`のlevelとfilterを外す(単体・結合とも失敗)、③`create_server`から両呼び出しを外す(単体・結合とも失敗)、④`access_log=True`へ戻す(単体2件失敗。結合はdrop-all filterが受けるため通る=多重防御)。復元後はすべて成功します。
+
+**未検証**: 将来追加する依存ライブラリのloggerは、接頭辞(`RESTRICTED_LOGGER_PREFIXES`)へ追加するまで対象外です。コンテナのstdout/stderrへ直接`print`するライブラリ出力、OSやリバースプロキシ側のaccessログは対象外です。
+
+## 実コンテナ・実エンジンでの認証から再起動後の再翻訳までの通し (Issue #229)
+
+Roadmap #70(R2)の完了要件として、#196のハーネスを拡張し、**本番`server/compose.yml`の実コンテナ・実Tesseract/Argos**で認証から再起動後の再翻訳までを1本で通します。ファイルは`server/tests/container/test_container_roadmap.py`です。画像は#80の自前生成画像(`server/tests/fixtures/pipeline/clear-01.png`、`generate.py`で再生成可能)を再利用し、frame組み立て・契約照合付き受信は`server/tests/integration/frame_support.py`をプロセス内試験と共有します(重複を作らない)。
+
+**CIでは実行しません**(#196と同じ理由。Docker-in-Dockerを避ける)。実行手順・環境変数は#196の節と共通で、追加の変数は次の1つだけです。
+
+```bash
+SERVER_CONTAINER_TEST=1 SERVER_TEST_IMAGE=<専用のイメージ名> [SERVER_TEST_PROJECT=<専用のプロジェクト名>] \
+	[SERVER_TEST_MODELS_FROM=<準備済みモデルvolume名>] \
+	.venv-container/bin/python -B -m unittest discover -s server/tests/container -p 'test_container_roadmap.py' -v
+```
+
+| 環境変数 | 内容 |
+| --- | --- |
+| `SERVER_TEST_PROJECT` | Composeのプロジェクト名(任意)。未指定は乱数名。固定すると後始末(`down --volumes`)の対象と、イメージ・volumeの所有者を特定しやすい |
+
+所要時間の目安は、イメージのビルド済み・モデルvolume複製ありで約1〜2分(実測: #196の試験と合わせて97秒)、初回ビルドとモデル取得を含むと十数分です。ディスクはイメージ約2.3GBと試験専用volumeを使います。
+
+| 段階 | 確認(実コンテナ・実エンジン) |
+| --- | --- |
+| 1 認証→翻訳 | 未認証の`/ready`・`POST /sessions`は401。端末tokenで`/ready`が200、`POST /sessions`が201(generation 1・辞書revision 1)。WSSで`ready`状態を受け取り、固定画像を送ると原文(正規化して期待文を**含む**)・日本語を含む訳文・画像内に収まる位置(rect)が返る |
+| 2 辞書更新 | 管理token+If-Matchで辞書を更新(200・ETag`"2"`・`X-Effective-From: next-frame`)。更新前revisionのframeは結果を返さず、更新後revisionの新規frameだけが結果を返し、訳文が登録語と**完全一致**する。結果にフレームID・旧revisionの混入がない |
+| 3 停止→再起動 | `DELETE`で停止(204)→`docker compose stop`で稼働中のWSSが切れる→`start`でreadyへ復帰(`StartedAt`が変わる)。旧session_idの`DELETE`は404、旧session_idのframeはWSSで拒否(1008)され、新sessionでも旧session_idのframeは拒否される。再POSTでgeneration 1・保存済み辞書revisionから開始する |
+| 4 再翻訳 | 同じ画像を再送すると、再起動後も辞書が効いた訳文が完全一致で得られ、session_idは旧sessionと異なる |
+| 永続・ログ | `/data`・`/credentials`の全JSONが読め、一時ファイルが残らない。辞書は更新後のrevision・内容のまま。再起動をまたぐ全コンテナログにtoken・session_id・原文・訳文が出ない |
+
+OCRは実エンジンのため揺れ得ます。期待は「原文を含む」「日本語を含む」とし、完全一致で見るのは登録した辞書訳語だけです。待機は期限付きのポーリング(ready・healthy・session開始の409再試行)で、固定sleepを同期条件にしていません。対象外: 8時間連続稼働、性能(p50/p95)、翻訳品質100文(R4 #108/#109)。
+
+## 変更後の回帰・静的検査
+
+サーバーや共通処理を変更した場合は、通常のサーバー試験に加え、アプリ用イメージとリポジトリをマウントした回帰試験を実行します。
+
+```bash
+docker build -t app:ci . && docker run --rm -e PYTHONPATH=/app/src app:ci python -B -m unittest discover -s src/tests
+docker compose -f server/compose.test.yml run --build --rm -v "$PWD:/workspace:ro" -e PYTHONPATH=/workspace/src:/workspace/server/src test python -B -m unittest discover -s server/tests
+docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -e MYPYPATH=/workspace/src:/workspace/server/src -v "$PWD:/workspace:ro" -w /workspace app:ci mypy --cache-dir=/tmp/mypy_cache server/src
+docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -e MYPYPATH=/workspace/src:/workspace/server/src -v "$PWD:/workspace:ro" -w /workspace app:ci mypy --cache-dir=/tmp/mypy_cache src
+docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -e MYPYPATH=/workspace/src:/workspace/server/src -v "$PWD:/workspace:ro" -w /workspace app:ci mypy --cache-dir=/tmp/mypy_cache --platform win32 src
+docker run --rm --cpus=2 -e PYTHONPATH=/workspace/src:/workspace/server/src -v "$PWD:/workspace:ro" -w /workspace app:ci ruff check --no-cache server/src server/tests
+```
+
+コンテナ外の実機情報・秘密値・生成した鍵は記録やリポジトリへ保存しません。失敗した場合は失敗したコマンドと要約を先に記録し、修正後に同じコマンドを再実行します。
+
+## 2026-10-31 PR #168 レビュー指摘の再検証
+
+| 試験 | 結果 |
+| --- | --- |
+| server Compose unit | Python 3.14.7、125件成功、3件skip |
+| server integration profile | 13件成功（#174で同期クライアント包みの4件を追加） |
+| client Compose tests | Client 68件、Contracts 4件成功 |
+| app:ci 全体試験 | 309件成功、75件skip |
+| read-only mount server回帰 | 118件成功、3件skip |
+| mypy `server/src` | 22 source files、問題なし |
+| mypy `src` / Windows platform | 各79 source files、問題なし |
+| ruff `server/src server/tests` | 成功 |
+| 結果配信ログ秘匿test | 13件成功。2診断ログへ`session_id`を戻すmutationは失敗し、復元後は成功 |
+
+read-only mount回帰でschemaの探索先が配置依存になっていたため、`test_result_delivery.py`は親ディレクトリからschemaを探索します。通常のCompose配置とread-only mount配置の両方で回帰を確認しています。
+
+## 2026-10-31 実行記録
+
+| 試験 | 実行環境・版 | 結果 |
+| --- | --- | --- |
+| server単体・契約 | Python 3.14.7 | 101件成功、3件skip |
+| TLS/接続境界integration | Python 3.14.7、OpenSSL 3.5.7、httpx 0.28.1、websockets 15.0.1、jsonschema 4.26.0 | 13件成功（Issue #165の所有権ケースと、#174の`SyncWebSocket`試験4件を含む） |
+| app:ci全体試験 | Python 3.14 | 308件成功、74件skip |
+| read-only mount server回帰 | Python 3.14.7 | 94件成功、3件skip |
+| mypy `server/src` | app:ci / mypy 1.18.2 | 19 source files、問題なし |
+| mypy `src` / Windows platform | app:ci / mypy 1.18.2 | 各79 source files、問題なし |
+| ruff `server/src server/tests` (`--no-cache`) | app:ci / ruff 0.16.1 | 成功 |
+
+実行コマンド・Issueへの記録は [Issue #74作業記録](../../tasks/2026-10-31_issue-74_session-integration.md)、[Issue #165作業記録](../../tasks/2026-10-31_issue-165_session-ownership-tests.md)、Issue #74の試験結果Commentを参照してください。
+
+## Stanza資源の準備と外向き通信なしの翻訳 (Issue #189)
+
+Argos Translateの文分割(`argostranslate.sbd.StanzaSentencizer`)は`stanza.Pipeline`へ`download_method`を渡さず、Stanzaの既定(`DOWNLOAD_RESOURCES`)は初期化のたびに外部(GitHub等)へresources.jsonを取りに行きます(#173の調査。`REUSE_RESOURCES`でもresources.jsonが無ければ取得し、不足モデルも取得します)。外向き通信のない製品構成(REQ-F-004)では最初の翻訳が失敗するため、次のとおり固定しました。
+
+| 層 | 内容 | 実装 |
+|---|---|---|
+| 実行時 | `argostranslate.sbd`が参照する`stanza`だけを、`download_method=None`(一切取得しない)を強制する代理へ差し替える。呼び出し側の指定は上書き。Stanza本体の`stanza.Pipeline`は変更しない。適用点はこの1か所 | `engines/stanza_offline.py`（`_load_engines`が呼ぶ） |
+| 準備 | 管理者が外向き通信のある準備段階で、manifestのStanza資源を取得し、サイズ・SHA-256を検証して配置する（未準備・破損分だけ取得。検証に通らないものは配置しない） | `engines/stanza_resources.py`・`provision.py`（`prepare-model`が続けて実行） |
+| 起動 | `EngineLifecycle.prepare`がモデル検証の直後に同じmanifestで資源を再検証する。未準備・破損なら**エンジンを読み込まず**準備失敗とし、readinessは`503 MODEL_NOT_READY`（理由にパス・URLを含めない）。復旧後は再起動なしでreadyへ遷移 | `engines/lifecycle.py`・`startup.py`（`SCREEN_TRANSLATION_STANZA_MANIFEST`は必須） |
+
+`argostranslate`の更新で`sbd.stanza.Pipeline`の前提が崩れた場合、`install_offline_stanza()`が例外を出して準備失敗になり、黙って外部取得へ戻ることはありません。固定が効くことと前提の検出は`server/tests/test_stanza_offline.py`（本物の`StanzaSentencizer.lazy_pipeline`が`download_method=None`で`Pipeline`を呼ぶこと、`stanza.Pipeline`の引数と`DownloadMethod.NONE`の存在）で確認します。対象版はargostranslate 1.11.0 / stanza 1.10.1です。
+
+試験:
+
+- 単体: `test_stanza_resources.py`（manifest検証・取得・再取得・ハッシュ不一致・期限・パス秘匿）、`test_stanza_offline.py`、`test_stanza_readiness.py`（未準備で503・翻訳要求拒否、準備後に復旧）、`test_provision.py`（Stanza資源の配置・失敗時の終了コードと秘匿）、`test_production_compose.py`（本番イメージにmanifestを同梱し環境変数で指す）、`test_lifecycle_readiness.py`（`SCREEN_TRANSLATION_STANZA_MANIFEST`必須）。
+- 結合（`network_mode: none`、試験側の回避なし）: `test_offline_translation.py`（新しいtranslatorが`socket`の接続・名前解決を禁止した状態で翻訳できる／資源の一部欠落でエンジンを読み込まず準備失敗）に加え、既存の`test_pipeline*.py`・`test_startup_ready.py`が回避なしで通る。
+- manifestの値（URL・サイズ・SHA-256）は、準備段階で取得元から観測した値であり、配布元が保証する信頼済みdigestではありません。`resources.json`はstanza-resourcesの`main`ブランチ上の版付きファイルで、取得元の更新でSHA-256が変わると準備が失敗します（黙って別内容を受け入れない）。ライセンスの確認は対象外です。
+
+## 実行中のcapture_fps反映と設定/辞書のrevision系列 (Issue #246)
+
+契約(`contracts/session-state.md`「設定・辞書更新」): revisionは設定と辞書で**別系列**。sessionのframe照合に使う`dictionary_revision`を動かすのは辞書のPUTだけで、設定のPUTは動かさない(設定のrevisionをsessionへ適用すると、より大きいrevisionとして1008で切断される)。
+
+### 方針(A: 保存成功で実行中の取得頻度を即時に更新する)
+
+`TranslationSettingsViewModel.Saved`(保存した取得頻度の**値**。revisionは渡さない) → `OperationsViewModel.ApplyCaptureFps` → `TranslationSessionHost.ApplyCaptureFps` → `CaptureSendPipeline.UpdateCaptureFps`(`FrameProcessor`の取得上限と`FrameSender`の送信上限を同じ値へ)。`MainWindow.ServerSettings.cs`が配線する。
+
+決めた理由: サーバーは設定のPUT確定後に、実行中のpipelineの受信レート制限(`capture_fps`)を即時に更新する(`api/settings.py`、`test_settings_update_reaches_production_pipeline_rate_limit`)。クライアントの間引きだけが次回の開始まで古い値だと、サーバーだけが上限を下げた場合にクライアントが上限を超えて送り続けて破棄される不整合になり、REQ-F-008「成功した更新は次の新規フレームへ反映」とも合わない。次回の開始から反映(B)は、利用者が保存の効果を確認するために停止・再開を強いられる。
+
+| 場面 | 規則 |
+| --- | --- |
+| 実行中に保存 | 次に取得するフレームから新しい上限で間引く。session・generation・frame_id・辞書revision・待機画像・送信済みフレームの結果は変えない。通信は切れない |
+| 受理済みの記録 | 残す(連続10秒の窓の上限は、過去の高いレートの分も数えて守る。上限を下げた直後に窓を超えて送らない) |
+| 停止中に保存 | 保持し、次回の開始から使う(パイプラインは開始をまたいで1つ) |
+| 範囲外(1～5以外)・破棄後 | 何もしない(falseを返し、現在値を保つ) |
+| 画面 | 設定欄の説明と保存成功の文言で「実行中は次のフレームから、停止中は次回の開始から」と伝える |
+
+### 読み込み成功時の反映(Issue #258)
+
+#246では保存成功だけを反映していたため、**起動時のクライアントの取得頻度は既定(2)のままで、設定画面で保存するまでサーバーの値と揃わない**限界があった(サーバーが1 fpsだと、クライアントが上限を超えて送り、サーバーのレート制限で破棄される無駄が出る)。#258で、設定の**読み込み成功**でも同じ経路(`TranslationSettingsViewModel.Loaded` → `OperationsViewModel.ApplyCaptureFps` → ...)で値だけをホストへ反映し、この限界を解消した。範囲外(1～5以外)・停止中・破棄後の扱いは#246と同じ(`ApplyCaptureFps`の規則)。読み込みに失敗・中断した場合と、未保存の編集があり確認待ちで読み込まなかった場合は反映しない。再読込(編集の破棄)の成功では反映する。
+
+**自動読み込みはしない(判断)**: 契約上は端末tokenでも設定のGETは許される(`openapi.yaml`の`getSettings`)が、クライアントの設定API(`IServerSettingsApi`)は管理用の資格情報を使う構成で、接続・開始時に端末tokenで取得する経路は無い。設定画面を開かない限り読み込まれないため、**画面を開いて読み込むまでの間は既定(2)で動く**。この点は設定欄の説明(`CaptureFpsGuidance`)で利用者に伝える。接続時の自動取得(端末tokenでの設定GET)は別Taskとする。
+
+### 試験
+
+| 試験 | 確認すること |
+| --- | --- |
+| `SettingsViewModelTests.Load_RaisesLoaded*`ほか(#258) | `Loaded`はサーバーの値だけ(revisionは渡さない)、失敗・確認待ちでは発火しない、破棄を伴う再読込では発火する、購読側の例外が読み込みの失敗にならない、画面の説明に既定値の扱いがある |
+| `ClientScenarioRealServerSettingsTests.LoadingSettings_Aligns*`(実サーバー・#258) | サーバーを1 fpsにして読み込むと、既定2 fpsなら通る600ms後のフレームが間引かれ、通信・世代は維持される |
+| `MainWindowWiringTests.TranslationSettingsLoad_*`(`windows-client` CI・#258) | 画面の読み込みだけ(保存なし)で、サーバーの取得頻度が値としてホストへ届き、辞書revisionとしては適用されない |
+| `FrameRateLimiterTests.SetFps_*` | 間隔の変更、窓の履歴の維持、範囲外の拒否 |
+| `FrameSenderTests.SetSendFps_*` | 送信間隔の変更。session・revision・frame_id不変 |
+| `HostCaptureFpsTests` | 実行中の下げ/上げが次のフレームから効く(間引かれたフレームは読み出さない)、sessionのrevision・generation・frame_idが動かず通信維持、送信済みの結果を捨てない、停止中の保存が次回開始で効く、範囲外・破棄後 |
+| `SettingsViewModelTests.Save_RaisesSavedWith*`ほか | `Saved`は値だけ(revisionは渡さない)、失敗・競合では発火しない、画面の説明 |
+| `OperationTests.ApplyCaptureFps_*` | 辞書revisionの適用が起きない |
+| `ClientScenarioRealServerSettingsTests`(実サーバー) | 設定のPUT → 実行中の取得頻度の変化(2fps→5fpsで300ms間隔の取得が通る)、保存後も通信・世代が維持され翻訳が表示される |
+| `server/tests/test_settings_revision_series.py` | 設定のPUT後もsessionの辞書revisionは1のままでrevision 1のframeが受理される。設定のrevision(2)をframeに載せると1008で切断される |
+| `MainWindowWiringTests.TranslationSettingsSave_*`・`ServerSettingsPanelTests`(`windows-client` CI) | 画面の保存が値としてホストへ届き、辞書revisionとしては適用されない。説明文の表示 |
+
+## Windowsクライアント配布物の生成と検証 (Issue #104)
+
+要件はREQ-F-012 / REQ-NF-008 / REQ-NF-009 / REQ-NF-010(ACC-14)です。手順は[導入文書](install-client.md)にあります。
+
+### 自動で確認する範囲
+
+| 区分 | 場所 | 実行環境 | 内容 |
+| --- | --- | --- | --- |
+| 配布物の生成・検証・混入検査 | `client/tests/publish/test_package_client.py`・`test_package_content_rules.py` | Python 3.14コンテナ(`web`ジョブ)。`docker run --rm -v "$PWD:/workspace:ro" -w /workspace/client/tests/publish ai-gate-test:ci python -B -m unittest discover -s .` | 疑似publish出力から、zip・`SHA256SUMS`・manifestの生成、同一入力で同一zip、起動入口なし/不正な版/ライセンス一覧なしの拒否、改ざん・版違い・manifest不一致の検出、設定/資格情報/証明書/鍵/pdb/ログ/私設アドレス/ビルド環境パス/指定文字列の混入拒否と、エラー文に一致した値を出さないこと |
+| 配布定義 | `client/tests/publish/test_publish_definition.py` | 同上 | ビルドスクリプトの引数(win-x64・自己完結・記号なし)、版の正本、ライセンス一覧がcsprojのPackageReferenceを漏れなく含むこと、利用者向け案内、設定の保存先が配布先と別であること |
+| リリースworkflow | `client/tests/publish/test_release_workflow.py` | 同上 | 手動/tagのみ、`contents: read`、concurrency、公開/署名/secretを使わないこと、第三者actionのSHA固定、入力を環境変数で受けること |
+| 実publish | `windows-client` CIの「自己完結配布物をpublishして検証」 | `windows-latest` | 版`0.0.0-ci`で`publish-client.ps1`を実行し、win-x64自己完結のpublish、`ProductVersion`の一致、`package_client.py verify`(チェックサム・manifest・起動入口・混入検査)が成功すること |
+
+### Owner実施(実機。この表の項目は未実施で、合格扱いにしない)
+
+.NET SDK・Python・翻訳モデルを導入していない、対応のWindows(Windows 11 25H2 x64)で行います。接続先とサーバーの資格情報・証明書は試験者が外部設定で用意し、記録には値を書きません。接続先がなければ「未実施」と理由を記録します。
+
+1. zip と `SHA256SUMS` を取得し、`Get-FileHash`で一致を確認する。改変したzipで不一致になることも確認する。
+2. 展開して `ScreenTranslation.Windows.exe` を起動できる(SDK/ランタイム未導入のエラーが出ない)。未署名の警告が出たときの案内に従って実行できる。
+3. 設定画面で接続先・端末資格情報を設定し、サーバーへ接続できる。
+4. 新しい版を別フォルダへ展開して起動し、設定が残っていること(再入力不要)を確認する(更新)。
+5. 旧版のフォルダの実行ファイルを起動し、設定が残っていること(ロールバック)を確認する。
+6. 配布フォルダを削除しても `%LOCALAPPDATA%\ScreenTranslation\` が残ることを確認する。
+
+結果(日時・版・SHA-256・OS版・合否・未実施の理由)は、受入の記録(ACC-14、#106/#108/#110)へ残します。
+
+### 未検証・制約 (#104)
+
+- クリーンなWindowsでの起動・接続・更新・ロールバックは未実施(上のOwner実施)。
+- 設定ファイルの形式を変える版での互換と、新版が書いた設定を旧版が読めない場合の扱いは未定義。
+- publish出力のビット単位の再現性は保証しない。zipの再現性(同じ入力から同じzip)のみ試験する。
+- 署名は行わない。SmartScreenの挙動は未確認。

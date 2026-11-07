@@ -61,6 +61,12 @@ class MypyInfrastructureTest(unittest.TestCase):
             ),
         )
 
+    def test_dpi_coordinate_test_uses_the_canonical_app_package_name(self) -> None:
+        test_source = self._read("src/tests/test_dpi_coordinates.py")
+
+        self.assertIn("from app.dpi_coordinates import", test_source)
+        self.assertNotIn("from src.app.dpi_coordinates import", test_source)
+
     def test_developer_guide_documents_containerized_mypy(self) -> None:
         guide = self._read("docs/developer_guide.md")
 

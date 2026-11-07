@@ -83,6 +83,19 @@ def build_translator(config: PipelineConfig, glossary: Glossary) -> Translator:
     return GlossaryAwareTranslator(base_translator, glossary)
 
 
+def build_shared_translation_engines() -> tuple[OcrEngine, Translator]:
+    """旧Webとserverが同じ英語OCR・英日翻訳実装を使う。"""
+    config = PipelineConfig(
+        capture_backend="blank",
+        ocr_backend="tesseract",
+        translator_backend="argos",
+        overlay_backend="memory",
+        source_language="en",
+        target_language="ja",
+    )
+    return build_ocr_engine(config), build_translator(config, Glossary())
+
+
 def build_overlay_renderer(config: PipelineConfig) -> OverlayRenderer:
     if config.overlay_backend == "console":
         return ConsoleOverlayRenderer()

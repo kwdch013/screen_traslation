@@ -1,0 +1,202 @@
+# v1.0 共通契約
+
+WindowsクライアントとLinuxサーバーが共有する通信・データ契約の正本です。HTTPS APIは[`openapi.yaml`](openapi.yaml)、JSON Schemaは[`schemas/`](schemas/)、異常系を含む固定例は[`fixtures/`](fixtures/)に置きます。仕様の背景とAPIの利用順は[API詳細設計](../docs/v1.0/design/api.md)を参照してください。
+
+## 採用する通信路と認証
+
+- 全通信はTLS 1.2以上のHTTPS/WSS。平文HTTP/WSへのfallbackや証明書検証無効化はしません。
+- 制御・設定APIはHTTPS、画像/状態/翻訳結果は`wss://<設定済み接続先>/api/v1/stream`の単一双方向接続を使います。SSEや画像用HTTP endpointは設けません。
+- TLS確立後、`Authorization: Bearer <token>`で認証します。端末tokenと管理tokenは別の資格情報です。管理tokenだけが設定/辞書のPUTと端末資格情報の発行/失効を行えます。tokenをURL、ログ、エラー応答へ含めません。
+- WSS Upgradeの前に端末tokenを検証します。Upgrade後も各messageで資格情報の失効とsession所有権を照合します。WebSocket subprotocolは`screen-translation.v1`です。
+- HTTP JSON要求本文は最大1 MiB、共通エラー応答は最大4 KiB。WSS binary message全体の上限は、8-byte header + 最大4,096-byte metadata + 最大4,194,304-byte画像payload = **4,198,408 bytes**です。
+
+### 権限
+
+| 操作 | 端末token | 管理token |
+|---|---:|---:|
+| health / ready、settings / glossaryのGET | 可 | 可 |
+| session開始、所有session停止、WSS stream | 可 | 不可 |
+| settings / glossaryのPUT | 不可 | 可 |
+| credential発行・失効 | 不可 | 可 |
+
+認証済み端末でも他端末のsessionを停止・引き継げません。接続・再接続はsessionを開始せず、利用者の明示操作で`POST /api/v1/sessions`を呼びます。
+
+## WSS binary frameのwire形式
+
+クライアントからサーバーへの画像は、WebSocket binary message 1件に次の連続した領域として格納します。整数のbyte順はnetwork byte order (big-endian) です。
+
+| offset | 長さ | 内容 |
+|---:|---:|---|
+| 0 | 4 bytes | ASCII magic `STF1` |
+| 4 | 4 bytes | 後続JSON metadataのbyte長 `N` (unsigned 32-bit big-endian、1～4096) |
+| 8 | N bytes | UTF-8 JSON。JSON Schemaは[`frame-metadata.schema.json`](schemas/frame-metadata.schema.json) |
+| 8 + N | `image_length` bytes | PNGまたはJPEG画像payload |
+
+メタデータは`contract_version=1`、`session_id`、`generation`、`frame_id`、`dictionary_revision`、`image_width`、`image_height`、`content_type`、`image_length`を必須とします。`image_length`は1～4,194,304 bytes、実payload長と一致しなければなりません。JSON keyの順序や空白は意味を持ちません。Metadata長超過、長さ不足/余剰、magic不一致、未知fieldは拒否します。
+
+受信側はtoken/所有権を確認し、宣言長・実受信長・metadata長・payload上限を検証してから画像decoderを呼びます。decoderが識別した実形式と`content_type`、実寸法とmetadata寸法がすべて一致することを検証します。PNG/JPEG以外、拡張子/MIME偽装、破損画像、1pxでも大きい寸法/画素数は拒否し、切り詰め・無断縮小をしません。
+
+## 画像寸法・座標上限
+
+| 項目 | 下限 | 上限 |
+|---|---:|---:|
+| 画像幅 | 64 px | 1,920 px |
+| 画像高さ | 32 px | 1,080 px |
+| 総画素数 | — | 2,073,600 px |
+| PNG/JPEG payload | 1 byte | 4 MiB (4,194,304 bytes) |
+
+幅・高さの個別境界を通過しても`width × height`が2,073,600を超えれば拒否します。境界値の+1、展開後サイズ、偽装・破損形式も拒否対象です。ROIの幾何意味、物理ピクセル、負座標、半開区間`[left, top, right, bottom)`と世代/結果採用規則はIssue #63の[`coordinates.md`](coordinates.md)・[`session-state.md`](session-state.md)を正本とします。ここでは再定義しません。
+
+## JSON項目の上限
+
+| 項目 | 制約 |
+|---|---|
+| `session_id` | UUID文字列、36文字 |
+| `generation` / `frame_id` / `dictionary_revision` | 1～2^64-1の整数。frame IDはsession/generation内で送信順に増加 |
+| `capture_fps` | 1～5整数、既定値2 |
+| 辞書件数 | 0～1,000語対 |
+| 辞書`source` / `target` | 各1～128 Unicode文字 |
+| 結果領域数 | 0～500。`source` / `translation`は各1～2,048 Unicode文字 |
+| `confidence` | 0～1 |
+| `server_processing_ms` | 0～30,000整数。サーバー内時間であり、client単調時計との差分に使わない |
+| WSS state text message | UTF-8 JSONで4 KiB以下 |
+| WSS result text message | UTF-8 JSONで1 MiB以下 |
+
+矩形は画像座標の半開区間で、`0 ≤ left < right ≤ image_width`、`0 ≤ top < bottom ≤ image_height`を満たす必要があります。JSON Schemaは各座標の型と保守的な上限を検査し、幅/高さとの大小関係は受信側の意味検証が検査します。
+
+## HTTP APIとrevision競合
+
+APIの完全なmethod/path/request/response/security定義は[`openapi.yaml`](openapi.yaml)を参照します。
+
+| method / path | 権限 | 成功 | 主な失敗 |
+|---|---|---|---|
+| `GET /api/v1/health` | device/admin | 200 process alive | 401 |
+| `GET /api/v1/ready` | device/admin | 200 ready | 401 / 503 `MODEL_NOT_READY` |
+| `POST /api/v1/sessions` | device | 201 session | 401 / 409 `SESSION_IN_USE` / 503 |
+| `DELETE /api/v1/sessions/{session_id}` | owner device | 204 (冪等) | 401 / 403 / 404 |
+| `GET /api/v1/settings` | device/admin | 200 settings+revision | 401 |
+| `PUT /api/v1/settings` | admin | 200保存後のsettings+revision | 401 / 403 / 409 / 413 / 422 |
+| `GET /api/v1/glossary` | device/admin | 200 entries+revision | 401 |
+| `PUT /api/v1/glossary` | admin | 200保存後のentries+revision | 401 / 403 / 409 / 413 / 422 |
+| `POST /api/v1/admin/credentials` | admin | 201、credential_idと一度だけ読めるtoken | 401 / 403 / 422 |
+| `DELETE /api/v1/admin/credentials/{credential_id}` | admin | 204 | 401 / 403 / 404 |
+| `GET /api/v1/stream` (WSS Upgrade) | device | 101 | 400 / 401 / 403 / 409 |
+
+Settingsとglossaryは独立したrevisionを持ちます(別系列で、片方のPUTは他方のrevisionを動かしません)。sessionのframe照合に使う`dictionary_revision`は**辞書**のrevisionだけで、設定のPUT成功はsessionのrevisionを動かさず、設定のrevisionをsessionへ適用してはなりません(現在値より大きいrevisionのframeとして1008で切断されます)。設定の`capture_fps`は保存確定後、サーバーが実行中の受信レート制限へ即時反映し、クライアントも実行中の取得・送信頻度を即時更新します。GET応答のrevisionを`If-Match: "<revision>"`に指定してPUTします。保存は原子的に行い、成功時だけ該当revisionを1増やします。競合409 `REVISION_CONFLICT`では本文を保存せず、`ETag: "<current_revision>"`にサーバーの最新revisionを返すため、clientは再GETして競合を表示します。設定または辞書更新はgeneration/frame連番をリセットしません。成功したrevisionは次の新規frameから使い、旧revisionの結果を表示しません。
+
+## 共通エラー
+
+HTTPSの4xx/5xx本文は[`error.schema.json`](schemas/error.schema.json)の次の4項目だけです。内部例外、path、資格情報、画像/文章を含めません。
+
+```json
+{
+  "code": "REVISION_CONFLICT",
+  "message": "設定が更新されています。再読み込みしてください。",
+  "correlation_id": "00000000-0000-4000-8000-000000000005",
+  "retryable": false
+}
+```
+
+| HTTP | `code` | 意味・client動作 | retryable |
+|---:|---|---|---:|
+| 400 | `INVALID_REQUEST` | JSON構文・protocol形式不正。要求を修正 | false |
+| 401 | `UNAUTHENTICATED` | 未提示/不正/期限切れ/失効。明示的な再認証 | false |
+| 403 | `FORBIDDEN` | role/所有権不足。権限かsessionを確認 | false |
+| 404 | `NOT_FOUND` | session/credentialが存在しない | false |
+| 409 | `SESSION_IN_USE` | 他の端末が所有中。暗黙に奪取せず後で再操作 | false |
+| 409 | `REVISION_CONFLICT` | ETagの現在値を確認してGET後に編集を再適用 | false |
+| 413 | `PAYLOAD_TOO_LARGE` | 画像/HTTP本文上限超過。縮小を自動強制せず再選択/修正 | false |
+| 422 | `INVALID_REQUEST` | HTTP要求のJSON/項目制約、意味検証不正 | false |
+| 503 | `MODEL_NOT_READY` | readyを再確認し、明示操作で再試行 | true |
+| 500 | `INTERNAL_ERROR` | correlation_idを添えて運用者へ報告 | false |
+
+WSSではUpgrade前は同じJSONエラーをHTTP応答として返し、Upgrade後はRFC 6455 closeを使います。1008は認証/所有権/契約違反、1009は上限超過、1011は内部処理障害です。Close reasonにはtoken・入力値・tracebackを載せず、UTF-8で123 bytes以下にします。Reasonは`AUTHENTICATION_FAILED`, `SESSION_MISMATCH`, `PROTOCOL_VIOLATION`, `MESSAGE_TOO_LARGE`, `PROCESSING_FAILED`に限定します。Upgrade後のserver-to-client textは[`stream-message.schema.json`](schemas/stream-message.schema.json)で検証し、`state`, `heartbeat`, `result`, `error`の各messageにUUID `correlation_id`とsession/generation/frame/revisionを持たせます。frame未割当のstate/heartbeatは`frame_id: null`、frame起因のresult/errorは実frame IDを使います。`error`は`code`を含み、入力本文・例外詳細を返しません。`code`ごとの扱い(致命/非致命・再試行)は次の「WSS errorのcodeごとの扱い」を正本とします。`OCR_TIMEOUT`はOCRが時間予算で打ち切られたframeだけに使います(#223)。frame単位のerrorは`message`などの追加fieldを持ちません。位置を特定できないregionは`rect: null`、文字なしは`status: empty`と空の`regions`で表し、互いに読み替えません。購読者ごとのqueueは最大8件、送信期限は1秒です。上限超過時は最古イベントを破棄し、送信期限超過時は購読を閉じます。破棄/timeout診断には本文を含めません。
+
+### WSS errorのcodeごとの扱い
+
+Upgrade後の`error` messageは、`code`によって**streamを閉じるか(致命)**、**閉じずに採用または破棄するか(非致命)**が決まります(#226)。機械可読な正本は[`fixtures/stream-error-handling.json`](fixtures/stream-error-handling.json)で、serverとclientの両方がこの一覧とschemaの`code`列挙の一致、各codeの扱いを試験で確認します。
+
+| `code` | 扱い | 再試行 | 意味・client動作 |
+|---|---|---|---|
+| `PROCESSING_FAILED` | 非致命 | 次のframe | 1frameの処理失敗。streamを閉じない。利用者へ固定文言で通知(同種は10秒に1回まで) |
+| `OCR_TIMEOUT` | 非致命 | 次のframe | 文字認識が時間予算を超えた。領域を狭めて選び直す案内を固定文言で表示(#223) |
+| `MODEL_NOT_READY` | 非致命 | 次のframe | 準備前・準備失敗中・停止開始後でframeを破棄した(#199)。接続・session・世代を維持し、clientは**送信を一時停止して`GET /api/v1/ready`を確認し、準備完了で自動再開**する(#202。次の「`MODEL_NOT_READY`を受けたclientの動作」) |
+| `INVALID_IMAGE` | 非致命 | 次のframe | serverのパイプライン上限(寸法・頻度・容量)に達したframeの通知。形式不正のbinaryは通知なしに1008で閉じる |
+| `AUTHENTICATION_FAILED` | 致命 | なし | 認証失効・拒否。streamを閉じて再認証(serverはcloseのreasonに使い、error messageとしては送らない) |
+| `SESSION_MISMATCH` | 致命 | なし | session所有権の不一致。streamを閉じる(同上) |
+| `PROTOCOL_VIOLATION` | 致命 | なし | 契約違反。streamを閉じる(同上) |
+| `MESSAGE_TOO_LARGE` | 致命 | なし | 上限超過。streamを閉じる(同上) |
+| 上記以外(未知) | 致命 | なし | 安全側で閉じる。新しい意味のerrorを黙って無視して、致命的な違反を見逃さないため。schemaの`code`列挙に無い値はtextの契約検査で拒否され、これも閉じる |
+
+- 再試行「次のframe」は、**同じframeを再送しない**ことを意味します。次に取得するframeが通常どおり処理され、clientが自動で送信を止めることもありません。
+- 非致命のerrorは、現在のsession・generation・dictionary_revisionに一致し、**送信済みで未採用のframe_id**に対する、取得から**5秒以内**のものだけを採用します。別session・古い世代・別revision・未送信のframe・期限切れ・同じframeの重複は、streamを閉じずに捨てます(偽のerrorで利用者へ通知を出させない)。
+- 利用者向けの通知はclientの固定の日本語文言で、serverの`message`は表示しません。同じ種類の通知は10秒に1回までに抑えます。
+- `MODEL_NOT_READY`の「次のframe」は、送信を一時停止して準備完了を待ち、**再開時に新しいframe_idで最新の1画像を送る**ことを指します(破棄されたframe_idの再送ではありません)。他の非致命codeは待たずに次のframeを通常どおり処理します。
+- 互換性: 非致命のcodeは、旧clientでは契約違反として`InvalidDataException`相当でstreamを閉じていました(`OCR_TIMEOUT`以外)。v1.0は未リリースのため、client/serverを同時更新して反映します。`code`列挙・wire形式は変えないため、server側の変更はありません。
+
+#### `MODEL_NOT_READY`を受けたclientの動作 (#202)
+
+serverは準備前・準備失敗中・停止開始後に届いたframeを処理せず破棄し、`MODEL_NOT_READY`を返して接続を維持します(#199)。破棄されたframeの結果は永久に届かず、clientの変化検出(#94)は送信済みの画素を再送しないため、何もしなければ**静止した画面は準備完了後も訳されません**。clientは次のとおり動きます。
+
+| 項目 | 規則 |
+|---|---|
+| 契機 | 現在のsession・世代・revisionの送信済みframeに対する`MODEL_NOT_READY`を採用したとき(上の採用規則)。すでに待機中なら何もしない(確認の繰り返しを増やさない)。 |
+| 送信 | 待機画像を破棄し、待機中は画像を送らない。待機中に取得した画像は符号化して**最新の1件だけ保持**する(送らない)。 |
+| 維持するもの | WSS接続・session・世代・`frame_id`の連番・辞書revision。生存通知(keepalive, #245)は止めない。世代を進めない(旧frameの結果は存在せず、混入の恐れがないため)。 |
+| 確認 | 認証付きHTTPSの`GET /api/v1/ready`(device token)。初回は2秒後、以後は倍々(2→4→8)で上限10秒。serverの準備再試行(固定5秒)より短い間隔から始め、長い準備でも問い合わせを抑える。 |
+| 再開 | 200 `{"ready": true}`だけを準備完了とする。再開時に保持した最新の1画像を**新しい`frame_id`・現在の世代・取得時刻を再開時刻に付け替えて**送る。付け替えるのは、結果の採用が取得から5秒以内だけであり、準備待ちは5秒を超え得るため。再開前に送ったframeへの遅れた`MODEL_NOT_READY`は無視し、再び待機に入らない。 |
+| 確認の失敗 | 503 `MODEL_NOT_READY`は準備中として待機を続ける。401・403・端末資格情報なし・証明書の拒否は待っても直らないため、固定文言で通知して**停止**する(利用者の再設定が必要)。到達不能・期限切れ・500系・契約に合わない200は一時的な失敗として、固定文言で知らせて待機と確認を続ける。 |
+| 交差 | 停止・切断・破棄では確認を取り消す。再選択(世代を進める)では待機を続け、旧ROIの保持画像は新しい世代へ持ち越さない。新しいsessionの開始は待機を持ち越さない。 |
+| 表示 | 固定の日本語で「サーバーが翻訳エンジンを準備中のため、画像の送信を一時停止しています」を示し、準備完了で自動的に再開の案内へ切り替える。serverの`message`は表示しない。 |
+
+互換性: wire形式(`code`列挙・メッセージ・`openapi.yaml`)は変えません。`/api/v1/ready`は既存の契約(200 `{"ready": true}`・401・503 `MODEL_NOT_READY`)をそのまま使い、server側の変更はありません。clientだけが動作を追加するため、旧client(通知のみで送信を続ける)と新serverの組み合わせも壊れません(旧clientは準備中の間、破棄されるframeを送り続けるだけ)。
+
+### クライアント→サーバーのtext（生存通知）
+
+画面が静止している間、クライアントはフレームを送りません。フレームの受信だけがsessionの生存を更新すると、製品既定の切断検知（無通信5秒）でsessionが失効するため、クライアントは接続中（session有効）の間、1秒間隔で次のtext messageを送ります（#245）。形式は[`client-message.schema.json`](schemas/client-message.schema.json)、固定例は[`fixtures/client-text.json`](fixtures/client-text.json)です。
+
+```json
+{"type": "keepalive", "session_id": "<UUID>", "generation": 1}
+```
+
+- 3項目だけで、UTF-8 JSON 256 bytes以下。未知fieldと他のtext型は契約違反です。
+- serverは受信ごとに資格情報（失効・Host・Origin）と、現在のsession・所有者・generationを照合してから`last_heartbeat`を更新します。不一致・資格情報の失効・1接続あたり1秒に10件を超える頻度は1008、形式違反は1003で閉じます。応答は返しません（server→clientの`heartbeat`は別の通知です）。
+- 通信が途絶えれば更新されず、従来どおり無通信5秒以内に検知し、検知後10秒以内に所有権を解放します。
+- 互換性: text messageの追加は、新clientと旧serverの組み合わせでは旧serverがtextを1003で閉じるため、混在させません（v1.0未リリース中のclient/server同時更新。#228・#223と同じ扱い）。旧clientは生存通知を送らないだけで新serverには接続できますが、静止画面でsessionが失効するため、新serverと新clientの組み合わせだけをサポートします。
+
+このIssueでは`stream-message`の必須fieldを追加し、`heartbeat` message型を導入します。必須fieldの追加はwire上の破壊的変更です。v1.0は未リリースのため、この変更を含むclient/serverを同時更新してからv1.0として提供します。既に公開済みのv1 client/serverを個別更新する用途には使いません。旧clientは未知の`heartbeat`型を拒否しstreamを閉じるため、新serverとの組み合わせをサポートしません。
+
+## 互換性と版管理
+
+- REST prefixとWSS subprotocolの`v1` / `screen-translation.v1`はこの契約majorを示します。binary magic `STF1`の末尾`1`とmetadataの`contract_version: 1`も同じmajorです。
+- v1内の任意field追加は`additionalProperties: false`により互換ではありません。新しい必須field、型/意味変更、上限緩和でなく変更、message layout変更、error code/status変更は破壊的変更です。v1.0未リリース中はclient/serverを同時更新する前提で反映できます。#223の`OCR_TIMEOUT`追加はこの例で、旧clientは未知のcodeでstreamを閉じるため新serverと混在させず、majorは1のままです。リリース後の破壊的変更は`/api/v2`、新subprotocol・magicへ切り替え、両端の対応版を確認します。
+- minor/patch番号を独立したruntime negotiationに使いません。両端がmajor 1を実装することを接続要件とし、未知version/magicは拒否します。
+- #63は座標/世代/session状態と意味検証の正本、#62はHTTP/WSS API形状・メタデータschema・サイズ/文字上限・共通エラーの正本、#64は両言語fixture/互換検証の正本です。#63の成果物はコピーせず相対リンクで参照します。
+
+## Fixtureと両言語の互換性検証
+
+[`fixtures/compatibility.json`](fixtures/compatibility.json)は全schemaの正常/異常入力と期待結論の共有一覧です。拒否理由は`schema`（JSON Schema違反）または`semantic`（画像内の半開矩形・空結果と領域の不一致）に分類します。Pythonは固定版`jsonschema`のDraft 2020-12 validatorとUUID形式checkerでschema正本を検証し、C#は`System.Text.Json`で同じケースを厳密に検査します。C#に追加のschema packageは導入していません。
+
+追加fixtureはbinary messageのmagic/metadata/payload長・総byte境界、画像座標/DPI/ROI、許可・拒否するsession遷移を含みます。既存のcontrol、frame、translation、settings、HTTP/WSS error fixtureもPython側でschema検証します。座標とsession状態の詳細値はそれぞれ[`coordinates.md`](coordinates.md)と[`session-state.md`](session-state.md)を正本とし、fixtureから仕様を二重定義しません。
+
+対応する要件はREQ-F-002（座標/表示領域）、REQ-F-003（単一session）、REQ-F-006（処理結果）、REQ-F-008（設定・辞書revision）、REQ-F-010（frame送信と間引き）、REQ-NF-001（応答/期限）、REQ-NF-004（世代・sessionをまたぐ結果の拒否）です。fixture検証は実機の性能・TLS・画像decoderの安全性を証明しません。
+
+リポジトリrootから次を実行します。通常の`app:ci`は`contracts/`を含めないため、既存`src/tests`をマウントなしで実行した場合に契約schemaテストは明示skipします。server/clientの専用compose testは契約をread-only mountして検証します。
+
+```bash
+docker compose -f server/compose.test.yml run --build --rm test
+docker compose -f client/compose.test.yml run --build --rm test
+```
+
+Pythonの独立Draft 2020-12検証とC#の期待結果が同じ`compatibility.json`を読み、各caseの受理/拒否を照合します。契約schemaやfixtureを変更した場合は両compose testを実行し、OpenAPI変更時は上記の固定版Redocly CLI lintも実行します。
+
+## 検証コマンド
+
+Python 3.14標準ライブラリでJSON Schema文書とfixturesを検証し、Redocly CLIの固定版でOpenAPIをlintします。作業ツリーをマウントしたコンテナで実行してください。
+
+```bash
+docker run --rm --cpus=2 --memory=512m -v "$PWD:/workspace:ro" -w /workspace python:3.14-slim python -B -m unittest src.tests.test_api_contract_schemas -v
+docker run --rm --cpus=2 --memory=512m -v "$PWD:/workspace:ro" -w /workspace node:24.11.1-alpine npx --yes @redocly/cli@1.34.5 lint contracts/openapi.yaml
+```
+
+このPythonテストは通常の`app:ci`イメージが契約文書をコピーしないことを前提に、`contracts/README.md`が無ければ明示skipします。マウント付き文書テストを別途実行して検証を維持します。

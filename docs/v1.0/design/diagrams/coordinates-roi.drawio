@@ -1,0 +1,24 @@
+<mxfile host="app.diagrams.net" modified="2026-10-30T00:00:00.000Z" agent="Codex" version="31.4.2" type="device">
+  <diagram id="coordinates-roi" name="Coordinates">
+    <mxGraphModel dx="1200" dy="820" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="820" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="title" value="画像座標・DPI context・ROI境界" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="40" y="24" width="720" height="42" as="geometry"/></mxCell>
+        <mxCell id="monitor100" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;" vertex="1" parent="1"><mxGeometry x="70" y="135" width="440" height="225" as="geometry"/></mxCell>
+        <mxCell id="label100" value="モニター A ・ 100% / 96 DPI&#xa;物理原点 (-1920, 0)" style="text;html=1;align=center;verticalAlign=middle;fontSize=15;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="95" y="145" width="390" height="54" as="geometry"/></mxCell>
+        <mxCell id="roi100" value="許可ROI（半開区間）&#xa;[-1800, 100, -1200, 500)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;" vertex="1" parent="1"><mxGeometry x="155" y="230" width="250" height="85" as="geometry"/></mxCell>
+        <mxCell id="monitor150" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=2;" vertex="1" parent="1"><mxGeometry x="540" y="135" width="440" height="225" as="geometry"/></mxCell>
+        <mxCell id="label150" value="モニター B ・ 150% / 144 DPI&#xa;物理原点 (0, 0)" style="text;html=1;align=center;verticalAlign=middle;fontSize=15;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="565" y="145" width="390" height="54" as="geometry"/></mxCell>
+        <mxCell id="roi150" value="許可ROI&#xa;モニターBの座標contextで変換" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;" vertex="1" parent="1"><mxGeometry x="635" y="230" width="250" height="85" as="geometry"/></mxCell>
+        <mxCell id="crossTitle" value="跨モニターROIは開始前に拒否" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="70" y="400" width="440" height="30" as="geometry"/></mxCell>
+        <mxCell id="smallA" value="A" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=15;" vertex="1" parent="1"><mxGeometry x="100" y="455" width="280" height="100" as="geometry"/></mxCell>
+        <mxCell id="smallB" value="B" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=15;" vertex="1" parent="1"><mxGeometry x="380" y="455" width="280" height="100" as="geometry"/></mxCell>
+        <mxCell id="boundary" value="モニター境界" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;" vertex="1" parent="1"><mxGeometry x="320" y="425" width="120" height="24" as="geometry"/></mxCell>
+        <mxCell id="crossRoi" value="拒否: 境界を跨ぐROI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;dashed=1;fontSize=14;" vertex="1" parent="1"><mxGeometry x="315" y="485" width="210" height="45" as="geometry"/></mxCell>
+        <mxCell id="rule" value="許可条件: 1モニターに完全包含。右端/下端がモニター端と等しいROIは許可。隙間・画面外・空矩形・境界跨ぎは拒否し、切り詰めや分割をしない。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;spacingLeft=12;fontSize=13;" vertex="1" parent="1"><mxGeometry x="700" y="420" width="400" height="135" as="geometry"/></mxCell>
+        <mxCell id="formula" value="モニター相対論理座標: (physical - monitor_origin) × 96 / dpi&#xa;仮想デスクトップへ戻す: monitor_origin + logical × dpi / 96&#xa;最近傍整数、ちょうど半分は0から遠ざかる。負座標を保持。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=12;fontSize=13;" vertex="1" parent="1"><mxGeometry x="70" y="615" width="600" height="110" as="geometry"/></mxCell>
+        <mxCell id="image" value="ROI物理原点 + 画像座標 = 仮想デスクトップ物理座標&#xa;画像はROIと同じ幅/高さ。画像座標にDPI倍率を再適用しない。&#xa;100/150/200%: 96/144/192 DPI。実機誤差 ≤ 2 px は #136 で測定。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=12;fontSize=13;" vertex="1" parent="1"><mxGeometry x="700" y="615" width="500" height="110" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

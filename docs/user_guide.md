@@ -199,3 +199,11 @@ PYTHONPATH=src python -m app.main --install-argos-en-ja
 - Web 画面の状態欄に表示されたエラーを確認します。
 - Tesseract と Argos Translate モデルが導入済みか確認します。
 - LLM OCR を選んだ場合は、設定したモデルを提供するローカル OpenAI 互換 API が既定の `http://127.0.0.1:8000/v1` で動作していることを確認します。
+
+## 次版の受入について
+
+次版の[要件書](../requirements/version_1/requirements.md)と[ユーザー受入計画](v1.0/acceptance.md)は2026-10-29にOwner承認済みです。実機評価・本人受入は未実施です。本人による表示の見た目・操作感と追加シナリオの確認を計画しています。現在利用できるWeb版の操作は本文を参照してください。
+
+## v1.0 の方式候補と脅威モデル
+
+次版の[基本・詳細設計](v1.0/design/architecture.md)、[技術選定ADR](v1.0/design/adr/README.md)、[脅威モデル](v1.0/design/security.md)は#57で設計採用済みです。実装・Windows実機検証・性能/品質合格は未実施です。WGC/キャプチャ除外は#135相当、混在DPI/負座標/重畳は#136相当のWindows実機Taskで確認します。現行Web版の操作と起動は本書の現行手順を参照してください。新版を導入済みとは扱いません。

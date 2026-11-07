@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screen-translation.invalid/contracts/v1/error.schema.json",
+  "title": "共通APIエラー",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code", "message", "correlation_id", "retryable"],
+  "properties": {
+    "code": {"type": "string", "enum": ["INVALID_REQUEST", "UNAUTHENTICATED", "FORBIDDEN", "NOT_FOUND", "SESSION_IN_USE", "REVISION_CONFLICT", "PAYLOAD_TOO_LARGE", "MODEL_NOT_READY", "INTERNAL_ERROR"]},
+    "message": {"type": "string", "minLength": 1, "maxLength": 256},
+    "correlation_id": {"type": "string", "format": "uuid", "maxLength": 36},
+    "retryable": {"type": "boolean"}
+  }
+}

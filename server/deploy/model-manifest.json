@@ -1,0 +1,9 @@
+{
+ "version": "1.1",
+ "source_url": "https://argos-net.com/v1/translate-en_ja-1_1.argosmodel",
+ "size_bytes": 120470284,
+ "sha256": "16300cc4eaa85320520cabcf433b63d01be40ef6966251de72043a083408f716",
+ "license_name": "Argos Translate公式パッケージ(英日)。利用・再配布条件は導入前に運用者が確認する。イメージへ同梱せず、モデル導入手順で取得・検証のみ行う",
+ "license_url": "https://github.com/argosopentech/argos-translate",
+ "license_accepted": true
+}

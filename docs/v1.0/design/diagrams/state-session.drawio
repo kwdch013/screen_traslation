@@ -1,0 +1,29 @@
+<mxfile host="app.diagrams.net" modified="2026-10-30T00:00:00.000Z" agent="Codex" version="31.4.2" type="device">
+  <diagram id="state-session" name="Session">
+    <mxGraphModel dx="1400" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="760" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="title" value="セッション状態と結果採用" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="40" y="24" width="620" height="42" as="geometry"/></mxCell>
+        <mxCell id="d" value="切断&#xa;Disconnected" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=15;" vertex="1" parent="1"><mxGeometry x="45" y="130" width="190" height="76" as="geometry"/></mxCell>
+        <mxCell id="c" value="接続・停止中&#xa;ConnectedStopped" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=15;" vertex="1" parent="1"><mxGeometry x="300" y="130" width="210" height="76" as="geometry"/></mxCell>
+        <mxCell id="a" value="開始要求中&#xa;Starting" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=15;" vertex="1" parent="1"><mxGeometry x="575" y="130" width="190" height="76" as="geometry"/></mxCell>
+        <mxCell id="s" value="実行中&#xa;Streaming" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=15;" vertex="1" parent="1"><mxGeometry x="830" y="130" width="190" height="76" as="geometry"/></mxCell>
+        <mxCell id="x" value="停止処理&#xa;Stopping" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=15;" vertex="1" parent="1"><mxGeometry x="1085" y="130" width="190" height="76" as="geometry"/></mxCell>
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="d" target="c"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="l1" value="認証・ready" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;" vertex="1" parent="1"><mxGeometry x="225" y="94" width="95" height="24" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="c" target="a"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="l2" value="利用者が開始" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;" vertex="1" parent="1"><mxGeometry x="493" y="94" width="105" height="24" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="a" target="s"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="l3" value="session取得成功" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;" vertex="1" parent="1"><mxGeometry x="746" y="94" width="122" height="24" as="geometry"/></mxCell>
+        <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="s" target="x"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="l4" value="停止・再選択・対象消失" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;" vertex="1" parent="1"><mxGeometry x="998" y="82" width="180" height="36" as="geometry"/></mxCell>
+        <mxCell id="e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="x" target="c"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1180" y="265"/><mxPoint x="405" y="265"/></Array></mxGeometry></mxCell>
+        <mxCell id="l5" value="旧世代を無効化・表示消去 → release完了" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;" vertex="1" parent="1"><mxGeometry x="530" y="270" width="520" height="26" as="geometry"/></mxCell>
+        <mxCell id="e6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="x" target="d"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1180" y="320"/><mxPoint x="140" y="320"/></Array></mxGeometry></mxCell>
+        <mxCell id="l6" value="切断 / 認証失効" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;" vertex="1" parent="1"><mxGeometry x="145" y="322" width="140" height="24" as="geometry"/></mxCell>
+        <mxCell id="guard" value="結果を採用する条件（全て一致）&#xa;Streaming ・ session_id ・ generation ・ frame_idが前回より大きい ・ dictionary_revision ・ 取得から0〜5秒&#xa;不一致 / 逆順 / 期限切れは破棄。停止・再選択・切断時はネットワーク応答を待たず表示を消す。&#xa;有効な最新frameの「文字なし」は空結果で表示を消去。heartbeatや欠落messageは空結果ではない。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;spacingLeft=14;fontSize=14;" vertex="1" parent="1"><mxGeometry x="150" y="405" width="1090" height="160" as="geometry"/></mxCell>
+        <mxCell id="revision" value="辞書更新はrevisionを増加。旧revision結果を拒否し、次の新frameから新revisionを使用する。generationとframe連番は維持。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;" vertex="1" parent="1"><mxGeometry x="245" y="615" width="900" height="68" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

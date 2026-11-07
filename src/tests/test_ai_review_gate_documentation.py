@@ -9,7 +9,7 @@ class AiReviewGateDocumentationTest(unittest.TestCase):
 			"2026-11-07 現在の実設定",
 			"`protect-develop` (`19132355`)",
 			"`protect-main` (`26752581`)",
-			"`test` と `AI Review Gate`",
+			"`test`、`AI Review Gate`",
 			"mainのAI Review Gateはrequiredにしません",
 			"PR #269",
 			"@dependabot rebase",
@@ -19,10 +19,10 @@ class AiReviewGateDocumentationTest(unittest.TestCase):
 
 	def test_documents_only_observed_acceptance_evidence_as_complete(self) -> None:
 		document = self._read_development_guide()
-		self.assertIn("## 受入条件に対するGitHub実証状況", document)
+		self.assertIn("#### #118受入状況", document)
 		self.assertIn("#269", document)
 		self.assertIn("BLOCKED", document)
-		self.assertIn("未実証", document)
+		self.assertIn("未完了", document)
 
 	def _read_development_guide(self) -> str:
 		root = Path(__file__).resolve().parents[2]

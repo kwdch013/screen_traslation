@@ -68,6 +68,7 @@ class WebDocumentationTest(unittest.TestCase):
 
 		for expected in (
 			"Python 3.14",
+			".NET 10",
 			".venv",
 			"Docker",
 			"Node.js",
@@ -152,6 +153,19 @@ class WebDocumentationTest(unittest.TestCase):
 			):
 				with self.subTest(path=relative_path, forbidden=forbidden):
 					self.assertNotIn(forbidden, document)
+
+	def test_legacy_web_entrypoints_remain_documented_alongside_v1_layout(self) -> None:
+		readme = self._read("README.md")
+		guide = self._read("docs/developer_guide.md")
+
+		for expected in ("frontend/", "docs/user_guide.md"):
+			with self.subTest(document="README.md", expected=expected):
+				self.assertIn(expected, readme)
+		self.assertIn("client/", guide)
+		self.assertIn("server/", guide)
+		self.assertIn("contracts/", guide)
+		self.assertIn("frontend/", guide)
+		self.assertIn("PYTHONPATH=src python -m app.main --no-browser", guide)
 
 	def test_planning_documents_are_marked_as_historical(self) -> None:
 		for relative_path in ("docs/requirements.md", "docs/feasibility.md"):

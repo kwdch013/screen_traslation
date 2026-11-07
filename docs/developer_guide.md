@@ -5,11 +5,15 @@
 - バックエンド: Python 3.14、FastAPI、uvicorn
 - OCR・翻訳: Tesseract、任意のローカル OpenAI 互換 API、Argos Translate
 - フロントエンド: Node.js 24、React、TypeScript、Vite
+- v1.0 Windowsクライアント: C#、.NET 10 SDK 10.0.402、WPF
+- v1.0 Linuxサーバー: Python 3.14
 - Python テスト: `unittest`
 - フロントエンドテスト: Vitest、Testing Library
 - lint: ruff、oxlint
 - 型チェック: mypy
 - コンテナ: Docker のマルチステージビルド、Docker Compose
+
+v1.0の `client/`・`server/`・`contracts/` は既存Web版と同じリポジトリにあります。`src/` と `frontend/` のWeb版の起動・検証手順は引き続き使用できます。責務とコマンドは [v1.0開発手順](v1.0/development.md) を参照してください。
 
 `src/app/contracts.py` の `CaptureSource`、`OcrEngine`、`Translator`、`OverlayRenderer`、`ResultPublisher` を主な境界とし、`WebAppService` が Web セッションとパイプラインのライフサイクルを管理します。
 
@@ -193,7 +197,7 @@ docker compose run --rm app
 
 ## ブランチと統合先
 
-開発統合先は `develop`、リリース先と既定ブランチは `main` です。Owner承認によりリモートの旧 `dev` は `develop` へrename済みです。通常のTaskは `origin/develop`（Phase branchを使う場合はその最新状態）から `task/<Issue番号>-<slug>` または `fix/<Issue番号>-<slug>` を作り、同じ統合先へPRを出します。
+既定ブランチと開発統合先は `develop` です。`main` はリリース先として保ちます。通常のTaskは `origin/develop`（Phase branchを使う場合はその最新状態）から `task/<Issue番号>-<slug>` または `fix/<Issue番号>-<slug>` を作り、同じ統合先へPRを出します。
 
 | PR | 統合方式 |
 | --- | --- |
@@ -201,24 +205,25 @@ docker compose run --rm app
 | Phase → develop | squash |
 | develop → main のリリース | merge commit |
 
-リポジトリ設定は squash と merge commit を有効、rebase merge とマージ後のブランチ自動削除を無効にする方針です。Rulesetはdevelop・Phaseをsquash限定、mainをmerge commit限定に分けます。共有ブランチへの直接push・force pushは行いません。
+リポジトリ設定は squash と merge commit を有効、rebase merge とマージ後のブランチ自動削除を無効にする方針です。Rulesetはdevelop・Phaseをsquash限定、mainをmerge commit限定に分けます。共有ブランチへの直接push・force pushは行いません。Task / Phase PRの本文には `Closes #<Issue番号>` を含め、既定ブランチdevelopへのmerge時にIssueを自動closeします。
 
-[旧参照の移行・復旧とRulesetの段階導入](v1.0/development.md)に、現状と切替の実施条件を記録しています。#67でゲートのscripts・hooks・workflowを導入します。今回もPR作成までで、リポジトリ設定やRuleset自体は変更せず、main反映と稼働確認後にrequired checkを追加します。
+[旧参照の移行・復旧とRulesetの段階導入](v1.0/development.md)に、現状と切替の実施条件を記録しています。AI Review Gateは既定ブランチdevelop上の信頼済みscriptを使います。ゲート有効化・Ruleset整理・required check設定はdevelop上で段階的に行い、mainへの先行リリースを必要としません。
 
 ## リリース (develop → main)
 
-`main` はリリース済みの内容を反映する既定ブランチです。Dependabotの設定とCodeQLの週次スケジュールはmainへの反映が必要です。AI Review Gateも既定ブランチ側の信頼済みworkflowとscriptを使うため、developだけへの導入では有効化が完了しません。
+`develop` が既定ブランチで、開発・Task/Phase統合・AI Review Gateの信頼済みscript実行先です。`main` は版ごとのリリースを反映します。mainへの途中リリースは行いません。
 
-1. リリース対象のTaskとPhaseの統合、結合試験、シナリオ試験、ユーザー受入を確認する。
-2. main向けRulesetの許可方式が `merge`、リポジトリ設定がsquash・merge commit有効であることを読み戻す。
-3. headをdevelop、baseをmainとするリリースPRを作成する。
+1. 対象Milestone内の全Issueが完了し、全Task/Phaseがdevelopへ統合されていることを確認する。
+2. develop上でエージェントのシナリオ試験とユーザー受入を完了し、結果を記録する。
+3. main向けRulesetの許可方式が `merge`、リポジトリ設定がsquash・merge commit有効であることを読み戻す。
+4. headをdevelop、baseをmainとするリリースPRを作成する。
 
    ```bash
    gh pr create --base main --head develop --title "release: <バージョン>" --body-file <リリース本文ファイル>
    ```
 
-4. IssueとPRをセットにした別エージェント・別worktreeの最新HEAD承認、CI `test`、AI Review Gateの通過を確認する。ゲート初回導入時の例外は[段階導入手順](v1.0/development.md#rulesetとrequired-checkの導入順)に従う。
-5. merge commitで統合する。developを保持するため `--delete-branch` を付けない。
+5. IssueとPRをセットにした別エージェント・別worktreeの最新HEAD承認、CI `test`、AI Review Gateの通過を確認する。
+6. merge commitで統合する。developを保持するため `--delete-branch` を付けない。
 
    ```bash
    gh pr merge <PR番号> --merge
@@ -226,7 +231,7 @@ docker compose run --rm app
 
 6. 共通祖先・差分と、Dependabot・CodeQL・AI Review Gateの実行を読み戻す。
 
-merge commitを継続して使い、developのコミットをmainの祖先に保ちます。リリースのたびにmerge commit許可をオン・オフする運用には戻しません。
+版の完了条件を満たすまでリリースPRを作らず、完了後にmerge commitでdevelopの履歴をmainへ反映します。
 
 ## Issue / PR 運用
 
@@ -236,7 +241,7 @@ merge commitを継続して使い、developのコミットをmainの祖先に保
 4. 作業を `tasks/` の日本語Markdownへ記録し、関連文書も更新する。
 5. prefixと日本語のメッセージでコミットし、develop（またはPhase）宛ての詳細なPRを作る。コミットには `AI-Work-Unit:`、PR本文の先頭には `<!-- ai-pr-work-unit: <UUID> -->`、本文には `Closes #<Issue番号>` を含める。
 6. 実装と別のエージェント・別worktreeへIssueとPRをセットで渡し、最新HEADの独立レビューを受ける。
-7. 承認CommentとAI Review Gateの通過後、Task / Phaseはsquash mergeする。squash本文にContributor全員の `AI-Work-Unit:` を残す。develop宛てではIssueの自動Closeに依存せず、merge確認後に閉じる。
+7. 承認CommentとAI Review Gateの通過後、Task / Phaseはsquash mergeする。squash本文にContributor全員の `AI-Work-Unit:` を残す。本文の `Closes #<Issue番号>` によってdevelopへのmerge時にIssueが自動closeされることを確認する。
 
 1 Task = 1 Issue = 1 branch = 1 PRとし、別要件を同じPRへ混ぜません。Work Unit / Claim / hooks / AI Review Gateは #67 の基盤です。[操作・検証コマンド](v1.0/development.md#work-unitclaim独立レビューの操作)を参照してください。
 
@@ -249,3 +254,11 @@ merge commitを継続して使い、developのコミットをmainの祖先に保
 - `docs/user_guide.md`: 実際のボタン名と操作順
 - `docs/developer_guide.md`: 開発コマンド、CI、運用
 - `src/tests/test_web_documentation.py`: 実装と文書の機械的な整合観点
+
+## v1.0 の要件・検証への入口
+
+次版は[要件書](../requirements/version_1/requirements.md)、[受入計画](v1.0/acceptance.md)、[要件ID→Phase/Task対応表](../plan/version_1/roadmap.md)、[開発運用](v1.0/development.md)を参照してください。要求と受入計画は2026-10-29にOwner承認済みです。数値への合意と後続Taskでの実装・実測・本人受入を区別し、現在のWeb版の検証を維持します。
+
+## v1.0 の方式候補と脅威モデル
+
+次版の[基本・詳細設計](v1.0/design/architecture.md)、[技術選定ADR](v1.0/design/adr/README.md)、[脅威モデル](v1.0/design/security.md)は#57で設計採用済みです。実装・Windows実機検証・性能/品質合格は未実施です。WGC/キャプチャ除外は#135相当、混在DPI/負座標/重畳は#136相当のWindows実機Taskで確認します。現行Web版の起動/利用契約は維持し、新版を導入済みとは扱いません。

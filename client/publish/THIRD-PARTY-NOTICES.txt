@@ -1,0 +1,24 @@
+Screen Translation クライアント 依存ライセンス一覧
+
+本製品自体のライセンスは未決定です (Owner判断待ち。リポジトリにも未設定)。
+この一覧は配布物へ同梱する第三者コンポーネントのライセンスを示します。
+依存を追加・更新したときは、この一覧も更新してください
+(試験が csproj の PackageReference との差を検出します)。
+
+1. .NET ランタイム (自己完結配布のため同梱)
+   提供元: Microsoft / .NET Foundation
+   ライセンス: MIT License
+   参照: https://github.com/dotnet/runtime/blob/main/LICENSE.TXT
+   同梱ライブラリが含む第三者の表示: https://github.com/dotnet/runtime/blob/main/THIRD-PARTY-NOTICES.TXT
+
+2. WPF (Windows Presentation Foundation) (自己完結配布のため同梱)
+   提供元: Microsoft / .NET Foundation
+   ライセンス: MIT License
+   参照: https://github.com/dotnet/wpf/blob/main/LICENSE.TXT
+
+3. System.Security.Cryptography.ProtectedData 10.0.0 (資格情報のDPAPI保護)
+   提供元: Microsoft / .NET Foundation
+   ライセンス: MIT License
+   参照: https://www.nuget.org/packages/System.Security.Cryptography.ProtectedData/10.0.0
+
+MIT License の全文: https://opensource.org/license/mit
