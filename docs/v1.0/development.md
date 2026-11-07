@@ -34,7 +34,7 @@ installerは同期処理で、実行中の強制中断やArgos側の部分導入
 
 アプリケーションの上限は2 CPU / 4 GiB、同時処理1件、待機画像は最新1件です（REQ-NF-005）。サーバーの実行コンテナにも同じCPU/メモリ制限を設定し、Composeテストサービスはその上限を使用します。導入済みモデルの検証・ロード・warmupが120秒を超える場合もreadyにはなりません。
 
-`.NET SDK 10.0.402` とRuntime 10.0.14は設計基準のstable版です。`client/global.json` がSDKを固定し、テストイメージは同SDKタグにRuntime 10.0.14を加えます。通常設定はユーザーのLocal Application Data配下のJSONに保存し、端末tokenは別ファイルへ分離してWindows DPAPI CurrentUserで保護します。Linux clientコンテナでは設定モデル・入力検証・保存境界を試験し、DPAPI試験はWindows runnerのみで実行します。LinuxではWindows実機が必要なDPAPI試験を未実施とし、合格へ数えません。Windows専用UI/APIの実機試験もLinux Core/Clientテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。
+`.NET SDK 10.0.402` とRuntime 10.0.14は設計基準のstable版です。`client/global.json` がSDKを固定し、テストイメージは同SDKタグにRuntime 10.0.14を加えます。通常設定はユーザーのLocal Application Data配下のJSONに保存し、端末tokenは別ファイルへ分離してWindows DPAPI CurrentUserで保護します。Linux clientコンテナでは設定モデル・入力検証・保存境界を試験し、DPAPI試験はWindows runnerのみで実行します。LinuxではWindows実機が必要なDPAPI試験を未実施とし、合格へ数えません。Windows専用UI/APIの実機試験もLinux Core/Clientテストの合格で代替しません。`.github/workflows/ci.yml` のWindows runnerでSolution全体をビルド・テストし、Linux client/serverの専用コンテナでは共通契約fixtureを検証します。
 
 Windows固有の資格情報保護テストはWindows runnerまたは対応Windows実機で実行します。
 通信のTLS証明書拒否・実サーバー切断後の表示消去と再開始はWindows実機での結合確認が必要です。skip表示は未実施として扱い、合格に数えません（通信層の試験用doubleによるLinux確認はこの結合確認を代替しません）。
@@ -154,7 +154,7 @@ required contextは[GitHub公式のrequired status check条件](https://docs.git
 | #173 結果配信の診断ログ相関IDと購読解除・停止時の待機frame | `server/src/screen_translation_server/events/`・`result_delivery.py`・`pipeline/`・`server/tests/test_delivery_diagnostics.py`・`test_result_delivery.py` | REQ-NF-004 / 007。破棄・送信timeoutの相関ID復元、errorの世代再照合、購読解除の同期待ち、停止(DELETE)後に待機frameへOCRを走らせない配線 |
 | #186 DependabotのPRをAI Review Gateの規則違反扱いにしない | `scripts/ai_review_gate_dependabot.py`・`scripts/ai-review-gate.py`・`tests/ai_gate/test_dependabot_exemption.py` | REQ-NF-010。bot単独のみ免除、bot+人手commit・本文の自称・同名ユーザーは従来規則。免除条件の緩和mutationでテストが落ちることを確認 |
 | #79 翻訳結果・状態イベント配信 | `server/src/screen_translation_server/events/`・`observability.py`・`server/tests/test_result_delivery.py`・WSS契約 | REQ-F-003 / 004 / 006 / 009 / 010、REQ-NF-001 / 004 / 007。実エンジンの遅延/品質測定は #80 / #109、Windows/Linux実機E2Eは #108 で実施 |
-| #68 client/server/contractsの雛形 | `client/ScreenTranslation.sln`・`client/global.json`・Linux Core試験、`server/`のPython 3.14コンテナ、`contracts/README.md`、旧Web文書・共存テスト | .NET SDK 10.0.402 / Runtime 10.0.14とディレクトリ境界を固定。Windowsキャプチャのsession基盤・対象状態監視は#92、実画面取得・自己キャプチャ除外/WDA・混在DPIの実機確認は#135/#136/#148系で行う |
+| #68 client/server/contractsの雛形 | `client/ScreenTranslation.sln`・`client/global.json`・Linux Core試験、`server/`のPython 3.14コンテナ、`contracts/README.md`、旧Web文書・共存テスト | .NET SDK 10.0.402 / Runtime 10.0.14とディレクトリ境界を固定。Windowsキャプチャのsession基盤・対象状態監視は#92、実画面取得・自己キャプチャ除外/WDA・混在DPIの実機確認は#135/#136/#148系で行う |
 | #69 Linuxコンテナ・WindowsクライアントCI | `.github/workflows/ci.yml`・`codeql.yml`・`dependabot.yml`・`src/tests/test_ci_workflow_structure.py` | REQ-NF-008/009/010。Python/C#契約fixtureを別jobで検査し、required `test` を常時集約 |
 | #73 セッション開始・停止・再選択・切断解放 | `server/src/screen_translation_server/sessions/`・`server/tests/test_session_lifecycle.py`・`contracts/session-state.md` | REQ-F-006 / REQ-F-010 / REQ-NF-004。単一所有、generation無効化、切断watchdog、処理taskのcancel/drainを単体・routeテストで確認。サーバーコンテナ結合は #74、Windows/Linux実機E2Eは #108 |
 | #74 接続境界とセッションのコンテナ結合 | [`server/tests/integration/test_sessions.py`](../../server/tests/integration/test_sessions.py)・[`server/compose.test.yml`](../../server/compose.test.yml)・[`docs/v1.0/testing.md`](testing.md) | REQ-F-006 / REQ-F-010 / REQ-NF-001 / REQ-NF-004 / REQ-NF-006。実TLS・HTTP/WSS接続、資格情報/証明書境界、競合・停止・再開始・切断解放・上限を契約fixtureと検証。Windows実機/Windows-Linux間E2E、画像結果の実処理は #108 等で実施 |
@@ -309,7 +309,7 @@ Dependabot-onlyの判定条件はPR authorがGitHub API上の`dependabot[bot]`�
 - [ ] 未承認通常PR、Contributor本人承認、古いHEAD、Gate success + CI failure、独立承認+CI successの5ケースをrequired化前後で全て実証する。現時点で一式未完了。
 - [ ] 実証URL・SHA・run・Ruleset・統合状態を全ケース分記録し、Issue #118の残る受入条件を完了する。
 
-残る10ケースの検証はTask #999で行います。PR #119は `Refs #118` とし、#118は実証完了までOpenのまま維持します。
+残る10ケースの検証はTask #276で行います。PR #119は `Refs #118` とし、#118は実証完了までOpenのまま維持します。
 
 PR #119の読み戻しでは、Rulesetのbase SHAと一致する`develop`に対して、PRがDraftでなく、`mergeable=MERGEABLE`、レビュー未承認、CI run 42385662121の全jobがsuccess、required status `AI Review Gate=pending`（説明「独立レビュー待ち」）、`mergeStateStatus=BLOCKED`だった。同一HEADのCIが成功し、BEHINDやDraftではない状態でGateの未承認待ちが統合を止めることを確認した。残る検証はContributor本人承認、古いHEAD、Gate success + CI failureと独立承認+CI success、およびrequired化前後の全5ケース一式である。Dependabotの受理経路は通常PRの独立承認受理とは別ケースである。
 
