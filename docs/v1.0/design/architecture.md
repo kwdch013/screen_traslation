@@ -94,7 +94,7 @@ SDKパッチは現在の公式配布情報を作成日に確認した値であ�
 1. WGC取得ごとに対象handle、ROI、モニターID/DPI context、session/generationを照合する。対象/DPI/位置/サイズ変化は旧generationを無効にする。
 2. 同一画素の画像を再送せず、既定2 fps・設定1～5 fps・最大5 fpsで変化フレームのみ送る。連続10秒の取得回数は設定値×10以下、無変化10秒は画像送信0件。
 3. WSS binary messageでUTF-8 JSONメタデータとPNG/JPEG bytesを1メッセージに含める。メタデータは契約version、session_id、generation、frame_id、dictionary_revision、幅/高さ、content_typeを持つ。コード化/順序の正本は`contracts/`と#62/#63。
-4. サーバーは認証/権限、実受信サイズ4 MiB、形式、幅64～1920/高さ32～1080/総画素数2,073,600以下、展開後サイズの順に検証する。境界超過/偽装/破損/古いrevisionは拒否し、画像を切り詰めたり無断縮小したりしない。
+4. サーバーは認証/権限、実受信サイズ4 MiB、形式、ROI幅64～1280/高さ32～300/総画素数384,000以下、展開後サイズの順に検証する。境界超過/偽装/破損/古いrevisionは拒否し、画像を切り詰めたり無断縮小したりしない。
 5. session単位で処理中1件、待機最新1件とし、新着時は古い待機画像を破棄する。Tesseract OCR→英日辞書適用/Argos翻訳→領域結果を行い、時間超過/キャンセル/エンジン失敗は有界なエラー状態で返す。
 6. WSS text resultは同じsession/generation/frame/revisionと、領域別のsource/translation/画像座標、状態、server_processing_msを持つ。サーバー時計とWindows単調時計を差し引かない。
 7. Windowsは取得時刻を単調時計で記録し、現在のsession/generation/revisionと一致し、取得から5秒以内の結果だけ描画する。停止/切断/再選択/対象消失時は1秒以内に現在表示を消し、遅延応答で復活させない。
@@ -174,7 +174,7 @@ healthとreadyを分離する。healthはprocess liveness、readyはTesseract/Ar
 | TST-001 | TLS valid / expired / SAN mismatch / unknown CA | validのみ認証へ進み、失敗はsecret/画像送信なし | ACC-05 |
 | TST-002 | 不正/失効token、管理APIを端末roleで実行 | 401/403、既存WSSも1秒以内に操作/結果拒否 | ACC-05/12 |
 | TST-003 | 同時に2台がsession start | 1台のみ201、他方は409。暗黙奪取なし | ACC-08 |
-| TST-004 | 64×32、1920×1080、4 MiBと各+1、偽装/破損画像 | 境界は処理、+1/偽装は展開/OCR前に拒否 | ACC-11 |
+| TST-004 | 64×32、1280×300（384,000画素）、4 MiBと幅/高さ/面積各+1、偽装/破損画像 | 境界は処理、+1/偽装は展開/OCR前に拒否 | ACC-11 |
 | TST-005 | 処理中1、待機最新1に連続画像 | 古い待機を破棄し、最新結果だけ有効 | ACC-11/13 |
 | TST-006 | stop/reselect/reconnect/dictionary update後に遅延/逆順応答 | 旧session/generation/frame/revisionを破棄し、表示1秒以内消去/5秒expire | ACC-02/04/09 |
 | TST-007 | 100%/150%/200%、負座標、DPI境界移動、サイズ変更 | 対象と取得/表示各四隅誤差2 physical px以下。#136 Windows実機で測定 | ACC-06/07 |
@@ -199,7 +199,7 @@ draw.io CLIでXMLを開き、同じ原本からSVGを出力した。出力SVGを
 | Issue | 設計反映内容 |
 | --- | --- |
 | #61 | 全22要件IDを下記対応表に結び、`contracts/`のfixture・互換性を#62～#64で扱う。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
-| #62 | HTTPS制御/設定 + 1本のWSS。binaryフレームにsession/generation/frame/revision、幅/高さ/content_typeを含め、同一メッセージ内にPNG/JPEG bytes。HTTPは4 MiB画像境界、ROI64×32～1920×1080・2,073,600画素、+1/偽装拒否。詳細schema/field長/error fixtureを契約正本にする。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #62 | HTTPS制御/設定 + 1本のWSS。binaryフレームにsession/generation/frame/revision、幅/高さ/content_typeを含め、同一メッセージ内にPNG/JPEG bytes。HTTPは4 MiB画像境界、ROI64×32～1280×300・384,000画素、+1/偽装拒否。詳細schema/field長/error fixtureを契約正本にする。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #63 | 画像座標は物理ROI左上原点・半開区間。モニター別DPI contextで変換し負座標を保持。ROIは一つのモニターへ完全包含のみ許可し、境界跨ぎ/隙間/画面外は開始前に拒否。session/generation/frame/revision・client内取得単調時刻を照合し、旧・逆順・期限切れ結果を破棄。JSON geometry fixtureをPython算術モデルで検証。Windows誤差2px以下は#136で実測。設計参照: `docs/v1.0/design/architecture.md`、[`contracts/coordinates.md`](../../../contracts/coordinates.md)、[`contracts/session-state.md`](../../../contracts/session-state.md) |
 | #64 | HTTP/WSS双方で同じsession所有権/roleを検証。frameとresultの相関、旧世代/逆順/revision不一致拒否。request/response fieldとstatus/close codeをfixture化。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #68 | .NET10 LTSの2026-10-30基準SDK 10.0.402とruntime 10.0.14、stable-only、global.json固定。client/server/contractsを同一repo内で分離し、Web版は受入前に保持。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
@@ -211,7 +211,7 @@ draw.io CLIでXMLを開き、同じ原本からSVGを出力した。出力SVGを
 | #77 | OCR/翻訳コアは副作用をadapterへ隔離して段階抽出。Tesseract英語 + Argos en→ja、CPU-only lock。Web経路/`#26`/任意LLM評価`#49`を変更しない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #78 | serverは処理中1/待機最新1。画像は設定1～5fps、default2、max5・取得以下、静止10秒送信0。中断不能なOCRも結果を配信/表示しない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #79 | 結果にsession/generation/frame/revision、region/source/translation/status/server_processing_msを含める。サーバー時刻とclient単調時計を混ぜず、旧結果を破棄する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
-| #80 | engine結合はCPU 2/4 GiB、4 MiB/2,073,600画素境界、処理1/待機1、失敗時ready/結果が安全側に落ちること。性能/品質の合否は#109で別測定。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #80 | engine結合はCPU 2/4 GiB、4 MiB/384,000画素ROI境界、処理1/待機1、失敗時ready/結果が安全側に落ちること。性能/品質の合否は#109で別測定。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #81 | livenessとreadinessを分離。導入済みready120秒、empty model領域から取得/検証/warmup ready1800秒。SHA-256/版/digest/CPU依存確認前はnot-ready。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #82 | 設定/辞書/モデル/credentialを別ストア/volumeへ分離。revision conflictは409、原子的保存、バックアップ復元でrevoked token復活なし。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #83 | 設定・辞書はschema_version/revisionを持つJSON。If-Match相当のrevision precondition、古いrevisionは409、atomic replace。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
@@ -221,7 +221,7 @@ draw.io CLIでXMLを開き、同じ原本からSVGを出力した。出力SVGを
 | #89 | 1本のWSSをbinary frame + text status/resultに使用。disconnect時5秒以内検出、表示1秒以内消去、再接続後は明示start。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #90 | WPF上のTLS失敗、session in-use 409、WSS断、ready false、再接続停止状態を表示するWindows結合観点。UI実機/自動化結果を記録。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #92 | Clientの対象catalogで外部可視ウィンドウ/モニターを列挙し、明示開始・停止・再選択・対象消失/最小化・取得拒否・DPI変更を世代無効化して解放する。取得は設定1～5fps/既定2、変化frameのみ、ROI物理pxで制限する。WGC/WDAと実DPI結果は#135/#136/#148系で検証し、未実施を合格にしない。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
-| #93 | ROI画像物理pixelを基準に64×32～1920×1080/最大2,073,600 px。Per-Monitor V2、負座標、DPI changeで変換context/generationを更新。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
+| #93 | ROI画像物理pixelを基準に64×32～1280×300/最大384,000 px。Per-Monitor V2、負座標、DPI changeで変換context/generationを更新。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #94 | PNG/JPEG encoded max4 MiB、変化時のみ、連続10秒 fps×10以内、設定fps以下。送信待ちを蓄積せずlatest frame優先。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #95 | source/overlay capture exclusion失敗時は送信停止。frame metadataと画像ROIの一致、旧generationの拒否を実機で確認する。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |
 | #97 | 別トップレベルWPF overlayを非アクティブ/クリック透過にする。WDA_EXCLUDEFROMCAPTURE/WGC実機が確認できない時はfail-closed。 設計参照: `docs/v1.0/design/architecture.md#下流issueへの仕様反映` |

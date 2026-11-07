@@ -39,8 +39,8 @@
         "dictionary_revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
         "correlation_id": {"type": "string", "format": "uuid", "maxLength": 36},
         "status": {"type": "string", "enum": ["ok", "empty"]},
-        "image_width": {"type": "integer", "minimum": 64, "maximum": 1920},
-        "image_height": {"type": "integer", "minimum": 32, "maximum": 1080},
+        "image_width": {"type": "integer", "minimum": 64, "maximum": 1280},
+        "image_height": {"type": "integer", "minimum": 32, "maximum": 300},
         "regions": {
           "type": "array", "maxItems": 500,
           "items": {
@@ -54,10 +54,10 @@
                 "type": "object", "additionalProperties": false,
                 "required": ["left", "top", "right", "bottom"],
                 "properties": {
-                  "left": {"type": "integer", "minimum": 0, "maximum": 1920},
-                  "top": {"type": "integer", "minimum": 0, "maximum": 1080},
-                  "right": {"type": "integer", "minimum": 1, "maximum": 1920},
-                  "bottom": {"type": "integer", "minimum": 1, "maximum": 1080}
+                  "left": {"type": "integer", "minimum": 0, "maximum": 1280},
+                  "top": {"type": "integer", "minimum": 0, "maximum": 300},
+                  "right": {"type": "integer", "minimum": 1, "maximum": 1280},
+                  "bottom": {"type": "integer", "minimum": 1, "maximum": 300}
                   }
                   }
                 ]
