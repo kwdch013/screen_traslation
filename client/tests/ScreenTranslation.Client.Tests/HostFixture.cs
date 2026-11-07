@@ -122,7 +122,7 @@ internal sealed class FakeTransport : ITranslationTransport
 internal sealed class HostFixture : IAsyncDisposable
 {
 	public static readonly CaptureTarget Display = new("display:2", CaptureTargetKind.Display, "ディスプレイ2", new CaptureBounds(1000, 0, 1800, 600), 96);
-	public static readonly Rect2D Roi = new(1100, 100, 1740, 420);
+	public static readonly Rect2D Roi = new(1100, 100, 1740, 400);
 	public static readonly Guid SessionId = Guid.Parse("44444444-4444-4444-8444-444444444444");
 
 	public long Now = 100_000_000_000;

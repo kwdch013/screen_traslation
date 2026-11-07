@@ -65,7 +65,7 @@ public sealed class OverlayResultMapperTests
 	[Fact]
 	public void TryMap_EmptyStatusWithoutRegions_YieldsNoRegions()
 	{
-		using var doc = JsonDocument.Parse("""{"type":"result","status":"empty","image_width":640,"image_height":300,"regions":[]}""");
+		using var doc = JsonDocument.Parse("""{"type":"result","status":"empty","image_width":640,"image_height":320,"regions":[]}""");
 		Assert.True(OverlayResultMapper.TryMap(doc.RootElement, Roi, out var regions));
 		Assert.Empty(regions);
 	}

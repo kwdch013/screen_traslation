@@ -46,7 +46,7 @@ public sealed class TargetMoveFollowTests
 		var (metadata, image) = await f.Transport.NextSentAsync();
 		var (width, height, rgb) = CaptureTestSupport.DecodePng(image);
 
-		Assert.Equal((2ul, 640, 320), (metadata.Generation, width, height));
+		Assert.Equal((2ul, 640, 300), (metadata.Generation, width, height));
 		// ROIはウィンドウ相対のまま(ウィンドウ左上から+100,+100)。先頭画素は移動後の物理座標になる
 		Assert.Equal((Roi.Left + 50, Roi.Top + 30), CaptureTestSupport.ReadCoordinate(rgb.AsSpan(0, 3)));
 	}

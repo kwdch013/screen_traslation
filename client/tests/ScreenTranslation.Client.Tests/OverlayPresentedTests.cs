@@ -11,7 +11,7 @@ public sealed class OverlayPresentedTests
 {
 	private const long Second = 1_000_000_000;
 	private static readonly Guid SessionId = Guid.Parse("22222222-2222-4222-8222-222222222222");
-	private static readonly Rect2D Roi = new(100, 200, 740, 520);
+	private static readonly Rect2D Roi = new(100, 200, 740, 500);
 
 	private sealed class Surface : IOverlaySurface
 	{
