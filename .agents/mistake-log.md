@@ -18,8 +18,9 @@
 - 何が起きたか: packageではない`tests`をモジュール名として指定し、コンテナ内の対象テスト実行がimport errorになった。Issue #79継続中にも再発し、unittest discoveryで再実行した。
 - 根本原因: テストディレクトリのpackage構成を確認せず、通常の`python -m unittest` module指定を使った。
 - 正しいやり方: packageでないテストファイルは`python -m unittest discover -s <dir> -p <pattern>`で実行し、実行件数と終了コードを確認する。
-- 発生回数: 2
+- 発生回数: 3
 - guard: guard-container-unittest-discovery
+- 2026-11-07の再発: ホスト側のpackageではないテストをモジュール名で直接指定し、`ModuleNotFoundError`になった。discover形式へ切り替えた後、対象テストが実行され期待どおりassertionでRedになった。guardの適用対象がComposeに限定されていたため、descriptionと手順をホスト実行にも広げる。
 
 ## 2026-10-30 .NETビルド生成物をindexへ追加しかけた
 - 何が起きたか: `client/src`・`client/tests`をディレクトリ単位でstageし、Container buildでworktreeへ生成された`bin/obj`を一時的にindexへ追加した。コミット前の差分確認で検出し、indexを戻して生成物を外した。
@@ -150,5 +151,12 @@
 - 何が起きたか: Mutation確認後にDPI無効化状態とEsc取消状態の復元先を入れ替え、Clientテストが失敗した。
 - 根本原因: 同じ状態値への複数代入をテキスト置換で復元し、変更後に該当メソッドと最終テストを確認する前に成功扱いしかけた。
 - 正しいやり方: Mutationは対象メソッド単位の差分で戻し、各mutation後に`git diff -- <対象ファイル>`で正しい本体へ戻ったことを確認してから、最新ソースを含むコンテナで最終テストを実行する。
+- 発生回数: 1
+- guard: なし
+
+## 2026-11-07 PR作成前にIssueをレビュー待ちへ遷移しなかった
+- 何が起きたか: PR #275作成時にIssue #274を`issue/in-progress`のままにしていたため、AI Review Gateが`issue/review-required`不足として一度failureを発行した。PR作成後にIssue/PRの状態ラベルを更新し、ラベル変更イベントによる再評価を確認した。
+- 根本原因: PR作成と状態ラベル遷移を一つの完了手順として扱わず、PR作成直後にGateが評価することを考慮しなかった。
+- 正しいやり方: PR作成の直前に受け入れ条件・CI・本文を確認し、PR作成後は直ちにIssueを`issue/review-required`、PRを`pr/review-required`へ遷移させる。その後、ラベル変更後の最新Gate runをread-backする。
 - 発生回数: 1
 - guard: なし
