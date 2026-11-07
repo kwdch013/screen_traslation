@@ -255,7 +255,7 @@ AI Claim
 
 `prepare-commit-msg` は既存の他Work Unitを保持して現在のWork Unitを追記します。cherry-pick・amend・revertも同じです。空メッセージはそのままにし、不正・空のtrailerは拒否します。`pre-push` はpush先remoteに存在しないcommitを検査し、全trailerの形式を確認します。既存履歴を移行のためだけに改変しません。
 
-PR先頭には `<!-- ai-pr-work-unit: <UUID> -->` を1つ書き、対応Issueを `Closes #<番号>` でリンクします。Draft解除・本文・テストを揃えた時点でIssueを `issue/review-required`、PRを `pr/review-required` とします。
+PR先頭には `<!-- ai-pr-work-unit: <UUID> -->` を1つ書きます。受入条件を全て満たすIssueは `Closes #<番号>` でリンクし、未達条件が残るIssueは `Refs #<番号>` としてOpenのままにします。Draft解除・本文・テストを揃えた時点で対応中Taskを `issue/review-required`、PRを `pr/review-required` とします。
 
 独立Reviewerは最新PR HEADの専用worktreeで自分のWork Unitを取得し、Contributor Setに含まれないことを確認します。IssueとPRをセットで確認しテスト後、本人が以下のCommentと `pr/approved` を投稿します。依頼者による代理投稿はしません。実装したエージェントと同じ種類しか使えない場合でも、別セッション・別worktreeが必要です。
 
@@ -278,7 +278,7 @@ GITHUB_TOKEN="$(gh auth token)" python3 scripts/ai-review-gate.py \
   --repo "$(gh repo view --json nameWithOwner --jq .nameWithOwner)" --pr-number <PR番号>
 ```
 
-`--issue-number <番号>` はclosing keywordで関連付いたOpen PRをまとめて再評価します。ゲートは全commitの証跡・最新判断・HEAD一致・IssueのOpen/review-required・`pr/block` を確認します。commit APIの上限250件に達したPRは検証不足として拒否します。CIの `test` とconversation解決は別途merge条件として確認します。リンクを認識できない場合は警告となるため、`Closes #<番号>` の同一リポジトリIssueを必ず使います。
+`--issue-number <番号>` はIssueを指定して関連PRを再評価します。ゲートは全commitの証跡・最新判断・HEAD一致・IssueのOpen/review-required・`pr/block` を確認します。commit APIの上限250件に達したPRは検証不足として拒否します。CIの `test` とconversation解決は別途merge条件として確認します。Issueの受入条件が未達の場合、PR本文は `Refs #<番号>` としてIssueを自動closeしないようにします。
 
 ### workflowの信頼境界と受入実証
 
@@ -308,6 +308,8 @@ Dependabot-onlyの判定条件はPR authorがGitHub API上の`dependabot[bot]`�
 - [x] PR #119で、未承認通常PRのGate status pendingと`mergeStateStatus=BLOCKED`を、CI success・最新base・Draftでない同一HEADで確認した。
 - [ ] 未承認通常PR、Contributor本人承認、古いHEAD、Gate success + CI failure、独立承認+CI successの5ケースをrequired化前後で全て実証する。現時点で一式未完了。
 - [ ] 実証URL・SHA・run・Ruleset・統合状態を全ケース分記録し、Issue #118の残る受入条件を完了する。
+
+残る10ケースの検証はTask #276で行います。PR #119は `Refs #118` とし、#118は実証完了までOpenのまま維持します。
 
 PR #119の読み戻しでは、Rulesetのbase SHAと一致する`develop`に対して、PRがDraftでなく、`mergeable=MERGEABLE`、レビュー未承認、CI run 42385662121の全jobがsuccess、required status `AI Review Gate=pending`（説明「独立レビュー待ち」）、`mergeStateStatus=BLOCKED`だった。同一HEADのCIが成功し、BEHINDやDraftではない状態でGateの未承認待ちが統合を止めることを確認した。残る検証はContributor本人承認、古いHEAD、Gate success + CI failureと独立承認+CI success、およびrequired化前後の全5ケース一式である。Dependabotの受理経路は通常PRの独立承認受理とは別ケースである。
 

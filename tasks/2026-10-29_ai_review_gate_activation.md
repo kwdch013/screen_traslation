@@ -134,6 +134,12 @@ Issue #118は6受入条件が未完了のためOpen・in-progressとClaimを維�
 - #269の受理証明はDependabot-onlyの例外経路であり、通常PRの独立承認+CI成功による受理と同一視しない。
 - 完了条件に足りない実証は、独立した検証Issueに紐づく最小のTask/PRで行う案を残す。今回そのTask/PRは起票・作成していない。
 
+### PR #119の変更要求対応
+
+- Claudeの独立レビューで、未達条件が残る状態で `Closes #118` を使うと受入条件と不一致になる指摘を受けた。PR本文は `Refs #118` に変更し、#118はOpenのまま維持する。
+- 後続のrequired化前後10ケースを検証するTask #276をPhase #65のSub-issueとして起票した。`issue/ready` とし、PR #119のdevelop merge後に着手する。
+- `.agents/mistake-log.md` の文書テスト環境に関する記録は、今回PR内の変更なので変更内容表に記載する。
+
 ### ローカル確認
 
 ```bash

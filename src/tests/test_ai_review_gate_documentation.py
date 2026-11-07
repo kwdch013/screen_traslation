@@ -28,6 +28,9 @@ class AiReviewGateDocumentationTest(unittest.TestCase):
 		self.assertIn("#269", document)
 		self.assertIn("BLOCKED", document)
 		self.assertIn("未完了", document)
+		self.assertIn("Task #276", document)
+		self.assertIn("`Refs #<番号>`", document)
+		self.assertIn("#118は実証完了までOpenのまま維持", document)
 
 	def _read_development_guide(self) -> str:
 		return (self.repository_root / "docs/v1.0/development.md").read_text(encoding="utf-8")
