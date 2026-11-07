@@ -2,5 +2,5 @@ pillow>=12.3.0
 pytesseract>=0.3.13
 argostranslate>=1.11.0
 fastapi>=0.141.1
-uvicorn>=0.52.1,<0.53.0
+uvicorn>=0.54.0,<0.55.0
 httpx2>=2.7.0
