@@ -229,6 +229,63 @@ class V1DocumentationTest(unittest.TestCase):
 		self.assertIn("#68 client/server/contractsの雛形", self.read("docs/v1.0/development.md"))
 
 
+class WindowsOsTargetDocumentationTest(unittest.TestCase):
+	def setUp(self) -> None:
+		self.root = Path(__file__).resolve().parents[2]
+		if not (self.root / "requirements/version_1/requirements.md").is_file():
+			self.skipTest("要件書を含むリポジトリをマウントして実行してください")
+
+	def read(self, path: str) -> str:
+		return (self.root / path).read_text(encoding="utf-8")
+
+	def test_supported_windows_target_and_acceptance_evidence_are_distinguished(self) -> None:
+		requirements = self.read("requirements/version_1/requirements.md")
+		windows_row = next(line for line in requirements.splitlines() if line.startswith("| Windows |"))
+		self.assertIn("Windows 11 25H2以降 Home/Pro", windows_row)
+		for excluded in ("Windows 10", "ARM64", "x86"):
+			with self.subTest(excluded=excluded):
+				self.assertIn(excluded, windows_row)
+		self.assertIn("後継版を自動的に保証しない", windows_row)
+		self.assertIn("プレビュー禁止", requirements)
+		self.assertIn("25H2 Home/Pro x64", requirements, "初回Owner承認の履歴は保持する")
+		self.assertIn("26H2 build 26300", requirements)
+		self.assertIn("25H2実機検証は未実施", requirements)
+
+		acceptance = self.read("docs/v1.0/acceptance.md")
+		self.assertIn("Windows 11 25H2以降 x64", acceptance)
+		self.assertIn("Windows 11 26H2 (build 26300)", acceptance)
+		self.assertIn("25H2での検証は未実施", acceptance)
+
+		current_documents = (
+			"README.md",
+			"client/publish/README.txt",
+			"docs/v1.0/install-client.md",
+			"docs/v1.0/testing.md",
+			"docs/v1.0/design/adr/0002-windows-client.md",
+			"docs/v1.0/design/architecture.md",
+			"docs/v1.0/research/capture-exclusion.md",
+			"docs/v1.0/design/diagrams/system-architecture.drawio",
+			"docs/v1.0/design/diagrams/system-architecture.svg",
+			"plan/version_1/roadmap.md",
+		)
+		for path in current_documents:
+			with self.subTest(document=path):
+				document = self.read(path)
+				self.assertIn("25H2以降", document)
+				self.assertNotIn("Windows 11 25H2 x64", document)
+
+		for path in (
+			"docs/v1.0/install-client.md",
+			"docs/v1.0/testing.md",
+			"docs/v1.0/research/capture-exclusion.md",
+		):
+			with self.subTest(evidence_document=path):
+				document = self.read(path)
+				self.assertIn("26H2", document)
+				self.assertIn("build 26300", document)
+				self.assertRegex(document, r"25H2.{0,40}未実施")
+
+
 class V1DesignDecisionTest(unittest.TestCase):
 	def setUp(self) -> None:
 		self.root = Path(__file__).resolve().parents[2]
@@ -391,7 +448,7 @@ class CaptureExclusionResearchTest(unittest.TestCase):
 			"Windows 10 version 2004",
 			"DXGI_ERROR_ACCESS_LOST",
 			"DWM",
-			"Windows 11 25H2",
+			"Windows 11 25H2以降",
 			"未実施",
 			"Windows実機が必要",
 			"独立 Task #135",

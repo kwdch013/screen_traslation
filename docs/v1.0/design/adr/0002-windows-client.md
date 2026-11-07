@@ -2,7 +2,7 @@
 
 ## 状態
 
-2026-10-30、**設計採用**。Windows 11 25H2 x64のWPF/.NET 10、WGC、WDA_EXCLUDEFROMCAPTURE、Per-Monitor V2、win-x64自己完結配布を採用する。API相互運用・自己取得除外・混在DPI・配布のWindows実機検証は未実施。#135/#136相当の実機Taskで確認する。[索引・検証課題](README.md) / [基本・詳細設計](../architecture.md)。公式資料調査は[画面取得・キャプチャ除外調査](../../research/capture-exclusion.md)と[混在DPI調査](../../research/mixed-dpi.md)を参照。
+2026-10-30、**設計採用**。Windows 11 25H2以降 x64のWPF/.NET 10、WGC、WDA_EXCLUDEFROMCAPTURE、Per-Monitor V2、win-x64自己完結配布を採用する。API相互運用・自己取得除外・混在DPI・配布のWindows実機検証は未実施。#135/#136相当の実機Taskで確認する。[索引・検証課題](README.md) / [基本・詳細設計](../architecture.md)。公式資料調査は[画面取得・キャプチャ除外調査](../../research/capture-exclusion.md)と[混在DPI調査](../../research/mixed-dpi.md)を参照。
 
 ## 対象要件
 
@@ -10,7 +10,9 @@ REQ-F-001、REQ-F-002、REQ-F-005、REQ-F-006、REQ-F-012、REQ-NF-008、REQ-NF-
 
 ## 背景
 
-Owner承認済みのWindows 11 25H2 Home/Pro x64と.NET 10 LTS安定SDKを前提に、領域選択・非アクティブ重畳・混在DPIを満たすUI/取得APIを選ぶ。専用GPUを必須にせず、保護対象の回避をしない。SDKのパッチは #57/#68 のglobal.jsonで固定し、ここで最新パッチを推測しない。
+受入実機として使用するWindows 11 26H2 (build 26300) はOwner承認済み。25H2での実機検証は未実施であり、設計採用やOS範囲の更新は実測の代替にならない。
+
+Owner承認済みのWindows 11 25H2以降 Home/Pro x64と.NET 10 LTS安定SDKを前提に、領域選択・非アクティブ重畳・混在DPIを満たすUI/取得APIを選ぶ。専用GPUを必須にせず、保護対象の回避をしない。SDKのパッチは #57/#68 のglobal.jsonで固定し、ここで最新パッチを推測しない。
 
 ## 比較
 

@@ -14,6 +14,7 @@ description: CIのrequired checkを使って失敗を実証・再現する前に
 - CI上のテスト結果を使う前に、`.github/workflows/`で対象イベントからrequired statusまでのworkflow、job、実行コマンドを読む。
 - jobの`working-directory`、`docker build`のcontext、volume mount、コンテナ内パスを確認し、対象ファイルが実行環境にあるか特定する。
 - 対象テストが実行コマンドに明示されるか、指定されたdiscover範囲とpatternに含まれることを確かめる。対象外なら、そのCIを失敗検証に使わない。
+- 文書ファイルを読むテストは、実行イメージ内に対象文書が存在するかを確認する。通常アプリイメージに文書がない場合はsetUpでskipし、既存のリポジトリmount付き文書テストstepで同じテストを実行する。
 - CI実行後はrun logを読み、意図したテスト名・assertionが実際に実行されたことと、aggregate required checkの結論を確認する。
 - 失敗fixtureでは別jobの失敗やskipを区別し、狙った失敗以外があれば作業記録に併記する。
 
@@ -21,6 +22,7 @@ description: CIのrequired checkを使って失敗を実証・再現する前に
 - [ ] `rg -n`でworkflowのevent・required job・テストコマンドを特定した。
 - [ ] 対象テスト、作業ディレクトリ、ファイルmountをworkflowとDockerfileから照合した。
 - [ ] 対象テストが該当workflow runで実行される根拠を確認した。
+- [ ] 文書テストは実行イメージに対象文書があるか確認し、文書がないアプリイメージではskip、既存のmount付き文書テストstepでは実行される。
 
 ## 完了前チェック
 - [ ] run logで対象test名と期待した結果を読み戻した。
