@@ -232,6 +232,8 @@ class V1DocumentationTest(unittest.TestCase):
 class WindowsOsTargetDocumentationTest(unittest.TestCase):
 	def setUp(self) -> None:
 		self.root = Path(__file__).resolve().parents[2]
+		if not (self.root / "requirements/version_1/requirements.md").is_file():
+			self.skipTest("要件書を含むリポジトリをマウントして実行してください")
 
 	def read(self, path: str) -> str:
 		return (self.root / path).read_text(encoding="utf-8")
