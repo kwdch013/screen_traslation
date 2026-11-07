@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using System.Windows.Threading;
 using ScreenTranslation.Client.App;
 using ScreenTranslation.Client.Capture;
+using ScreenTranslation.Client.Geometry;
 using ScreenTranslation.Client.Overlay;
 using ScreenTranslation.Client.Security;
 using ScreenTranslation.Client.Settings;
