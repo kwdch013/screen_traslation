@@ -135,7 +135,7 @@ class ApiContractSchemaTests(unittest.TestCase):
 		self.assertIn("session-state.md", api_design)
 		self.assertIn("#63", api_design)
 		self.assertIn("4 MiB", api_design)
-		self.assertIn("2,073,600", api_design)
+		self.assertIn("1280×300（384,000画素）", api_design)
 		coordinates = (self.contracts / "coordinates.md").read_text(encoding="utf-8")
 		session_state = (self.contracts / "session-state.md").read_text(encoding="utf-8")
 		for field in ("session_id", "generation", "frame_id", "dictionary_revision"):
