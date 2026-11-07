@@ -309,7 +309,7 @@ Dependabot-onlyの判定条件はPR authorがGitHub API上の`dependabot[bot]`�
 - [ ] 未承認通常PR、Contributor本人承認、古いHEAD、Gate success + CI failure、独立承認+CI successの5ケースをrequired化前後で全て実証する。現時点で一式未完了。
 - [ ] 実証URL・SHA・run・Ruleset・統合状態を全ケース分記録し、Issue #118の残る受入条件を完了する。
 
-残る10ケースの検証はTask #276で行います。PR #119は `Refs #118` とし、#118は実証完了までOpenのまま維持します。
+残る10ケースの検証はTask #999で行います。PR #119は `Refs #118` とし、#118は実証完了までOpenのまま維持します。
 
 PR #119の読み戻しでは、Rulesetのbase SHAと一致する`develop`に対して、PRがDraftでなく、`mergeable=MERGEABLE`、レビュー未承認、CI run 42385662121の全jobがsuccess、required status `AI Review Gate=pending`（説明「独立レビュー待ち」）、`mergeStateStatus=BLOCKED`だった。同一HEADのCIが成功し、BEHINDやDraftではない状態でGateの未承認待ちが統合を止めることを確認した。残る検証はContributor本人承認、古いHEAD、Gate success + CI failureと独立承認+CI success、およびrequired化前後の全5ケース一式である。Dependabotの受理経路は通常PRの独立承認受理とは別ケースである。
 
