@@ -99,7 +99,7 @@ Metadata項目:
 | `content_type` | enum | `image/png`, `image/jpeg` |
 | `image_length` | uint32相当 | 1～4,194,304、実byte数と一致 |
 
-積`image_width × image_height`は2,073,600以下。serverは認証/所有権→header/受信長→JSON schema→実format/寸法/展開画素→相関/現revisionの順に検査します。宣言長の切詰め、画像縮小、偽装MIME許容はしません。失敗時はdecoderを呼ばず破棄します。
+画像ROIは幅64～1280px、高さ32～300px、積`image_width × image_height`384,000以下。serverは認証/所有権→header/受信長→JSON schema→実format/寸法/展開画素→相関/現revisionの順に検査します。宣言長の切詰め、画像縮小、偽装MIME許容はしません。失敗時はdecoderを呼ばず破棄します。
 
 ROIの仮想screen physical px、負座標、画像座標原点・矩形半開区間は#63の[座標契約](../../../contracts/coordinates.md)を参照します。#62のschemaは座標/結果型の外形と範囲を持ちますが、座標変換や状態遷移を複製しません。
 
@@ -174,7 +174,7 @@ WSS close reasonは固定code `AUTHENTICATION_FAILED`, `SESSION_MISMATCH`, `PROT
 | auth/role | tokenなし・期限切れ・端末tokenで管理PUT | 401 / 403、WSSはUpgrade拒否 |
 | session競合 | 2端末が同時開始 | 一方のみ201、他方409、暗黙奪取なし |
 | HTTP境界 | JSON 1 MiBと+1、設定/辞書 field下限・上限・+1 | 境界許可、超過拒否、revision不変 |
-| frame境界 | 64×32、1920×1080、payload 4 MiB、各+1/偽装 | 境界許可、超過・形式不一致をdecode前拒否 |
+| frame境界 | 64×32、1280×300（384,000画素）、payload 4 MiB、幅/高さ/面積各+1、偽装 | 境界許可、超過・形式不一致をdecode前拒否 |
 | revision | 同一ETagの2更新、古いETagの再送 | 一方のみ確定、409+current ETag、再読込案内 |
 | result | empty、旧generation、逆順frame、旧revision | 有効emptyのみ字幕を消去、他は表示せず |
 | protocol | STF1/length/JSON/payload truncation・trailing bytes | framing違反close、decode前拒否 |

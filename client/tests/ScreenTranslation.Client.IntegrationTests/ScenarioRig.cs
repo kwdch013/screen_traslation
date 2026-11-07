@@ -21,8 +21,8 @@ internal sealed class ScenarioRig : IAsyncDisposable
 {
 	public static readonly TimeSpan Watchdog = ScenarioContractServer.Watchdog;
 	public static readonly CaptureTarget Display = new("display:2", CaptureTargetKind.Display, "ディスプレイ2", new CaptureBounds(-1280, 0, 0, 720), 192);
-	public static readonly Rect2D Roi = new(-1180, 100, -540, 420);
-	public static readonly Rect2D NarrowRoi = new(-1180, 100, -740, 420);
+	public static readonly Rect2D Roi = new(-1180, 100, -540, 400);
+	public static readonly Rect2D NarrowRoi = new(-1180, 100, -740, 400);
 
 	private readonly string directory = Path.Combine(Path.GetTempPath(), "scenario-" + Path.GetRandomFileName());
 	private readonly TestCredentials credentials = new(ScenarioContractServer.Token);

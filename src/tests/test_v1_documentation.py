@@ -98,7 +98,7 @@ class V1DocumentationTest(unittest.TestCase):
 		self.assertIn("このまま承認", acceptance)
 		rows = [line for line in acceptance.splitlines() if line.startswith("| ")]
 		owner_rows = [line for line in rows if "| Owner |" in line]
-		self.assertEqual(len(owner_rows), 5)
+		self.assertEqual(len(owner_rows), 6)
 		for line in owner_rows:
 			self.assertIn("未実施" if "本人の見た目" in line else "承認済み", line)
 		for subject in ("実機性能結果", "独立シナリオ結果"):
@@ -471,8 +471,8 @@ class V1ArchitectureDesignTest(unittest.TestCase):
 		for expected in (
 			"採用", ".NET 10", "WPF", "Windows.Graphics.Capture", "WDA_EXCLUDEFROMCAPTURE",
 			"HTTPS", "WSS", "TLS 1.2", "Per-Monitor V2", "Tesseract", "Argos",
-			"2 fps", "5 fps", "4 MiB", "2,073,600", "4 GiB", "2 CPU",
-			"5秒", "10秒", "1秒", "1920×1080", "#135", "#136", "未実施",
+			"2 fps", "5 fps", "4 MiB", "384,000", "4 GiB", "2 CPU",
+			"5秒", "10秒", "1秒", "1280×300", "#135", "#136", "未実施",
 		):
 			with self.subTest(expected=expected):
 				self.assertIn(expected, document)

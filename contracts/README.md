@@ -40,12 +40,12 @@ WindowsクライアントとLinuxサーバーが共有する通信・データ�
 
 | 項目 | 下限 | 上限 |
 |---|---:|---:|
-| 画像幅 | 64 px | 1,920 px |
-| 画像高さ | 32 px | 1,080 px |
-| 総画素数 | — | 2,073,600 px |
+| 画像幅 | 64 px | 1,280 px |
+| 画像高さ | 32 px | 300 px |
+| 総画素数 | — | 384,000 px |
 | PNG/JPEG payload | 1 byte | 4 MiB (4,194,304 bytes) |
 
-幅・高さの個別境界を通過しても`width × height`が2,073,600を超えれば拒否します。境界値の+1、展開後サイズ、偽装・破損形式も拒否対象です。ROIの幾何意味、物理ピクセル、負座標、半開区間`[left, top, right, bottom)`と世代/結果採用規則はIssue #63の[`coordinates.md`](coordinates.md)・[`session-state.md`](session-state.md)を正本とします。ここでは再定義しません。
+ROIは幅64～1,280 px、高さ32～300 px、総画素数384,000 px以下です。幅・高さ・総画素数のどれかを超える場合は拒否します。画像サイズ4 MiBは符号化後byte数の別上限です。境界値の+1、展開後サイズ、偽装・破損形式も拒否対象です。ROIの幾何意味、物理ピクセル、負座標、半開区間`[left, top, right, bottom)`と世代/結果採用規則はIssue #63の[`coordinates.md`](coordinates.md)・[`session-state.md`](session-state.md)を正本とします。ここでは再定義しません。
 
 ## JSON項目の上限
 
@@ -121,7 +121,7 @@ Upgrade後の`error` messageは、`code`によって**streamを閉じるか(致�
 | `PROCESSING_FAILED` | 非致命 | 次のframe | 1frameの処理失敗。streamを閉じない。利用者へ固定文言で通知(同種は10秒に1回まで) |
 | `OCR_TIMEOUT` | 非致命 | 次のframe | 文字認識が時間予算を超えた。領域を狭めて選び直す案内を固定文言で表示(#223) |
 | `MODEL_NOT_READY` | 非致命 | 次のframe | 準備前・準備失敗中・停止開始後でframeを破棄した(#199)。接続・session・世代を維持し、clientは**送信を一時停止して`GET /api/v1/ready`を確認し、準備完了で自動再開**する(#202。次の「`MODEL_NOT_READY`を受けたclientの動作」) |
-| `INVALID_IMAGE` | 非致命 | 次のframe | serverのパイプライン上限(寸法・頻度・容量)に達したframeの通知。形式不正のbinaryは通知なしに1008で閉じる |
+| `INVALID_IMAGE` | 非致命 | 次のframe | ROIの幅1280px・高さ300px・384,000画素、頻度、容量のいずれかのパイプライン上限に達したframeの通知。形式不正のbinaryは通知なしに1008で閉じる |
 | `AUTHENTICATION_FAILED` | 致命 | なし | 認証失効・拒否。streamを閉じて再認証(serverはcloseのreasonに使い、error messageとしては送らない) |
 | `SESSION_MISMATCH` | 致命 | なし | session所有権の不一致。streamを閉じる(同上) |
 | `PROTOCOL_VIOLATION` | 致命 | なし | 契約違反。streamを閉じる(同上) |

@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using System.Windows.Threading;
 using ScreenTranslation.Client.App;
 using ScreenTranslation.Client.Capture;
+using ScreenTranslation.Client.Geometry;
 using ScreenTranslation.Client.Overlay;
 using ScreenTranslation.Client.Security;
 using ScreenTranslation.Client.Settings;
@@ -30,7 +31,7 @@ internal sealed class WindowsScenarioChain : IDisposable
 
 	public ScriptedSocket Socket { get; } = new();
 	public FakeGrantProvider Grants { get; } = new();
-	public FakeRegionSelector Selector { get; } = new();
+	public FakeRegionSelector Selector { get; } = new() { Result = new Rect2D(1100, 100, 1740, 380) };
 	public RecordingSurface Surface { get; private set; } = null!;
 	public WindowsOverlaySurface RealSurface { get; private set; } = null!;
 	public FakeCaptureSessionFactory Factory { get; private set; } = null!;

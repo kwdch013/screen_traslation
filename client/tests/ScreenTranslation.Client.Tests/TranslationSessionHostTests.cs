@@ -66,9 +66,9 @@ public sealed class TranslationSessionHostTests
 		Assert.Equal(CapturePipelineOutcome.Submitted, f.EmitFrame());
 		var (metadata, image) = await f.Transport.NextSentAsync();
 
-		Assert.Equal((SessionId, 1ul, 1ul, 640, 320), (metadata.SessionId, metadata.Generation, metadata.FrameId, metadata.ImageWidth, metadata.ImageHeight));
+		Assert.Equal((SessionId, 1ul, 1ul, 640, 300), (metadata.SessionId, metadata.Generation, metadata.FrameId, metadata.ImageWidth, metadata.ImageHeight));
 		var (width, height, rgb) = CaptureTestSupport.DecodePng(image);
-		Assert.Equal((640, 320), (width, height));
+		Assert.Equal((640, 300), (width, height));
 		// 画面ローカルの切り出し原点ではなく、物理座標のROI左上が先頭画素になる
 		Assert.Equal((Roi.Left, Roi.Top), CaptureTestSupport.ReadCoordinate(rgb.AsSpan(0, 3)));
 	}
