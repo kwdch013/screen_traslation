@@ -16,8 +16,13 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from screen_translation_server.api.input_limits import (
 	BINARY_MESSAGE_MAX_BYTES,
 	InputLimitError,
+	ROI_MAX_HEIGHT,
+	ROI_MAX_PIXELS,
+	ROI_MAX_WIDTH,
+	authenticate_and_parse_binary_message,
 	authenticate_request,
-	validate_authenticated_binary_message,
+	validate_image_payload,
+	validate_roi,
 )
 from screen_translation_server.api.keepalive import KeepaliveRateLimiter, check_keepalive
 from screen_translation_server.http_errors import deny_websocket, source_address
@@ -136,7 +141,7 @@ async def _handle_frame(
 		await websocket.close(code=1008)
 		return False
 	try:
-		frame = validate_authenticated_binary_message(
+		frame = authenticate_and_parse_binary_message(
 			data, app.state.credentials, app.state.policy,
 			websocket.headers.get("authorization"), is_secure=websocket.url.scheme == "wss",
 			host=websocket.headers.get("host"), origin=websocket.headers.get("origin"),
@@ -149,6 +154,41 @@ async def _handle_frame(
 		await websocket.close(code=1008)
 		return False
 	stale_revision = frame.metadata["dictionary_revision"] < session.dictionary_revision
+	width, height = frame.metadata["image_width"], frame.metadata["image_height"]
+	if width > ROI_MAX_WIDTH or height > ROI_MAX_HEIGHT or width * height > ROI_MAX_PIXELS:
+		if not await app.state.sessions.is_current(session.session_id, frame.metadata["generation"]):
+			await websocket.close(code=1008)
+			return False
+		correlation_id = str(uuid4())
+		app.state.observer.dropped("roi_limit", correlation_id=correlation_id)
+		app.state.events.publish_error(
+			"INVALID_IMAGE", correlation_id, session.session_id, session.generation,
+			session.dictionary_revision, frame_id=frame.metadata["frame_id"],
+		)
+		return True
+	try:
+		validate_roi(width, height)
+	except InputLimitError:
+		await websocket.close(code=1008)
+		return False
+	try:
+		validate_image_payload(
+			frame.image, frame.metadata["content_type"],
+			frame.metadata["image_width"], frame.metadata["image_height"],
+		)
+	except InputLimitError:
+		await websocket.close(code=1008)
+		return False
+	if stale_revision:
+		try:
+			await app.state.sessions.heartbeat(
+				session.session_id, credential.credential_id, generation=frame.metadata["generation"],
+			)
+		except (SessionConflict, SessionForbidden, SessionNotFound):
+			await websocket.close(code=1008)
+			return False
+		app.state.observer.dropped("stale_dictionary_revision", correlation_id=str(uuid4()))
+		return True
 	try:
 		await app.state.sessions.heartbeat(
 			session.session_id, credential.credential_id, generation=frame.metadata["generation"],
@@ -156,10 +196,6 @@ async def _handle_frame(
 	except (SessionConflict, SessionForbidden, SessionNotFound):
 		await websocket.close(code=1008)
 		return False
-	if stale_revision:
-		# 辞書更新前に送られたframeは切断せず、処理せず破棄する。
-		app.state.observer.dropped("stale_dictionary_revision", correlation_id=str(uuid4()))
-		return True
 	correlation_id = str(uuid4())
 	try:
 		pipeline = ensure_pipeline()

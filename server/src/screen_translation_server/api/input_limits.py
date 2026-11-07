@@ -29,9 +29,9 @@ BINARY_HEADER_BYTES = 8
 BINARY_MESSAGE_MAX_BYTES = 4_198_408
 ROI_MIN_WIDTH = 64
 ROI_MIN_HEIGHT = 32
-ROI_MAX_WIDTH = 1_920
-ROI_MAX_HEIGHT = 1_080
-ROI_MAX_PIXELS = 2_073_600
+ROI_MAX_WIDTH = 1_280
+ROI_MAX_HEIGHT = 300
+ROI_MAX_PIXELS = 384_000
 _FRAME_FIELDS = frozenset({
 	"contract_version", "session_id", "generation", "frame_id", "dictionary_revision",
 	"image_width", "image_height", "content_type", "image_length",
@@ -67,7 +67,7 @@ def validate_binary_frame_size(
 		raise InputLimitError("binary message長が不正です。")
 
 
-def parse_binary_message(message: bytes) -> BinaryMessage:
+def parse_binary_message(message: bytes, *, validate_roi_bounds: bool = True) -> BinaryMessage:
 	if len(message) < BINARY_HEADER_BYTES or len(message) > BINARY_MESSAGE_MAX_BYTES:
 		raise InputLimitError("binary message長が不正です。")
 	if message[:4] != b"STF1":
@@ -94,7 +94,8 @@ def parse_binary_message(message: bytes) -> BinaryMessage:
 		declared_payload_length=image_length,
 		message_length=len(message),
 	)
-	validate_roi(metadata.get("image_width"), metadata.get("image_height"))
+	if validate_roi_bounds:
+		validate_roi(metadata.get("image_width"), metadata.get("image_height"))
 	return BinaryMessage(metadata, image)
 
 
@@ -110,6 +111,31 @@ def validate_authenticated_binary_message(
 	allowed_roles: set[Role] | frozenset[Role] = frozenset({Role.DEVICE}),
 ) -> BinaryMessage:
 	"""TLS/許可Host/Origin/資格情報を検証後、受信長と実画像を確認して返す。"""
+	frame = authenticate_and_parse_binary_message(
+		message, credentials, policy, authorization,
+		is_secure=is_secure, host=host, origin=origin, allowed_roles=allowed_roles,
+	)
+	validate_image_payload(
+		frame.image,
+		frame.metadata["content_type"],
+		frame.metadata["image_width"],
+		frame.metadata["image_height"],
+	)
+	return frame
+
+
+def authenticate_and_parse_binary_message(
+	message: bytes,
+	credentials: CredentialStore,
+	policy: SecurityPolicy,
+	authorization: str | None,
+	*,
+	is_secure: bool,
+	host: str | None,
+	origin: str | None,
+	allowed_roles: set[Role] | frozenset[Role] = frozenset({Role.DEVICE}),
+) -> BinaryMessage:
+	"""画像をdecodeする前に認証とbinary構造を検証する。"""
 	authenticate_api_request(
 		credentials,
 		policy,
@@ -119,14 +145,7 @@ def validate_authenticated_binary_message(
 		authorization=authorization,
 		allowed_roles=allowed_roles,
 	)
-	frame = parse_binary_message(message)
-	validate_image_payload(
-		frame.image,
-		frame.metadata["content_type"],
-		frame.metadata["image_width"],
-		frame.metadata["image_height"],
-	)
-	return frame
+	return parse_binary_message(message, validate_roi_bounds=False)
 
 
 def authenticate_request(
@@ -242,5 +261,9 @@ def _validate_frame_metadata(metadata: dict[str, Any]) -> None:
 		value = metadata[name]
 		if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 18_446_744_073_709_551_615:
 			raise InputLimitError("metadata integerが不正です。")
+	for name in ("image_width", "image_height"):
+		value = metadata[name]
+		if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 18_446_744_073_709_551_615:
+			raise InputLimitError("metadata image寸法が不正です。")
 	if metadata["content_type"] not in ("image/png", "image/jpeg"):
 		raise InputLimitError("image形式が不正です。")

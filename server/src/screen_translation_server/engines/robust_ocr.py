@@ -16,7 +16,7 @@ from app.ocr import (
 	regions_from_tesseract_data,
 	resolve_tesseract_command,
 )
-from screen_translation_server.api.input_limits import ROI_MAX_PIXELS
+from screen_translation_server.api.input_limits import ROI_MAX_HEIGHT, ROI_MAX_PIXELS, ROI_MAX_WIDTH
 
 from .ocr_preprocess import PreparedImage, binarize_for_ocr, grayscale_for_ocr
 from .ocr_select import (
@@ -74,8 +74,8 @@ class RobustTesseractOcrEngine(TesseractOcrEngine):
 		image = frame.image
 		if not isinstance(image, Image.Image):
 			return super().recognize(frame)
-		if image.width * image.height > ROI_MAX_PIXELS:
-			raise OcrInputTooLargeError("画像がROIの上限(2,073,600画素)を超えています。縮小せず、領域の選び直しが必要です。")
+		if image.width > ROI_MAX_WIDTH or image.height > ROI_MAX_HEIGHT or image.width * image.height > ROI_MAX_PIXELS:
+			raise OcrInputTooLargeError("画像がROIの上限(1280×300、384,000画素)を超えています。縮小せず、領域の選び直しが必要です。")
 		started = self._clock()
 		candidates: list[list[TextRegion]] = []
 		for preprocess in self._preprocessors:

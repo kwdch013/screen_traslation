@@ -292,9 +292,16 @@ class RobustEngineTests(unittest.TestCase):
 		calls = []
 		engine = RobustTesseractOcrEngine(min_confidence=0.45, data_reader=lambda image, timeout: calls.append(1) or data([("Open", 95, 100)]))
 		with self.assertRaises(OcrInputTooLargeError):
-			engine.recognize(Frame(image=Image.new("L", (1921, 1080)), captured_at=0.0))
+			engine.recognize(Frame(image=Image.new("L", (1281, 299)), captured_at=0.0))
+		with self.assertRaises(OcrInputTooLargeError):
+			engine.recognize(Frame(image=Image.new("L", (1280, 301)), captured_at=0.0))
 		self.assertEqual(calls, [])
-		engine.recognize(Frame(image=Image.new("L", (1920, 1080)), captured_at=0.0))  # 上限ちょうどは受理
+		accepted = True
+		try:
+			engine.recognize(Frame(image=Image.new("L", (1280, 300)), captured_at=0.0))
+		except OcrInputTooLargeError:
+			accepted = False
+		self.assertTrue(accepted, "ROI上限の境界値は受理される")
 		self.assertEqual(len(calls), 1)
 
 	def test_frame_without_image_returns_nothing(self) -> None:

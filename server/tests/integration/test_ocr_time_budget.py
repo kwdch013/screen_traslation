@@ -38,12 +38,12 @@ def noise_image(width: int, height: int, mode: str = "L", seed: int = 7) -> Imag
 	return Image.frombytes(mode, (width, height), random.Random(seed).randbytes(width * height * channels))
 
 
-def striped_full_screen() -> Image.Image:
-	"""字幕1行+斜め縞の全画面(Tesseractが数秒かかる複雑背景)。"""
-	image = Image.new("RGB", (1920, 1080), (20, 30, 70))
+def striped_maximum_roi() -> Image.Image:
+	"""字幕1行+斜め縞の上限寸法ROI(Tesseractが数秒かかる複雑背景)。"""
+	image = Image.new("RGB", (1280, 300), (20, 30, 70))
 	draw = ImageDraw.Draw(image)
-	for x in range(-1080, 1920, 14):
-		draw.line([(x, 0), (x + 1080, 1080)], fill=(60, 60, 60), width=6)
+	for x in range(-300, 1280, 14):
+		draw.line([(x, 0), (x + 300, 300)], fill=(60, 60, 60), width=6)
 	draw.text((24, 12), "Press any key to start the game.", font=ImageFont.truetype(FONT, 28), fill=(255, 230, 90))
 	return image
 
@@ -105,19 +105,19 @@ class PathologicalInputTests(unittest.TestCase):
 		# 前処理が軽い大きさ(1280x300)で、起動済みTesseractが期限でkillされ回収されることを検証する
 		self.assert_times_out_then_recovers(noise_image(1280, 300), expect_launch=True)
 
-	def test_full_frame_random_noise_is_cut_off_at_the_deadline(self) -> None:
-		# 1920x1080のノイズは前処理(メディアン)だけで期限の大半を使う。Tesseract起動前に期限切れでもよい
-		self.assert_times_out_then_recovers(noise_image(1920, 1080), expect_launch=False)
+	def test_maximum_roi_random_noise_is_cut_off_at_the_deadline(self) -> None:
+		# 上限寸法のノイズは前処理(メディアン)だけで期限の大半を使う。Tesseract起動前に期限切れでもよい
+		self.assert_times_out_then_recovers(noise_image(1280, 300), expect_launch=False)
 
-	def test_full_frame_colour_noise_is_cut_off_at_the_deadline(self) -> None:
-		self.assert_times_out_then_recovers(noise_image(1920, 1080, "RGB"), expect_launch=False)
+	def test_maximum_roi_colour_noise_is_cut_off_at_the_deadline(self) -> None:
+		self.assert_times_out_then_recovers(noise_image(1280, 300, "RGB"), expect_launch=False)
 
-	def test_oversized_complex_full_screen_is_cut_off_without_leftovers(self) -> None:
-		# 製品の既定期限(2.0秒)では全画面の縞背景は終わらない。ここでは短い期限で必ず打ち切られることを確認する
+	def test_maximum_roi_complex_background_is_cut_off_without_leftovers(self) -> None:
+		# 上限ROIの縞背景が期限で打ち切られても、子プロセスやスレッドが残らない
 		engine = RobustTesseractOcrEngine(language="eng", min_confidence=0.45, deadline_seconds=0.3)
 		started = time.monotonic()
 		with self.assertRaises(OcrTimeoutError):  # 前処理で期限を使い切るか、Tesseractがkillされるかのどちらか
-			engine.recognize(Frame(image=striped_full_screen(), captured_at=0.0))
+			engine.recognize(Frame(image=striped_maximum_roi(), captured_at=0.0))
 		self.assertLess(time.monotonic() - started, HANG_WATCHDOG)
 		self.assert_nothing_left_behind()
 
@@ -144,10 +144,10 @@ class PipelineAfterTimeoutTests(PipelineCase):
 		before = set(child_processes())
 		server = self.make_server(ocr=ocr)
 		session, websocket = self.open_session(server)
-		noise = noise_image(1920, 1080)
+		noise = noise_image(1280, 300)
 		noise_png = png(noise)
 		self.assertLess(len(noise_png), 4 * 1024 * 1024)  # ROIの符号化後上限内の、正当な入力であること
-		case: dict[str, Any] = {"width": 1920, "height": 1080}
+		case: dict[str, Any] = {"width": 1280, "height": 300}
 		websocket.send(frame_message(session, 1, case, noise_png))
 		failure = read_until(websocket, lambda m: m["type"] == "error" and m.get("frame_id") == 1, overall_timeout=60)[-1]
 		self.assertEqual(failure["code"], "OCR_TIMEOUT")

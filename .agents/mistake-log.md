@@ -167,3 +167,10 @@
 - 正しいやり方: `.github/workflows/`でrequired checkが実行するworkflow・job・コマンド・作業ディレクトリ・mountを確認し、対象assertionがその経路で実行されると確かめる。実行後はログにテスト名と期待するassertion失敗があることを読み戻す。
 - 発生回数: 2
 - guard: guard-ci-test-selection
+
+## 2026-11-07 上限mutationで許容境界の例外をassertion失敗として扱えなかった
+- 何が起きたか: 上限を1下げるmutationで有効境界が例外を送出し、期待するassertion失敗ではなくテストerrorになった。validatorとOCR engineの2箇所で再発した。
+- 根本原因: mutation対象によって期待結果が逆転する境界テストを、例外コンテキストのまま記述した。
+- 正しいやり方: 受理/拒否を真偽値に変換して期待値と比較し、mutationごとに対象テストがassertionで失敗したことを確認する。
+- 発生回数: 2
+- guard: guard-roi-boundary-mutation-tests
