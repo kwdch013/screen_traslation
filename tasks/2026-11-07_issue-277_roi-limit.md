@@ -20,5 +20,6 @@
 - Mutation: frame metadata width/height、stream result width/height、OpenAPI画素上限の削除、JSON Schema maximum削除の6種類を静的契約チェックで検出。
 - `python3 -B -m py_compile src/tests/test_api_contract_schemas.py`、契約JSONの標準ライブラリparse、`git diff --check`は成功。
 - `python3 -B -m unittest src.tests.test_api_contract_schemas -v`は実行したが、ホストに`jsonschema`が無いため全テストが依存import errorで終了。dotnetも未導入。Docker build/testは禁止条件により未実施し、C#と契約統合検証はpush後のCIで確認する。
-- CI結果: 初回はC#契約validatorの旧上限で`contracts`と`windows-client`が失敗。2回目はPython回帰テストのfixture反復誤りで`web`、高さ320pxの既存受信結果fixtureで`contracts`が失敗。3回目はテストROIと古い物理座標期待値の不一致で`contracts`が失敗。4回目はシナリオfixtureのROI高さ320pxで`contracts`が失敗。5回目はAppWiringの再選択ROI高さ320pxで`contracts`が失敗。最終確認後に更新する。
+- 追加したWindows結合fixtureの高さ320pxが新しいROI契約を超えて送信されず、`WindowButtons_ConnectSelectStartReceiveOverlayStop_ThroughTheRealHostTransportAndOverlayWindow`が失敗した。ROI寸法とOverlayResultMapper fixtureを契約内の640×280へ修正した。続くビルドで不足していた`ScreenTranslation.Client.Geometry` usingも追加した。
+- 最終CI (`994a5d449c6c58068d174c420642eb3367e3a32a`): `test`、`windows-client`、`contracts`、`server`、`web`、`analyze-csharp`、`analyze-python`、`gate` はすべて成功。CodeQLはworkflow条件でskip。AI Review Gateは独立レビュー待ち。
 - `1920x1080` / `2,073,600` の残存箇所はROI上限変更前の測定履歴、OCR前処理測定、画面・モニター例、または後続T-b/T-cの実装対象。拡大後画像の4,000,000画素上限は変更していない。
