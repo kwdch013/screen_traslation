@@ -112,8 +112,11 @@ public sealed class FrameProcessorTests
 	[Theory]
 	[InlineData(63, 32, FrameRejectReason.RegionTooSmall)]
 	[InlineData(64, 31, FrameRejectReason.RegionTooSmall)]
-	[InlineData(1921, 100, FrameRejectReason.RegionTooLarge)]
-	[InlineData(100, 1081, FrameRejectReason.RegionTooLarge)]
+	[InlineData(1281, 300, FrameRejectReason.RegionTooLarge)]
+	[InlineData(1281, 299, FrameRejectReason.RegionTooLarge)]
+	[InlineData(1280, 301, FrameRejectReason.RegionTooLarge)]
+	[InlineData(1000, 301, FrameRejectReason.RegionTooLarge)]
+	[InlineData(1500, 260, FrameRejectReason.RegionTooLarge)]
 	public void RoiOutsideContractLimitsIsRejectedWithoutResizing(int width, int height, FrameRejectReason reason)
 	{
 		var encoder = new RecordingEncoder();
@@ -124,12 +127,16 @@ public sealed class FrameProcessorTests
 		Assert.Equal(FrameProcessingKind.Rejected, result.Kind);
 		Assert.Equal(reason, result.RejectReason);
 		Assert.Contains("選び直して", result.Message);
+		if (reason == FrameRejectReason.RegionTooLarge)
+		{
+			Assert.Contains("384,000", result.Message, StringComparison.Ordinal);
+		}
 		Assert.Equal(0, encoder.Calls);
 	}
 
 	[Theory]
 	[InlineData(64, 32)]
-	[InlineData(1920, 1080)]
+	[InlineData(1280, 300)]
 	public void RoiBoundaryValuesAreAccepted(int width, int height)
 	{
 		var result = new FrameProcessor(new RecordingEncoder(), 2).Process(Frame(Screen()), Roi(0, 0, width, height));

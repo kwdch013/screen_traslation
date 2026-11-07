@@ -1,6 +1,6 @@
 ---
 name: guard-roi-boundary-mutation-tests
-description: ROIやサイズ上限の境界値テストを作成・mutation検証する前に参照する。受理境界を下げたmutationが未捕捉の例外errorとなり、検出状況を誤認する再発を防ぐ。
+description: ROIやサイズ上限の境界値テストを作成・mutation検証する前に参照する。例外errorの誤認と、他の上限に遮られて個別寸法のmutationが未検出になる再発を防ぐ。
 ---
 
 # ROI境界テストのmutation確認
@@ -8,10 +8,13 @@ description: ROIやサイズ上限の境界値テストを作成・mutation検�
 ## 背景
 - 2026-11-07、上限を1下げるmutationで`assertRaises`を使った境界テストが例外errorになり、assertion失敗として数えられなかった。
 - 同じ根本原因がROI validatorとOCR engineの両方で発生した。
+- 2026-11-07 Issue #279、1281×300が幅上限と面積上限の両方を超えるため、幅上限だけを緩めるmutationが他方の条件で隠れた。高さ上限でも同じ関係がある。
 
 ## 守ること
 - 受理/拒否の期待値は、検証関数の例外を真偽値へ変換して`assertEqual(actual, expected)`で比較する。境界を1下げたときもテストerrorではなくassertion failureになることを確認する。
 - 幅・高さ・総画素数それぞれに対して、上限値と±1のケースを含める。幅・高さの独立上限を検査する例では、もう片方の値を十分小さくし、画素上限に先に達しないようにする。
+- 幅上限の超過は高さを小さく、高さ上限の超過は幅を小さくし、別の条件が先に拒否しないテストケースにする。各寸法の上限値そのものも期待値として検査する。
+- 幅・高さの積が面積上限と一致する仕様では面積超過が寸法超過と同時に起きる。独立した面積mutationは上限定数の期待値でも検出する。
 - 上限定数を契約(OpenAPI/Schema/fixture)と照合し、コードの値と契約の値が一緒に変わるmutationも検出する。
 - Mutationとして数えるのは、対象テストが実行され、期待したassertion failureが出た場合だけとする。ImportError、tests 0件、予期しない例外は検出成功とみなさない。
 

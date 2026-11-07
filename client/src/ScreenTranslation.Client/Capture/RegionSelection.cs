@@ -14,9 +14,9 @@ public sealed class RegionSelection
 {
 	public const int MinimumWidth = 64;
 	public const int MinimumHeight = 32;
-	public const int MaximumWidth = 1920;
-	public const int MaximumHeight = 1080;
-	public const long MaximumPixels = 2_073_600;
+	public const int MaximumWidth = 1280;
+	public const int MaximumHeight = 300;
+	public const long MaximumPixels = 384_000;
 
 	private readonly Dictionary<string, MonitorContext> monitors;
 
@@ -33,6 +33,26 @@ public sealed class RegionSelection
 	public RegionSelectionState State { get; private set; } = RegionSelectionState.Selecting;
 	public Rect2D? SelectedRegion { get; private set; }
 	public ulong Generation { get; private set; }
+
+	public static string? GetSizeErrorMessage(Rect2D roi)
+	{
+		if (!roi.IsValid)
+		{
+			return "ROIの幅と高さを確認してください。";
+		}
+
+		if (roi.Width < MinimumWidth || roi.Height < MinimumHeight)
+		{
+			return "ROIは64×32 px以上にしてください。";
+		}
+
+		if (roi.Width > MaximumWidth || roi.Height > MaximumHeight || roi.Width * roi.Height > MaximumPixels)
+		{
+			return "ROIが上限（幅1280 px・高さ300 px・面積384,000画素）を超えています。";
+		}
+
+		return null;
+	}
 
 	public bool TrySelect(Rect2D roi)
 	{
@@ -72,9 +92,7 @@ public sealed class RegionSelection
 		State = RegionSelectionState.Invalidated;
 	}
 
-	private static bool IsWithinLimits(Rect2D roi) =>
-		roi.IsValid && roi.Width >= MinimumWidth && roi.Height >= MinimumHeight &&
-		roi.Width <= MaximumWidth && roi.Height <= MaximumHeight && roi.Width * roi.Height <= MaximumPixels;
+	private static bool IsWithinLimits(Rect2D roi) => GetSizeErrorMessage(roi) is null;
 
 	private void AdvanceGeneration()
 	{

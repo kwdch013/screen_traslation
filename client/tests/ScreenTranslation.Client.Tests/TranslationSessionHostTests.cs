@@ -164,7 +164,7 @@ public sealed class TranslationSessionHostTests
 		f.EmitFrame(seed: 2);
 		var hides = f.Surface.HideCount;
 
-		Assert.True(f.Host.SelectRegion(new Geometry.Rect2D(1100, 100, 1540, 420)));
+		Assert.True(f.Host.SelectRegion(new Geometry.Rect2D(1100, 100, 1540, 400)));
 		f.Transport.SendGate = null;
 		f.Now += Second;
 		Assert.Equal(CapturePipelineOutcome.Submitted, f.EmitFrame(seed: 3));
@@ -183,7 +183,7 @@ public sealed class TranslationSessionHostTests
 		await f.StartStreamingAsync();
 		var route = f.Session.BeginFrame()!.Value;
 
-		Assert.True(f.Host.SelectRegion(new Geometry.Rect2D(1100, 100, 1540, 420)));
+		Assert.True(f.Host.SelectRegion(new Geometry.Rect2D(1100, 100, 1540, 400)));
 
 		Assert.Equal(CapturePipelineOutcome.StaleGeneration, f.Session.Deliver(TestScreens.Capture(Display.Bounds, f.Now), route));
 	}
@@ -368,7 +368,7 @@ public sealed class TranslationSessionHostTests
 		await entered.Task.WaitAsync(TimeSpan.FromSeconds(20));
 
 		// 旧世代のframe_id=1が結果採否の記録より前で止まっている間に再選択する
-		Assert.True(f.Host.SelectRegion(new Geometry.Rect2D(1100, 100, 1540, 420)));
+		Assert.True(f.Host.SelectRegion(new Geometry.Rect2D(1100, 100, 1540, 400)));
 		release.Set();
 		f.Now += Second;
 		Assert.Equal(CapturePipelineOutcome.Submitted, f.EmitFrame(seed: 2));

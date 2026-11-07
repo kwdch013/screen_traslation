@@ -80,7 +80,9 @@ public sealed class WindowsRegionSelectionOverlay
 			Content = canvas;
 			hint = new TextBlock
 			{
-				Text = "ドラッグして領域を選択 · Escで取消",
+				Text = "字幕帯に合わせて選択してください (64×32～1280×300 px・384,000画素以下) · Escで取消",
+				TextWrapping = TextWrapping.Wrap,
+				MaxWidth = Math.Max(100, Width - 32),
 				Foreground = Brushes.White,
 				Background = new SolidColorBrush(Color.FromArgb(180, 20, 20, 20)),
 				Padding = new Thickness(12),
@@ -175,11 +177,10 @@ public sealed class WindowsRegionSelectionOverlay
 			var region = new Rect2D(
 				Math.Min(startPhysical.X, endPhysical.X), Math.Min(startPhysical.Y, endPhysical.Y),
 				Math.Max(startPhysical.X, endPhysical.X), Math.Max(startPhysical.Y, endPhysical.Y));
-			if (region.Width < RegionSelection.MinimumWidth || region.Height < RegionSelection.MinimumHeight ||
-				region.Width > RegionSelection.MaximumWidth || region.Height > RegionSelection.MaximumHeight ||
-				region.Width * region.Height > RegionSelection.MaximumPixels)
+			var sizeError = RegionSelection.GetSizeErrorMessage(region);
+			if (sizeError is not null)
 			{
-				hint.Text = "領域サイズは64×32～1920×1080 pxです。Escで取消できます。";
+				hint.Text = $"{sizeError} 字幕帯に合わせて狭めて選び直してください。Escで取消できます。";
 				return;
 			}
 			SelectionCompleted?.Invoke(region);

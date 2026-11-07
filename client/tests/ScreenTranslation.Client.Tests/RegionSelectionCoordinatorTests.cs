@@ -30,6 +30,18 @@ public sealed class RegionSelectionCoordinatorTests
 	}
 
 	[Fact]
+	public async Task RejectedOversizeRoiCanBeNarrowedAndCommitted()
+	{
+		var coordinator = CreateSelectingCoordinator();
+
+		Assert.False(coordinator.OnCommit(new Rect2D(0, 0, 1281, 300)));
+		Assert.False(coordinator.Completion.IsCompleted);
+		Assert.True(coordinator.OnCommit(new Rect2D(0, 0, 1280, 300)));
+
+		Assert.Equal(new Rect2D(0, 0, 1280, 300), await coordinator.Completion);
+	}
+
+	[Fact]
 	public async Task DpiNotificationDuringInitialPlacementIsIgnored()
 	{
 		var coordinator = CreateCoordinator();
@@ -97,6 +109,18 @@ public sealed class RegionSelectionCoordinatorTests
 		Assert.DoesNotContain("TaskCompletionSource", source, StringComparison.Ordinal);
 		Assert.DoesNotContain("TrySetResult", source, StringComparison.Ordinal);
 		Assert.DoesNotContain("TrySetException", source, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void WindowsOverlayExplainsRoiLimitAndSubtitleBandReselectionInJapanese()
+	{
+		var source = ReadOverlaySource();
+
+		Assert.Contains("1280×300", source, StringComparison.Ordinal);
+		Assert.Contains("384,000", source, StringComparison.Ordinal);
+		Assert.Contains("字幕帯", source, StringComparison.Ordinal);
+		Assert.Contains("狭めて選び直", source, StringComparison.Ordinal);
+		Assert.DoesNotContain("1920×1080", source, StringComparison.Ordinal);
 	}
 
 	private static RegionSelectionCoordinator CreateCoordinator() => new([Monitor]);

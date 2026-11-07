@@ -6,7 +6,7 @@ namespace ScreenTranslation.Client.Tests;
 
 public sealed class OverlayLayoutTests
 {
-	private static readonly Rect2D Roi = new(-1920, 200, -960, 800);
+	private static readonly Rect2D Roi = new(-1920, 200, -960, 500);
 
 	[Theory]
 	[InlineData(96u, -1820, 250, -1720, 290, 100, 50, 200, 90)]
@@ -30,8 +30,8 @@ public sealed class OverlayLayoutTests
 	[Fact]
 	public void ToLogicalSize_UsesSameRounding()
 	{
-		Assert.Equal((640, 400), OverlayLayout.ToLogicalSize(Roi, 144));
-		Assert.Equal((480, 300), OverlayLayout.ToLogicalSize(Roi, 192));
+		Assert.Equal((640, 200), OverlayLayout.ToLogicalSize(Roi, 144));
+		Assert.Equal((480, 150), OverlayLayout.ToLogicalSize(Roi, 192));
 	}
 
 	[Fact]
