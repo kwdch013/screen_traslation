@@ -144,6 +144,20 @@ public sealed class CaptureSendPipelineTests
 	}
 
 	[Fact]
+	public void OversizedRoiIsRejectedBeforeItCanReachTheSender()
+	{
+		var h = new Harness();
+		h.Pipeline.BeginSession(SessionId, 1, 1);
+		var frame = new CapturedFrame(1500, 400, 6000, new byte[1500 * 400 * 4], 5_000_000_000);
+
+		var outcome = h.Pipeline.OnCaptured(frame, new Rect2D(0, 0, 1281, 299), 1);
+
+		Assert.Equal(CapturePipelineOutcome.Rejected, outcome);
+		Assert.False(h.Pipeline.HasPending);
+		Assert.Empty(h.Transport.Sent);
+	}
+
+	[Fact]
 	public async Task DictionaryRevisionUpdateKeepsGenerationFrameIdAndPendingImage()
 	{
 		var h = new Harness();

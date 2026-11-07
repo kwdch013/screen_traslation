@@ -12,14 +12,43 @@ public sealed class RegionSelectionTests
 	[Theory]
 	[InlineData(0, 0, 64, 32, true)]
 	[InlineData(0, 0, 63, 32, false)]
-	[InlineData(0, 0, 1921, 1080, false)]
-	[InlineData(0, 0, 1920, 1081, false)]
-	[InlineData(0, 0, 1920, 1080, true)]
+	[InlineData(0, 0, 1280, 300, true)]
+	[InlineData(0, 0, 1281, 300, false)]
+	[InlineData(0, 0, 1281, 299, false)]
+	[InlineData(0, 0, 1280, 301, false)]
+	[InlineData(0, 0, 1000, 301, false)]
+	[InlineData(0, 0, 1500, 260, false)]
 	public void SelectionValidatesDimensionAndPixelArea(int left, int top, int right, int bottom, bool expected)
 	{
 		var selection = new RegionSelection([Primary]);
 		Assert.Equal(expected, selection.TrySelect(new Rect2D(left, top, right, bottom)));
 		Assert.Equal(expected ? RegionSelectionState.Selected : RegionSelectionState.Selecting, selection.State);
+	}
+
+	[Fact]
+	public void OversizedSelectionRemainsSelectableAfterRejectedAttempt()
+	{
+		var selection = new RegionSelection([Primary]);
+
+		Assert.False(selection.TrySelect(new Rect2D(0, 0, 1281, 300)));
+		Assert.Equal(RegionSelectionState.Selecting, selection.State);
+		Assert.True(selection.TrySelect(new Rect2D(0, 0, 1280, 300)));
+		Assert.Equal(RegionSelectionState.Selected, selection.State);
+	}
+
+	[Theory]
+	[InlineData(1281, 300)]
+	[InlineData(1280, 301)]
+	[InlineData(1500, 260)]
+	public void OversizedSelectionProvidesJapaneseReselectionReason(int width, int height)
+	{
+		var message = RegionSelection.GetSizeErrorMessage(new Rect2D(0, 0, width, height));
+
+		Assert.NotNull(message);
+		Assert.Contains("1280", message, StringComparison.Ordinal);
+		Assert.Contains("300", message, StringComparison.Ordinal);
+		Assert.Contains("384,000", message, StringComparison.Ordinal);
+		Assert.Contains("上限", message, StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -41,6 +70,14 @@ public sealed class RegionSelectionTests
 		Assert.Null(selection.SelectedRegion);
 		Assert.Equal(RegionSelectionState.Cancelled, selection.State);
 		Assert.Equal(selectedGeneration + 1, selection.Generation);
+	}
+
+	[Fact]
+	public void MaximumPixelLimitMatchesRevisedContract()
+	{
+		Assert.Equal(1280, RegionSelection.MaximumWidth);
+		Assert.Equal(300, RegionSelection.MaximumHeight);
+		Assert.Equal(384_000, RegionSelection.MaximumPixels);
 	}
 
 	[Fact]

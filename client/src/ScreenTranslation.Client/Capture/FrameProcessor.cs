@@ -127,14 +127,15 @@ public sealed class FrameProcessor
 			return FrameProcessingResult.Rejected(FrameRejectReason.RegionOutOfBounds, $"ROIが取得画像の範囲外です。{ReselectGuidance}");
 		}
 
-		if (roi.Width < RegionSelection.MinimumWidth || roi.Height < RegionSelection.MinimumHeight)
+		var sizeError = RegionSelection.GetSizeErrorMessage(roi);
+		if (sizeError is not null && (roi.Width < RegionSelection.MinimumWidth || roi.Height < RegionSelection.MinimumHeight))
 		{
-			return FrameProcessingResult.Rejected(FrameRejectReason.RegionTooSmall, $"ROIは64×32 px以上にしてください。{ReselectGuidance}");
+			return FrameProcessingResult.Rejected(FrameRejectReason.RegionTooSmall, $"{sizeError}{ReselectGuidance}");
 		}
 
-		if (roi.Width > RegionSelection.MaximumWidth || roi.Height > RegionSelection.MaximumHeight)
+		if (sizeError is not null)
 		{
-			return FrameProcessingResult.Rejected(FrameRejectReason.RegionTooLarge, $"ROIは1920×1080 px以下にしてください。{ReselectGuidance}");
+			return FrameProcessingResult.Rejected(FrameRejectReason.RegionTooLarge, $"{sizeError}{ReselectGuidance}");
 		}
 
 		return null;

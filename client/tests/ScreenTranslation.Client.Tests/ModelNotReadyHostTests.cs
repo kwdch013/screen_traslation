@@ -291,7 +291,7 @@ public sealed class ModelNotReadyHostTests
 		await using var r = new Rig();
 		await r.StartAndSendFirstFrameAsync();
 		await r.PauseAsync();
-		Assert.True(r.F.Host.SelectRegion(new Rect2D(1100, 100, 1500, 420)));
+		Assert.True(r.F.Host.SelectRegion(new Rect2D(1100, 100, 1500, 400)));
 		Assert.Equal(2UL, r.F.Host.Generation);
 		Assert.True(r.F.Host.IsWaitingForServer);
 		r.Probe.Enqueue(ServerReadinessResult.Ready);

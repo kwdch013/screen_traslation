@@ -225,7 +225,7 @@ internal sealed class FakeGrantProvider : ISessionGrantProvider
 
 internal sealed class FakeRegionSelector : IRegionSelector
 {
-	public Rect2D? Result = new Rect2D(1100, 100, 1740, 420);
+	public Rect2D? Result = new Rect2D(1100, 100, 1740, 400);
 	public Exception? Error;
 	public TaskCompletionSource? Gate;
 	public int Count;
