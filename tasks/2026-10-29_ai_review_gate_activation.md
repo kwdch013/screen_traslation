@@ -105,3 +105,41 @@ Ownerは2026-10-29のセッションで「develop→mainのリリースとRulese
 - 変更前snapshotはgit管理外の `tmp/issue-118/stage-a/`。repo・Ruleset・main/develop SHAを停止時に再取得し、設定変更・共有branch反映がないことを照合する。
 
 Issue #118は6受入条件が未完了のためOpen・in-progressとClaimを維持し、Draft PR #119は解除しない。調査・計画の文書は最新化したが、受入条件未充足のため実際のmerge準備完了とは扱わない。repo設定変更・Ruleset変更・default branch反映・required化・直接push・全PRのmergeは未実施。後続の操作はこの停止報告後に進める。
+
+## 2026-11-07: required化とGitHub実証の継続結果
+
+- Issue: #118。PR: #119 (`develop`向け、作業中HEADは後続commitで更新)。今回の担当Work Unit: `7c861f1a-dbf8-46c0-88e4-c0ff66fd4ff5`。Ruleset/repository設定は読み戻しのみで追加変更なし。
+- 現在のdefault branchは`develop`。PR #275 / Issue #274は2026-11-07 14:50:14 UTCにmerge済み。信頼済みworkflow/scriptを含むdevelop HEADは当時 `83979279d203150eed8091a96eccc2ac704fe00a`。
+- Ruleset API読み戻し: `protect-develop` ID `19132355` は `refs/heads/develop`、required `test` + `AI Review Gate`、strict=true、squashのみ。`protect-main` ID `26752581` は `refs/heads/main`、required `test`のみ、strict=true、merge commitのみ。両方active、PR必須・削除禁止・force push禁止、bypassなし。保存先はgit管理外の `tmp/ruleset-develop-before-118.json` と `tmp/ruleset-develop-after-118.json`。
+- repository設定はsquash=true、merge commit=true、rebase=false、自動branch削除=true。Ruleset実変更はOwner承認済みの別操作としてすでに完了しており、この継続作業では触れていない。
+- mainにはAI Review Gate workflow/status発行を反映しておらず、main上のGate実績もないため、`AI Review Gate` をmainのrequiredにはしない。mainはrelease PRをmerge commitで統合する用途のため、developへのrequired化結果を先取りしない。
+
+### GitHub上のstatusと統合結果
+
+| PR | HEAD | AI Review Gate | `test` / CI | GitHubの統合結果 |
+| --- | --- | --- | --- | --- |
+| #275 (#274) | `823a916f02e86187b5faec226f58f1ce20432c02` | run [42382650459](https://github.com/kwdch013/screen_traslation/actions/runs/42382650459) success。statusもsuccess | run [42382075323](https://github.com/kwdch013/screen_traslation/actions/runs/42382075323) success | required Gate + test成功後、2026-11-07 14:50:14 UTCにsquash merge。merge SHA `83979279d203150eed8091a96eccc2ac704fe00a` |
+| #269 Dependabot | `8977602ea22299e6c0843e99c099cef240877634` | run [42383837601](https://github.com/kwdch013/screen_traslation/actions/runs/42383837601) success。status `AI Review Gate=success`、説明「AI Review 対象外: Dependabot。人手で確認して merge」 | run [42383836734](https://github.com/kwdch013/screen_traslation/actions/runs/42383836734) の全jobと`test` success | CI完了後 `mergeStateStatus=CLEAN`。差分人手確認済みのため2026-11-07 15:02:11 UTCにsquash merge。merge SHA `29f6545be979da4590aa2c61eff98f4a3ba6587f` |
+| #268 / #270 / #273 | 各PRのlatest HEAD | status success | `test` success | `BEHIND`のため受理証明に使わない |
+| #271 / #272 | 各PRのlatest HEAD | status success | `test` failure | CI拒否の証拠であり、AI Review Gate拒否の証拠ではない |
+
+#269では `@dependabot rebase` 後のHEAD `8977602...` にGate statusが発行され、Ruleset required、CI `test` success、GitHub `CLEAN` の順に確認してmergeした。Dependabot-only更新をrequired Gateで受理できる経路の実証となった。statusは `commits/8977602ea22299e6c0843e99c099cef240877634/status` APIで、workflow runとは別に読み戻した。
+
+### 未充足の受入条件
+
+- required化前後それぞれの5ケース全ては実施していない。Contributor自身承認、古いHEAD、Gate success + CI failure、正常な通常PRの4パターンを同一規律で実証できていない。
+- required化後、Draft・BEHIND・CI未完了と区別した「未承認の通常PR」のGate status pending/failureと`mergeStateStatus=BLOCKED`を、同一HEAD・Ruleset下で同時に示す証跡がない。
+- #269の受理証明はDependabot-onlyの例外経路であり、通常PRの独立承認+CI成功による受理と同一視しない。
+- 完了条件に足りない実証は、独立した検証Issueに紐づく最小のTask/PRで行う案を残す。今回そのTask/PRは起票・作成していない。
+
+### ローカル確認
+
+```bash
+python3 -m unittest discover -s src/tests -p 'test_ai_review_gate_documentation.py' -v
+python3 -m unittest discover -s src/tests -p 'test_development_branch.py' -v
+python3 -m py_compile src/tests/test_ai_review_gate_documentation.py
+```
+
+- 文書確認テスト2件成功、既存branch文書テスト2件成功、py_compile成功。文書テストは実装前に2件失敗することを確認してから文書を更新した。
+- `ruff` はホストに未導入で実行不可。Docker buildは禁止条件のため、コンテナテストは実施していない。
+- `git diff --check` は末尾の余分な空行を除去後に成功を確認した。
