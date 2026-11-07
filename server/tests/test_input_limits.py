@@ -4,9 +4,13 @@ import unittest
 from pathlib import Path
 
 from PIL import Image
+import yaml
 
 from screen_translation_server.api.input_limits import (
 	InputLimitError,
+	ROI_MAX_HEIGHT,
+	ROI_MAX_PIXELS,
+	ROI_MAX_WIDTH,
 	parse_binary_message,
 	read_limited_body,
 	validate_binary_frame_size,
@@ -70,12 +74,45 @@ class InputLimitTests(unittest.TestCase):
 				parse_binary_message(invalid)
 
 	def test_roi_limits_include_each_dimension_and_total_pixels(self) -> None:
-		for width, height in ((64, 32), (1920, 1080)):
-			validate_roi(width, height)
-		for width, height in ((63, 32), (64, 31), (1921, 32), (64, 1081), (1920, 1080)):
-			if width * height > 2_073_600 or width > 1920 or height > 1080 or width < 64 or height < 32:
-				with self.subTest(width=width, height=height), self.assertRaises(InputLimitError):
+		for width, height, expected in (
+			(64, 32, True), (1280, 300, True),
+			(63, 32, False), (64, 31, False), (1281, 32, False),
+			(64, 301, False), (1281, 300, False), (1280, 301, False),
+		):
+			accepted = True
+			try:
+				validate_roi(width, height)
+			except InputLimitError:
+				accepted = False
+			with self.subTest(width=width, height=height):
+				self.assertEqual(accepted, expected)
+
+	def test_roi_boundary_matches_contract_compatibility_fixtures(self) -> None:
+		fixture = json.loads((self.contracts / "fixtures/compatibility.json").read_text(encoding="utf-8"))
+		cases = {case["id"]: case for case in fixture["cases"]}
+		for name, width, height, expected in (
+			("frame-valid-maximum", 1280, 300, True),
+			("stream-result-width-too-large", 1281, 300, False),
+			("frame-area-too-large", 1280, 301, False),
+		):
+			case = cases[name]
+			self.assertEqual(case["expected"] == "accept", expected)
+			value = case["value"]
+			self.assertEqual((value["image_width"], value["image_height"]), (width, height))
+			with self.subTest(case=name):
+				accepted = True
+				try:
 					validate_roi(width, height)
+				except InputLimitError:
+					accepted = False
+				self.assertEqual(accepted, expected)
+
+	def test_roi_limit_constants_match_openapi_contract(self) -> None:
+		openapi = yaml.safe_load((self.contracts / "openapi.yaml").read_text(encoding="utf-8"))
+		limits = openapi["paths"]["/api/v1/stream"]["get"]["x-websocket"]["binaryMessage"]
+		self.assertEqual((ROI_MAX_WIDTH, ROI_MAX_HEIGHT, ROI_MAX_PIXELS), (
+			limits["maximumImageWidth"], limits["maximumImageHeight"], limits["maximumImagePixels"],
+		))
 
 	def test_image_size_type_and_real_format_are_checked(self) -> None:
 		from io import BytesIO

@@ -7,12 +7,20 @@
 - 発生回数: 1
 - guard: なし
 
+## 2026-11-07 WSS上限テストのSessionManagerへsleep依存を渡し忘れた
+- 何が起きたか: 新規WSSテストがSessionManagerを必須の`sleep`引数なしで構築し、コンテナ実行時にテスト本体へ入る前に失敗した。
+- 根本原因: テスト用fixtureの生成時に対象クラスの必須引数と既存テストの初期化例を確認しなかった。
+- 正しいやり方: テスト用依存を構築する前にコンストラクター定義と既存fixtureを読み、対象コンテナで新規テスト名・件数まで確認する。
+- 発生回数: 1
+- guard: なし
+
 ## 2026-10-31 パッチ適用後のPythonインデントを確認せず実行した
 - 何が起きたか: `pipeline/__init__.py` に例外callbackとrate-limit処理を追加した際、Tabインデントが1段深くなり、対象テストがimport時に2回失敗した。また`app.py`の認証監視taskをsession分岐内に置き、session未開始WebSocketでfinallyが失敗した。該当ブロックを修正した。
 - 根本原因: patch適用時の周辺コンテキストを読み戻さず、タブ数が期待どおり変わったと思い込んだ。
 - 正しいやり方: Pythonの構造変更後は親/子/隣接分岐を含む関数全体を行番号付きで読み戻し、py_compile・Ruff・Composeでimportと対象テストを確認する。
-- 発生回数: 3
+- 発生回数: 5
 - guard: guard-python-indent-after-patch
+- 2026-11-07の再発: `test_ocr_quality.py`の`try/except`を追加したパッチで`except`と後続assertionのTab深度が浅くなり、py_compileがSyntaxErrorを検出した。プロジェクトローカルguardを追加し、exceptのtryとの同深度と親関数の継続をpy_compile前に確認するよう明記した。
 
 ## 2026-10-31 unittest対象テストのモジュール指定を誤った
 - 何が起きたか: packageではない`tests`をモジュール名として指定し、コンテナ内の対象テスト実行がimport errorになった。Issue #79継続中にも再発し、unittest discoveryで再実行した。
@@ -21,6 +29,7 @@
 - 発生回数: 3
 - guard: guard-container-unittest-discovery
 - 2026-11-07の再発: ホスト側のpackageではないテストをモジュール名で直接指定し、`ModuleNotFoundError`になった。discover形式へ切り替えた後、対象テストが実行され期待どおりassertionでRedになった。guardの適用対象がComposeに限定されていたため、descriptionと手順をホスト実行にも広げる。
+- 2026-11-07の再発: mutation補助スクリプトから`test_input_limits`をプロジェクトルートで直接importし、探索先不在で`ModuleNotFoundError`になった。guardのdescriptionと手順を補助スクリプトにも広げた。テストdirectoryを明示し、同じmutationを再実行する。
 
 ## 2026-10-30 .NETビルド生成物をindexへ追加しかけた
 - 何が起きたか: `client/src`・`client/tests`をディレクトリ単位でstageし、Container buildでworktreeへ生成された`bin/obj`を一時的にindexへ追加した。コミット前の差分確認で検出し、indexを戻して生成物を外した。
@@ -167,3 +176,10 @@
 - 正しいやり方: 文書を含まない実行環境では文書検査をskipし、ホスト側のリポジトリで文書テストを実行する。CI用イメージの実際の配置を事前に確認する。
 - 発生回数: 1
 - guard: なし
+
+## 2026-11-07 上限mutationで許容境界の例外をassertion失敗として扱えなかった
+- 何が起きたか: 上限を1下げるmutationで有効境界が例外を送出し、期待するassertion失敗ではなくテストerrorになった。validatorとOCR engineの2箇所で再発した。
+- 根本原因: mutation対象によって期待結果が逆転する境界テストを、例外コンテキストのまま記述した。
+- 正しいやり方: 受理/拒否を真偽値に変換して期待値と比較し、mutationごとに対象テストがassertionで失敗したことを確認する。
+- 発生回数: 2
+- guard: guard-roi-boundary-mutation-tests

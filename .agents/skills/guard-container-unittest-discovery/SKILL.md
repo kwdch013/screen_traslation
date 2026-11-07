@@ -1,6 +1,6 @@
 ---
 name: guard-container-unittest-discovery
-description: Composeコンテナまたはホストでunittestの一部または全部を実行する前に必ず参照する。テスト配置先を確認せずimport名を直接指定してImportErrorになる誤りを繰り返したため、正しいdiscover形式と実行結果の判定方法を定める。
+description: Composeコンテナまたはホストでunittestを実行・補助スクリプトから読み込む前に必ず参照する。テスト配置先を確認せずimport名を直接指定してImportErrorになる誤りを繰り返したため、正しいdiscover形式と実行結果の判定方法を定める。
 ---
 
 # unittest実行の再発防止
@@ -8,6 +8,7 @@ description: Composeコンテナまたはホストでunittestの一部または�
 ## 背景
 - 2026-10-30と2026-10-31に、Compose内に存在しないホスト側のテストモジュール名を直接指定し、テストがimportされず失敗した。
 - 2026-11-07に、ホスト側でpackageではないテストをモジュール名で直接指定し、import errorになった。`unittest discover`に切り替えて対象テストが実行されたことを確認した。
+- 2026-11-07に、プロジェクトルートからmutation補助スクリプトで`test_input_limits`を直接importし、テスト探索先が`sys.path`にないため`ModuleNotFoundError`になった。
 - 根本原因: Composeの作業ディレクトリとテストの配置先を確認せず、ホスト上のPython import pathがコンテナにもあると思い込んだ。
 
 ## 守ること
@@ -17,11 +18,13 @@ description: Composeコンテナまたはホストでunittestの一部または�
 - テスト名も限定するときは`-k '<test name>'`を追加する。コンテナ内にpackageがあると確認できない限り、`python -m unittest <module>`を使わない。
 - Compose内の限定実行でもdiscover形式を崩さず、コマンドを打つ前に`docker compose ... run --rm <service> python -B -m unittest discover -s <container test dir> -p '<file>.py' -k '<test name>'`の形を確認する。
 - ホスト側でもテストディレクトリがPython packageであると確認できない限りモジュール名を指定しない。対象ファイルは`python3 -m unittest discover -s <test dir> -p '<file>.py'`、全体は`python3 -m unittest discover -s <test dir> -p 'test_*.py'`で起動する。
+- unittestを起動するmutation・集計などの補助スクリプトも、プロジェクトルートから`import test_*.py`を直接行わない。テスト用directoryを明示して`sys.path`へ追加するか、`unittest discover`で対象suiteをロードする。
 - 失敗をmutation検出として数える前に出力を確認し、対象テスト実行後のassertion失敗であることを確かめる。ImportErrorやテスト0件は検出と見なさない。
 
 ## 作業前チェック
 - [ ] compose定義からコンテナ内テスト配置先を確認した。
 - [ ] ホスト/コンテナを問わず使用するコマンドが`unittest discover`で始まり、正しい探索先を指定している。
+- [ ] 補助スクリプトがテストdirectoryを明示しており、ルート直下からテストmoduleをimportしていない。
 - [ ] Composeで対象を絞る場合もモジュール名の直接指定を使っていない。
 
 ## 完了前チェック
