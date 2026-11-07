@@ -137,7 +137,7 @@ Issue #118は6受入条件が未完了のためOpen・in-progressとClaimを維�
 ### PR #119の変更要求対応
 
 - Claudeの独立レビューで、未達条件が残る状態で `Closes #118` を使うと受入条件と不一致になる指摘を受けた。PR本文は `Refs #118` に変更し、#118はOpenのまま維持する。
-- 後続のrequired化前後10ケースを検証するTask #276をPhase #65のSub-issueとして起票した。`issue/ready` とし、PR #119のdevelop merge後に着手する。
+- 後続のrequired化前後10ケースを検証するTask #276をPhase #65のSub-issueとして起票した。`issue/ready` とし、PR #119のdevelop merge後に着手する。#118から#276へのnative `blocked by`も設定し、#118本文・Commentから担当とClose条件を辿れるようにした。
 - `.agents/mistake-log.md` の文書テスト環境に関する記録は、今回PR内の変更なので変更内容表に記載する。
 
 ### ローカル確認
