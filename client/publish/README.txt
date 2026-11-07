@@ -2,7 +2,7 @@ Screen Translation クライアント
 
 起動
   ScreenTranslation.Windows.exe を実行します。.NET SDK・Python・翻訳モデルの導入は不要です。
-  対象: Windows 11 25H2 (Home/Pro) x64。
+  対象: Windows 11 25H2以降 (Home/Pro) x64。
 
 初回の確認
   配布元の SHA256SUMS と、zip のハッシュが一致することを確認してから展開します。

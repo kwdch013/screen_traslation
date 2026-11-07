@@ -1,6 +1,6 @@
 # v1.0 Windowsクライアントの配布物と導入・更新・ロールバック
 
-対象は Windows 11 25H2 (Home/Pro) x64 です。配布物は .NET ランタイムと WPF を同梱した自己完結形式で、利用者のWindowsへ .NET SDK・Python・翻訳モデルを別に導入する必要はありません (REQ-F-012、REQ-NF-008、REQ-NF-009)。翻訳モデルはLinuxサーバー側にあり、サーバーの導入は[運用手順](operations.md#本番コンテナの構成と導入手順)を参照します。
+対象は Windows 11 25H2以降 (Home/Pro) x64 です。受入実機はWindows 11 26H2 (build 26300)で、25H2の実機検証は未実施です。配布物は .NET ランタイムと WPF を同梱した自己完結形式で、利用者のWindowsへ .NET SDK・Python・翻訳モデルを別に導入する必要はありません (REQ-F-012、REQ-NF-008、REQ-NF-009)。翻訳モデルはLinuxサーバー側にあり、サーバーの導入は[運用手順](operations.md#本番コンテナの構成と導入手順)を参照します。
 
 > 状態: 配布物の生成・検証までを自動化し (Issue #104)、SDK未導入のクリーンなWindowsでの起動と接続は **Owner実施** の実機試験です ([試験手順](testing.md#windowsクライアント配布物の生成と検証-issue-104))。正式公開 (GitHub Release) は受入後のリリースTask #111 で行い、このTaskでは行いません。導入・障害復旧・バックアップ手順は [サーバー導入](install-server.md) と [運用手順](operations.md)、第三者ライセンスの棚卸しは [licenses.md](licenses.md) です (本製品自体のライセンスは未決定でOwner判断待ち)。
 

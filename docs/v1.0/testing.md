@@ -925,7 +925,7 @@ Argos Translateの文分割(`argostranslate.sbd.StanzaSentencizer`)は`stanza.Pi
 
 ### Owner実施(実機。この表の項目は未実施で、合格扱いにしない)
 
-.NET SDK・Python・翻訳モデルを導入していない、対応のWindows(Windows 11 25H2 x64)で行います。接続先とサーバーの資格情報・証明書は試験者が外部設定で用意し、記録には値を書きません。接続先がなければ「未実施」と理由を記録します。
+.NET SDK・Python・翻訳モデルを導入していない、対応するWindows 11 25H2以降 x64で行います。受入実機はWindows 11 26H2 (build 26300)であり、25H2での実機検証は未実施です。接続先とサーバーの資格情報・証明書は試験者が外部設定で用意し、記録には値を書きません。接続先がなければ「未実施」と理由を記録します。
 
 1. zip と `SHA256SUMS` を取得し、`Get-FileHash`で一致を確認する。改変したzipで不一致になることも確認する。
 2. 展開して `ScreenTranslation.Windows.exe` を起動できる(SDK/ランタイム未導入のエラーが出ない)。未署名の警告が出たときの案内に従って実行できる。
