@@ -4,7 +4,7 @@
 
 ## v1.0 の導入 (Windowsクライアント + Linuxサーバー)
 
-次版 v1.0 は、Windows 11 25H2以降 (x64) のクライアントが画面取得・領域選択・重畳表示を行い、Linux x86_64 (Docker Engine / Compose v2) のサーバーが OCR・英日翻訳・辞書を担当します。通信は常に HTTPS/WSS と端末認証で保護され、LAN でも証明書の検証を無効にしません。導入・運用の文書は次のとおりです。
+次版 v1.0 は、Windows 11 25H2以降 (x64) のクライアントが画面取得・領域選択・重畳表示を行い、Linux x86_64 (Docker Engine / Compose v2) のサーバーが OCR・英日翻訳・辞書を担当します。通信は常に HTTPS/WSS と端末認証で保護され、LAN でも証明書の検証を無効にしません。Owner承認により受入はWindows 11 26H2 (build 26300)の実機で行い、25H2実機での追加検証は求めません。実機で検証済みなのは26H2 build 26300のみで、後継版・他版の動作は保証しません。導入・運用の文書は次のとおりです。
 
 - [Linuxサーバーの導入・日常操作・更新・ロールバック](docs/v1.0/install-server.md)
 - [Windowsクライアントの導入・設定・日常操作](docs/v1.0/install-client.md)
