@@ -139,6 +139,8 @@
 - 正しいやり方: UTC時刻を投稿と同じ実行内で最後に生成して直ちに投稿し、createdAtを必ず読み戻す。不一致時は編集せず差異を記録し、Claim勝者はcreatedAtとComment IDで判定する。
 - 発生回数: 2
 - 2026-11-08の差分: #293 Claimでclaimed-at `2026-11-08T18:21:59Z`、GitHub createdAt `2026-11-08T18:22:00Z`。guard手順を実行したが秒境界で不一致となった。
+- 2026-11-08の差分: #293 Step 7の再Claimでclaimed-at `2026-11-08T19:06:28Z`、GitHub createdAt `2026-11-08T19:06:29Z`。同一コマンド内生成を使ったが、guard記載の秒後半確認を省略した。
+- 発生回数: 3
 - guard: guard-claim-timestamp
 
 ## 2026-10-31 テスト資格情報を動的化した後に古い定数参照を残した
@@ -177,3 +179,11 @@
 - 発生回数: 3
 - guard: guard-roi-boundary-mutation-tests
 - 2026-11-07の差分: Issue #279で幅上限を1281へ緩めるmutationを試した際、境界例1281×300は面積上限にも超過していて、幅条件の変異だけでは失敗しなかった。高さ301も幅1280では面積上限に同時に掛かる。面積上限の影響を受けない幅1281×299・高さ1000×301の例と、上限定数自体の期待値を加え、幅/高さ/面積の各変異をassertionで検出した。
+
+## 2026-11-08 PowerShell 5.1のネイティブstderrで試験結果の記録を飛ばした
+- 何が起きたか: Windows実機の試験ラッパーで`$ErrorActionPreference = 'Stop'`を設定したままdotnetのstderrをリダイレクトし、dotnetの非0終了が`NativeCommandError`として終了コード保存より前にスクリプトを中断した。
+- 根本原因: PowerShell 5.1がネイティブstderrをErrorRecordへ変換する挙動を考慮せず、通常のネイティブ終了コード処理だけを実装した。
+- 正しいやり方: PowerShell 5.1ではネイティブ実行時の`$ErrorActionPreference`を`Continue`にするか`Start-Process -Wait -PassThru`を使い、終了コードとログを先に保存してから判定する。
+- 発生回数: 1 (既存のWindows PowerShellラッパー誤りと同系統)
+- guard: guard-windows-powershell-wrapper
+- 追記 (2026-11-08): project-local guardへネイティブstderrと失敗時の記録手順を追加。

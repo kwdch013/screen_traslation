@@ -159,6 +159,7 @@ public sealed class WgcCaptureIntegrationTests
 		var deliveredBeforeRoiChange = sink.Delivered;
 
 		selectedRoute = new CaptureRoute(nextRoi, 1);
+		window.ChangeContent();
 		var deadline = Stopwatch.StartNew();
 		while (sink.Delivered <= deliveredBeforeRoiChange && deadline.Elapsed < Watchdog)
 		{

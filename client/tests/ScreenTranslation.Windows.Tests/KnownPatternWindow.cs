@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using ScreenTranslation.Client.Capture;
 using static ScreenTranslation.Client.TestSupport.CaptureTestSupport;
@@ -26,6 +27,7 @@ internal sealed class KnownPatternWindow : IDisposable
 
 	private static readonly WndProc Procedure = HandleMessage;
 	private static readonly string ClassName = "ScreenTranslationKnownPattern" + Environment.ProcessId;
+	private static readonly ConcurrentDictionary<IntPtr, int> ContentVersions = new();
 	private static bool registered;
 
 	private readonly uint exStyle;
@@ -90,6 +92,7 @@ internal sealed class KnownPatternWindow : IDisposable
 		{
 			throw new InvalidOperationException("試験用ウィンドウを作成できませんでした。");
 		}
+		ContentVersions[created] = 0;
 		// 非表示ウィンドウはPrintWindowが空になりうるため、非アクティブで表示する(5 = SW_SHOWNA)
 		ShowWindow(created, 5);
 		return created;
@@ -97,6 +100,13 @@ internal sealed class KnownPatternWindow : IDisposable
 
 	public IntPtr Handle => handle;
 	public bool Exists => handle != IntPtr.Zero && IsWindow(handle);
+
+	/// <summary>WGCが次のFrameArrivedを発行するよう、画面の画素を変える。</summary>
+	public void ChangeContent()
+	{
+		ContentVersions.AddOrUpdate(handle, 1, static (_, version) => version + 1);
+		InvalidateRect(handle, IntPtr.Zero, false);
+	}
 
 	/// <summary>ウィンドウを同じ大きさのまま移動する(取得対象の移動を再現)。</summary>
 	public void MoveTo(int x, int y) => SetWindowPos(handle, IntPtr.Zero, x, y, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
@@ -189,6 +199,7 @@ internal sealed class KnownPatternWindow : IDisposable
 		}
 		if (message == WmDestroy)
 		{
+			ContentVersions.TryRemove(window, out _);
 			PostQuitMessage(0);
 			return IntPtr.Zero;
 		}
@@ -202,7 +213,7 @@ internal sealed class KnownPatternWindow : IDisposable
 			}
 			if (GetClientRect(window, out var rect))
 			{
-				Draw(dc, rect.Right - rect.Left, rect.Bottom - rect.Top);
+				Draw(dc, rect.Right - rect.Left, rect.Bottom - rect.Top, ContentVersions.GetValueOrDefault(window));
 			}
 			if (message == WmPaint)
 			{
@@ -213,7 +224,7 @@ internal sealed class KnownPatternWindow : IDisposable
 		return DefWindowProc(window, message, wParam, lParam);
 	}
 
-	private static void Draw(IntPtr dc, int width, int height)
+	private static void Draw(IntPtr dc, int width, int height, int contentVersion)
 	{
 		var pixels = new byte[width * height * 4];
 		for (var y = 0; y < height; y++)
@@ -222,6 +233,10 @@ internal sealed class KnownPatternWindow : IDisposable
 			{
 				WritePixel(pixels.AsSpan((y * width + x) * 4, 4), x, y);
 			}
+		}
+		if (contentVersion > 0)
+		{
+			pixels[0] ^= (byte)contentVersion;
 		}
 		var info = CreateInfo(width, height);
 		SetDIBitsToDevice(dc, 0, 0, (uint)width, (uint)height, 0, 0, 0, (uint)height, pixels, ref info, 0);
@@ -247,6 +262,7 @@ internal sealed class KnownPatternWindow : IDisposable
 	[DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
 	[DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 	[DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+	[DllImport("user32.dll")] private static extern bool InvalidateRect(IntPtr window, IntPtr rect, bool erase);
 	[DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 	[DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr window, out Rect rect);
 	[DllImport("user32.dll")] private static extern IntPtr BeginPaint(IntPtr window, out PaintStruct paint);
