@@ -230,6 +230,13 @@ class V1DocumentationTest(unittest.TestCase):
 
 
 class WindowsOsTargetDocumentationTest(unittest.TestCase):
+	APPROVED_ACCEPTANCE_POLICY = (
+		"Owner承認により受入はWindows 11 26H2 (build 26300)の実機で行い、"
+		"25H2実機での追加検証は求め"
+	)
+	VERIFICATION_SCOPE = "実機で検証済みなのは26H2 build 26300のみ"
+	UNSUPPORTED_VERSIONS = "後継版・他版の動作は保証"
+
 	def setUp(self) -> None:
 		self.root = Path(__file__).resolve().parents[2]
 		if not (self.root / "requirements/version_1/requirements.md").is_file():
@@ -249,12 +256,17 @@ class WindowsOsTargetDocumentationTest(unittest.TestCase):
 		self.assertIn("プレビュー禁止", requirements)
 		self.assertIn("25H2 Home/Pro x64", requirements, "初回Owner承認の履歴は保持する")
 		self.assertIn("26H2 build 26300", requirements)
-		self.assertIn("25H2実機検証は未実施", requirements)
+		self.assertIn("2026-11-08", requirements)
+		self.assertIn(self.APPROVED_ACCEPTANCE_POLICY, requirements)
+		self.assertIn(self.VERIFICATION_SCOPE, requirements)
+		self.assertIn(self.UNSUPPORTED_VERSIONS, requirements)
 
 		acceptance = self.read("docs/v1.0/acceptance.md")
 		self.assertIn("Windows 11 25H2以降 x64", acceptance)
 		self.assertIn("Windows 11 26H2 (build 26300)", acceptance)
-		self.assertIn("25H2での検証は未実施", acceptance)
+		self.assertIn(self.APPROVED_ACCEPTANCE_POLICY, acceptance)
+		self.assertIn(self.VERIFICATION_SCOPE, acceptance)
+		self.assertIn(self.UNSUPPORTED_VERSIONS, acceptance)
 
 		current_documents = (
 			"README.md",
@@ -274,6 +286,24 @@ class WindowsOsTargetDocumentationTest(unittest.TestCase):
 				self.assertIn("25H2以降", document)
 				self.assertNotIn("Windows 11 25H2 x64", document)
 
+		policy_documents = (
+			"README.md",
+			"client/publish/README.txt",
+			"docs/v1.0/acceptance.md",
+			"docs/v1.0/install-client.md",
+			"docs/v1.0/testing.md",
+			"docs/v1.0/design/adr/0002-windows-client.md",
+			"docs/v1.0/design/architecture.md",
+			"docs/v1.0/research/capture-exclusion.md",
+			"plan/version_1/roadmap.md",
+		)
+		for path in policy_documents:
+			with self.subTest(policy_document=path):
+				document = self.read(path)
+				self.assertIn(self.APPROVED_ACCEPTANCE_POLICY, document)
+				self.assertIn(self.VERIFICATION_SCOPE, document)
+				self.assertIn(self.UNSUPPORTED_VERSIONS, document)
+
 		for path in (
 			"docs/v1.0/install-client.md",
 			"docs/v1.0/testing.md",
@@ -283,7 +313,7 @@ class WindowsOsTargetDocumentationTest(unittest.TestCase):
 				document = self.read(path)
 				self.assertIn("26H2", document)
 				self.assertIn("build 26300", document)
-				self.assertRegex(document, r"25H2.{0,40}未実施")
+				self.assertIn("25H2実機での追加検証は求", document)
 
 
 class V1DesignDecisionTest(unittest.TestCase):
