@@ -11,9 +11,11 @@ namespace ScreenTranslation.Windows.Capture;
 public sealed class WindowsCaptureRuntime : IAsyncDisposable
 {
 	private readonly List<TranslationSessionHost> hosts = [];
+	private readonly WgcDispatcherQueueExecutor dispatcher;
 
 	public WindowsCaptureRuntime()
 	{
+		dispatcher = new WgcDispatcherQueueExecutor();
 		Targets = new WindowsCaptureTargetCatalog();
 	}
 
@@ -25,7 +27,7 @@ public sealed class WindowsCaptureRuntime : IAsyncDisposable
 	/// </summary>
 	public TranslationSessionHost CreateSessionHost(ITranslationTransport transport, IOverlaySurface overlaySurface, TranslationSessionOptions? options = null, IServerReadinessProbe? readinessProbe = null)
 	{
-		var host = new TranslationSessionHost(transport, sink => new WindowsCaptureSessionFactory(sink), overlaySurface, options,
+		var host = new TranslationSessionHost(transport, sink => new WindowsCaptureSessionFactory(sink, dispatcher: dispatcher), overlaySurface, options,
 			currentBounds: WindowsCaptureTargetCatalog.TryGetWindowBounds, readinessProbe: readinessProbe);
 		lock (hosts) hosts.Add(host);
 		return host;
@@ -43,5 +45,6 @@ public sealed class WindowsCaptureRuntime : IAsyncDisposable
 		{
 			await host.DisposeAsync();
 		}
+		await dispatcher.DisposeAsync();
 	}
 }

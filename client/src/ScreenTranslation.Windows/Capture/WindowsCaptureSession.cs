@@ -8,8 +8,13 @@ using WinRT;
 
 namespace ScreenTranslation.Windows.Capture;
 
-internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrameSink? sink = null, CaptureResourceLedger? ledger = null) : ICaptureSession, IBoundsReportingCaptureSession
+internal sealed class WindowsCaptureSession : ICaptureSession, IBoundsReportingCaptureSession
 {
+	private readonly CaptureTarget target;
+	private readonly ICapturedFrameSink? sink;
+	private readonly CaptureResourceLedger? ledger;
+	private readonly ICaptureDispatcher dispatcher;
+	private readonly CaptureDispatcherResource<Direct3D11CaptureFramePool> framePoolOwner;
 	private readonly object sync = new();
 	private GraphicsCaptureItem? item;
 	private Direct3D11CaptureFramePool? framePool;
@@ -19,12 +24,24 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 	private SizeInt32 poolSize;
 	private bool stopped;
 	private int invalidated;
+	private ulong framePoolGeneration;
+
+	public WindowsCaptureSession(CaptureTarget target, ICaptureDispatcher dispatcher, ICapturedFrameSink? sink = null, CaptureResourceLedger? ledger = null)
+	{
+		this.target = target ?? throw new ArgumentNullException(nameof(target));
+		this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+		this.sink = sink;
+		this.ledger = ledger;
+		framePoolOwner = new CaptureDispatcherResource<Direct3D11CaptureFramePool>(dispatcher,
+			() => Direct3D11CaptureFramePool.Create(device!, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, poolSize),
+			pool => Free(CaptureResourceKind.FramePool, pool));
+	}
 
 	public event Action<CaptureInvalidationReason>? Invalidated;
 	/// <summary>対象ウィンドウが同じ大きさのまま移動した。大きさの変化は <see cref="CaptureInvalidationReason.Resized"/> で失効させる。</summary>
 	public event Action<CaptureBounds>? BoundsChanged;
 
-	public ValueTask StartAsync(CancellationToken cancellationToken = default)
+	public async ValueTask StartAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
 		if (!GraphicsCaptureSession.IsSupported())
@@ -32,6 +49,11 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			throw new PlatformNotSupportedException("このWindows環境ではWindows Graphics Captureを利用できません。");
 		}
 
+		await dispatcher.InvokeAsync(StartOnDispatcher, cancellationToken);
+	}
+
+	private void StartOnDispatcher()
+	{
 		try
 		{
 			item = WindowsGraphicsCaptureInterop.CreateItem(target);
@@ -39,11 +61,8 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			device = Direct3DDeviceFactory.Create();
 			ledger?.RecordCreated(CaptureResourceKind.D3DDevice);
 			poolSize = item.Size;
-			framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
-				device,
-				DirectXPixelFormat.B8G8R8A8UIntNormalized,
-				2,
-				poolSize);
+			framePoolGeneration = framePoolOwner.StartOnDispatcher();
+			framePool = framePoolOwner.CurrentResource!;
 			ledger?.RecordCreated(CaptureResourceKind.FramePool);
 			framePool.FrameArrived += OnFrameArrived;
 			item.Closed += OnItemClosed;
@@ -60,7 +79,6 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			DisposeResources();
 			throw;
 		}
-		return ValueTask.CompletedTask;
 	}
 
 	public ValueTask StopAsync(CancellationToken cancellationToken = default)
@@ -70,9 +88,8 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 		{
 			stopped = true;
 		}
-		// 停止の時点でGPU面・ハンドルを解放する(開始停止の反復でリークさせない)
-		DisposeResources();
-		return ValueTask.CompletedTask;
+		// callbackも同じqueueで動くため、処理中callbackの終了後に資源を破棄する。
+		return dispatcher.InvokeAsync(DisposeResources, cancellationToken);
 	}
 
 	public ValueTask DisposeAsync()
@@ -81,11 +98,18 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 		{
 			stopped = true;
 		}
-		DisposeResources();
-		return ValueTask.CompletedTask;
+		return dispatcher.InvokeAsync(DisposeResources);
 	}
 
 	private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
+	{
+		if (!framePoolOwner.TryRunFrame(framePoolGeneration, _ => ReadAndDeliver(sender)))
+		{
+			return;
+		}
+	}
+
+	private void ReadAndDeliver(Direct3D11CaptureFramePool sender)
 	{
 		try
 		{
@@ -184,12 +208,15 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			(d3dDevice, device) = (device, null);
 		}
 
+		if (pool is not null)
+		{
+			pool.FrameArrived -= OnFrameArrived;
+		}
 		Free(CaptureResourceKind.TargetWatcher, watcher);
 		Free(CaptureResourceKind.CaptureSession, session);
 		if (pool is not null)
 		{
-			pool.FrameArrived -= OnFrameArrived;
-			Free(CaptureResourceKind.FramePool, pool);
+			framePoolOwner.StopOnDispatcher();
 		}
 		if (captureItem is not null)
 		{

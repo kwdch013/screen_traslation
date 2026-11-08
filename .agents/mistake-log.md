@@ -134,11 +134,12 @@
 - guard: なし
 
 ## 2026-10-31 Claim Commentへ投稿時刻と異なるclaimed-atを記録した
-- 何が起きたか: Issue #74のClaim Commentで実際の投稿時刻ではなく固定値をclaimed-atに記録した。
-- 根本原因: 投稿直前にUTC時刻を取得せず、例示用の値を流用した。
-- 正しいやり方: Claim本文の作成時にシステムUTC時刻を取得し、投稿後にcreatedAtとclaimed-atが一致することを読み戻して確認する。
-- 発生回数: 1
-- guard: なし
+- 何が起きたか: Issue #74で固定値を記録し、Issue #293では投稿直前に生成した時刻がGitHub createdAtより1秒早くなった。
+- 根本原因: 秒精度の時刻を投稿より前に確定し、API呼び出しが秒境界を越える場合を防げなかった。
+- 正しいやり方: UTC時刻を投稿と同じ実行内で最後に生成して直ちに投稿し、createdAtを必ず読み戻す。不一致時は編集せず差異を記録し、Claim勝者はcreatedAtとComment IDで判定する。
+- 発生回数: 2
+- 2026-11-08の差分: #293 Claimでclaimed-at `2026-11-08T18:21:59Z`、GitHub createdAt `2026-11-08T18:22:00Z`。guard手順を実行したが秒境界で不一致となった。
+- guard: guard-claim-timestamp
 
 ## 2026-10-31 テスト資格情報を動的化した後に古い定数参照を残した
 - 何が起きたか: integrationテストの固定tokenを実行時生成へ変更した際、`_start`の既定引数に旧定数名が残り、テストimport時に`NameError`となった。

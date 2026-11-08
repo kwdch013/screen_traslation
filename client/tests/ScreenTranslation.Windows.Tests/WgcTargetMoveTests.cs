@@ -36,9 +36,10 @@ public sealed class WgcTargetMoveTests
 		}
 	}
 
-	private static async Task<(ICaptureSession Session, PumpingThread Ui)> StartAsync(KnownPatternWindow window, SizeRecordingSink sink, Action<CaptureBounds> onMoved, Action<CaptureInvalidationReason> onInvalidated)
+	private static async Task<(ICaptureSession Session, PumpingThread Ui, WindowsCaptureSessionFactory Factory, CaptureResourceLedger Ledger)> StartAsync(KnownPatternWindow window, SizeRecordingSink sink, Action<CaptureBounds> onMoved, Action<CaptureInvalidationReason> onInvalidated)
 	{
-		var factory = new WindowsCaptureSessionFactory(sink);
+		var ledger = new CaptureResourceLedger();
+		var factory = new WindowsCaptureSessionFactory(sink, ledger);
 		var target = new CaptureTarget($"hwnd:{window.Handle.ToInt64():X}", CaptureTargetKind.Window, "pattern", new CaptureBounds(0, 0, 400, 200), 96);
 		// 対象の状態監視(WinEventフック)はメッセージを処理するスレッドで開始する
 		var ui = new PumpingThread();
@@ -50,7 +51,7 @@ public sealed class WgcTargetMoveTests
 			await created.StartAsync();
 			return created;
 		}).WaitAsync(Watchdog);
-		return (session, ui);
+		return (session, ui, factory, ledger);
 	}
 
 	[Fact]
@@ -60,7 +61,8 @@ public sealed class WgcTargetMoveTests
 		var sink = new SizeRecordingSink();
 		var moved = new TaskCompletionSource<CaptureBounds>(TaskCreationOptions.RunContinuationsAsynchronously);
 		var invalidated = new List<CaptureInvalidationReason>();
-		var (session, ui) = await StartAsync(window, sink, bounds => moved.TrySetResult(bounds), reason => { lock (invalidated) invalidated.Add(reason); });
+		var (session, ui, factory, ledger) = await StartAsync(window, sink, bounds => moved.TrySetResult(bounds), reason => { lock (invalidated) invalidated.Add(reason); });
+		await using var ownedFactory = factory;
 		using var _ = ui;
 		await using var __ = session;
 		await sink.FirstFrame.WaitAsync(Watchdog);
@@ -69,6 +71,8 @@ public sealed class WgcTargetMoveTests
 
 		Assert.Equal(new CaptureBounds(120, 80, 520, 280), await moved.Task.WaitAsync(Watchdog));
 		lock (invalidated) Assert.Empty(invalidated);
+		Assert.Equal(1, ledger.Created(CaptureResourceKind.FramePool));
+		Assert.Equal(0, ledger.Disposed(CaptureResourceKind.FramePool));
 	}
 
 	[Fact]
@@ -77,7 +81,8 @@ public sealed class WgcTargetMoveTests
 		using var window = new KnownPatternWindow(400, 200, pumpOnOwnThread: true, exStyle: 0);
 		var sink = new SizeRecordingSink();
 		var invalidated = new TaskCompletionSource<CaptureInvalidationReason>(TaskCreationOptions.RunContinuationsAsynchronously);
-		var (session, ui) = await StartAsync(window, sink, _ => { }, reason => invalidated.TrySetResult(reason));
+		var (session, ui, factory, ledger) = await StartAsync(window, sink, _ => { }, reason => invalidated.TrySetResult(reason));
+		await using var ownedFactory = factory;
 		using var _ = ui;
 		await using var __ = session;
 		await sink.FirstFrame.WaitAsync(Watchdog);
@@ -87,5 +92,15 @@ public sealed class WgcTargetMoveTests
 		Assert.Equal(CaptureInvalidationReason.Resized, await invalidated.Task.WaitAsync(Watchdog));
 		await Task.Delay(300);
 		Assert.All(sink.Sizes, size => Assert.Equal((400, 200), size));
+		await session.StopAsync();
+		Assert.Equal(1, ledger.Disposed(CaptureResourceKind.FramePool));
+
+		var resizedTarget = new CaptureTarget($"hwnd:{window.Handle.ToInt64():X}", CaptureTargetKind.Window, "pattern", new CaptureBounds(0, 0, 500, 260), 96);
+		var restarted = await factory.CreateAsync(resizedTarget);
+		await restarted.StartAsync();
+		Assert.Equal(2, ledger.Created(CaptureResourceKind.FramePool));
+		await restarted.StopAsync();
+		await restarted.DisposeAsync();
+		Assert.Equal(2, ledger.Disposed(CaptureResourceKind.FramePool));
 	}
 }

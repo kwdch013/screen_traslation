@@ -98,7 +98,7 @@ public sealed class WgcCaptureIntegrationTests
 		var roi = new Rect2D(37, 21, 338, 154);
 		pipeline.BeginSession(SessionId, 1, 1);
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => new CaptureRoute(roi, 1)), () => new CaptureRoute(roi, 1));
-		var factory = new WindowsCaptureSessionFactory(sink);
+		await using var factory = new WindowsCaptureSessionFactory(sink);
 
 		await using var session = await factory.CreateAsync(TargetOf(window, 400, 200));
 		await session.StartAsync();
@@ -126,7 +126,7 @@ public sealed class WgcCaptureIntegrationTests
 		using var window = CreateWindow();
 		var (_, pipeline) = CreatePipeline();
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => null), () => null);
-		var factory = new WindowsCaptureSessionFactory(sink);
+		await using var factory = new WindowsCaptureSessionFactory(sink);
 
 		await using var session = await factory.CreateAsync(TargetOf(window, 400, 200));
 		await session.StartAsync();
@@ -141,6 +141,38 @@ public sealed class WgcCaptureIntegrationTests
 	}
 
 	[Fact]
+	public async Task ChangingSelectedRoiKeepsTheCurrentFramePool()
+	{
+		using var window = CreateWindow();
+		var (_, pipeline) = CreatePipeline();
+		var firstRoi = new Rect2D(10, 10, 120, 80);
+		var nextRoi = new Rect2D(40, 30, 160, 100);
+		CaptureRoute? selectedRoute = new(firstRoi, 1);
+		pipeline.BeginSession(SessionId, 1, 1);
+		var router = new CaptureFrameRouter(pipeline, () => selectedRoute);
+		var sink = new PatternSink(router, () => selectedRoute);
+		var ledger = new CaptureResourceLedger();
+		await using var factory = new WindowsCaptureSessionFactory(sink, ledger);
+		await using var session = await factory.CreateAsync(TargetOf(window, 400, 200));
+		await session.StartAsync();
+		await sink.FirstPatternFrame.WaitAsync(Watchdog);
+		var deliveredBeforeRoiChange = sink.Delivered;
+
+		selectedRoute = new CaptureRoute(nextRoi, 1);
+		var deadline = Stopwatch.StartNew();
+		while (sink.Delivered <= deliveredBeforeRoiChange && deadline.Elapsed < Watchdog)
+		{
+			await Task.Delay(20);
+		}
+
+		Assert.True(sink.Delivered > deliveredBeforeRoiChange, "ROI変更後のフレームが届きませんでした。");
+		Assert.Equal(1, ledger.Created(CaptureResourceKind.FramePool));
+		Assert.Equal(0, ledger.Disposed(CaptureResourceKind.FramePool));
+		await session.StopAsync();
+		Assert.Equal(1, ledger.Disposed(CaptureResourceKind.FramePool));
+	}
+
+	[Fact]
 	public async Task RepeatedStartAndStopReleaseEveryWgcResourceAndStopDeliveringFrames()
 	{
 		using var window = CreateWindow();
@@ -149,7 +181,7 @@ public sealed class WgcCaptureIntegrationTests
 		pipeline.BeginSession(SessionId, 1, 1);
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => new CaptureRoute(roi, 1)), () => new CaptureRoute(roi, 1));
 		var ledger = new CaptureResourceLedger();
-		var factory = new WindowsCaptureSessionFactory(sink, ledger);
+		await using var factory = new WindowsCaptureSessionFactory(sink, ledger);
 		var target = TargetOf(window, 400, 200);
 
 		// 初回は共通の初期化資源(D3D・WinRTの静的資源)を確保するため、ハンドル数の基準には含めない
@@ -230,7 +262,7 @@ public sealed class WgcCaptureIntegrationTests
 		var roi = new Rect2D(0, 0, 200, 100);
 		pipeline.BeginSession(SessionId, 1, 1);
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => new CaptureRoute(roi, 1)), () => new CaptureRoute(roi, 1));
-		var factory = new WindowsCaptureSessionFactory(sink);
+		await using var factory = new WindowsCaptureSessionFactory(sink);
 
 		// 対象の状態監視(WinEventフック)はメッセージを処理するスレッドで開始する
 		using var uiThread = new PumpingThread();
