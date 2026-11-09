@@ -52,11 +52,12 @@ internal static class WindowsCaptureTargetWatcher
 		/// <summary>現在の位置を選択時(または前回通知時)と比べる。同じ大きさの移動は位置を通知し、大きさの変化は失効させる。</summary>
 		private void CheckBounds()
 		{
-			if (!GetWindowRect(window, out var rect))
+			var current = TryGetCurrentBounds(window);
+			if (current is null)
 			{
+				invalidate(CaptureInvalidationReason.TargetUnavailable);
 				return;
 			}
-			var current = new CaptureBounds(rect.Left, rect.Top, rect.Right, rect.Bottom);
 			bool resized;
 			lock (gate)
 			{
@@ -123,6 +124,9 @@ internal static class WindowsCaptureTargetWatcher
 		}
 	}
 
+	internal static CaptureBounds? TryGetCurrentBounds(IntPtr window, IWindowBoundsProvider? provider = null) =>
+		WindowsWindowBounds.TryGet(window, provider);
+
 	private sealed class DisplayWatcher : IDisposable
 	{
 		private readonly CaptureTarget target;
@@ -173,6 +177,4 @@ internal static class WindowsCaptureTargetWatcher
 	[DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
 	[DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
 	[DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
-	[StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
-	[DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
 }

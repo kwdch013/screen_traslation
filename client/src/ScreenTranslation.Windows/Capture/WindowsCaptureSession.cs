@@ -8,7 +8,7 @@ using WinRT;
 
 namespace ScreenTranslation.Windows.Capture;
 
-internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrameSink? sink, CaptureResourceLedger? ledger, RuntimeOwnedResource<SharedD3DDevice> devices) : ICaptureSession, IBoundsReportingCaptureSession
+internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrameSink? sink, CaptureResourceLedger? ledger, RuntimeOwnedResource<SharedD3DDevice> devices, IWindowBoundsProvider? windowBoundsProvider = null) : ICaptureSession, IBoundsReportingCaptureSession
 {
 	private readonly object sync = new();
 	private GraphicsCaptureItem? item;
@@ -27,6 +27,10 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 	public ValueTask StartAsync(CancellationToken cancellationToken = default)
 	{
 		cancellationToken.ThrowIfCancellationRequested();
+		if (target.Kind == CaptureTargetKind.Window)
+		{
+			WindowsCaptureTargetCatalog.RequireWindowBounds(target, windowBoundsProvider);
+		}
 		if (!GraphicsCaptureSession.IsSupported())
 		{
 			throw new PlatformNotSupportedException("このWindows環境ではWindows Graphics Captureを利用できません。");
@@ -50,6 +54,10 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			ledger?.RecordCreated(CaptureResourceKind.CaptureSession);
 			// 利用者のマウスカーソルを翻訳対象の画像へ含めない
 			captureSession.IsCursorCaptureEnabled = false;
+			if (target.Kind == CaptureTargetKind.Window)
+			{
+				WindowsCaptureTargetCatalog.RequireWindowBounds(target, windowBoundsProvider);
+			}
 			captureSession.StartCapture();
 			targetWatcher = WindowsCaptureTargetWatcher.Start(target, Invalidate, OnBoundsChanged);
 			ledger?.RecordCreated(CaptureResourceKind.TargetWatcher);

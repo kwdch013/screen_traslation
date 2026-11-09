@@ -8,10 +8,12 @@ public sealed class WindowsCaptureTargetCatalog : ICaptureTargetCatalog
 {
 	private const uint MonitorDefaultToNearest = 2;
 	private readonly IMonitorDpiProvider monitorDpiProvider;
+	private readonly IWindowBoundsProvider windowBoundsProvider;
 
 	public WindowsCaptureTargetCatalog(IMonitorDpiProvider? monitorDpiProvider = null)
 	{
 		this.monitorDpiProvider = monitorDpiProvider ?? new Win32MonitorDpiProvider();
+		this.windowBoundsProvider = WindowsWindowBounds.Provider;
 	}
 
 	public ValueTask<IReadOnlyList<CaptureTarget>> EnumerateAsync(CancellationToken cancellationToken = default)
@@ -42,14 +44,10 @@ public sealed class WindowsCaptureTargetCatalog : ICaptureTargetCatalog
 			{
 				return true;
 			}
-			if (GetWindowRect(window, out var rect))
+			var target = TryCreateWindowTarget(window, title.ToString(), GetDpiForWindow(window), windowBoundsProvider);
+			if (target is not null)
 			{
-				targets.Add(new CaptureTarget(
-					$"hwnd:{window.ToInt64():X}",
-					CaptureTargetKind.Window,
-					title.ToString(),
-					new CaptureBounds(rect.Left, rect.Top, rect.Right, rect.Bottom),
-					GetDpiForWindow(window)));
+				targets.Add(target);
 			}
 			return true;
 		}, IntPtr.Zero);
@@ -76,14 +74,36 @@ public sealed class WindowsCaptureTargetCatalog : ICaptureTargetCatalog
 	private delegate bool MonitorEnumCallback(IntPtr monitor, IntPtr deviceContext, IntPtr monitorRect, IntPtr parameter);
 
 	/// <summary>ウィンドウ対象の現在位置(ROI選択時の取り直し用)。ウィンドウが無くなっていればnull。</summary>
-	internal static CaptureBounds? TryGetWindowBounds(CaptureTarget target)
+	internal static CaptureBounds? TryGetWindowBounds(CaptureTarget target) => TryGetWindowBounds(target, WindowsWindowBounds.Provider);
+
+	internal static CaptureBounds RequireWindowBounds(CaptureTarget target, IWindowBoundsProvider? provider = null)
+	{
+		if (target.Kind != CaptureTargetKind.Window || !target.Id.StartsWith("hwnd:", StringComparison.Ordinal) ||
+			!long.TryParse(target.Id["hwnd:".Length..], System.Globalization.NumberStyles.HexNumber, null, out var handle))
+		{
+			throw new InvalidOperationException("ウィンドウの可視フレーム境界を取得できないため、取得を開始できません。");
+		}
+
+		var window = new IntPtr(handle);
+		if (!IsWindowVisible(window) || IsIconic(window))
+		{
+			throw new InvalidOperationException("ウィンドウの可視フレーム境界を取得できないため、取得を開始できません。");
+		}
+		return WindowsWindowBounds.RequireAvailable(window, provider);
+	}
+
+	internal static CaptureBounds? TryGetWindowBounds(CaptureTarget target, IWindowBoundsProvider provider)
 	{
 		if (target.Kind != CaptureTargetKind.Window || !target.Id.StartsWith("hwnd:", StringComparison.Ordinal)) return null;
 		if (!long.TryParse(target.Id["hwnd:".Length..], System.Globalization.NumberStyles.HexNumber, null, out var handle)) return null;
 		var window = new IntPtr(handle);
-		return IsWindowVisible(window) && !IsIconic(window) && GetWindowRect(window, out var rect)
-			? new CaptureBounds(rect.Left, rect.Top, rect.Right, rect.Bottom)
-			: null;
+		return IsWindowVisible(window) && !IsIconic(window) ? WindowsWindowBounds.TryGet(window, provider) : null;
+	}
+
+	internal static CaptureTarget? TryCreateWindowTarget(IntPtr window, string title, uint dpi, IWindowBoundsProvider provider)
+	{
+		var bounds = WindowsWindowBounds.TryGet(window, provider);
+		return bounds is null ? null : new CaptureTarget($"hwnd:{window.ToInt64():X}", CaptureTargetKind.Window, title, bounds, dpi);
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -116,8 +136,6 @@ public sealed class WindowsCaptureTargetCatalog : ICaptureTargetCatalog
 	private static extern int GetWindowText(IntPtr window, StringBuilder text, int maximumCount);
 	[DllImport("user32.dll", CharSet = CharSet.Unicode)]
 	private static extern int GetWindowTextLength(IntPtr window);
-	[DllImport("user32.dll", SetLastError = true)]
-	private static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
 	[DllImport("user32.dll")]
 	private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
 	[DllImport("user32.dll")]
