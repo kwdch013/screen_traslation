@@ -98,7 +98,7 @@ public sealed class WgcCaptureIntegrationTests
 		var roi = new Rect2D(37, 21, 338, 154);
 		pipeline.BeginSession(SessionId, 1, 1);
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => new CaptureRoute(roi, 1)), () => new CaptureRoute(roi, 1));
-		var factory = new WindowsCaptureSessionFactory(sink);
+		using var factory = new WindowsCaptureSessionFactory(sink);
 
 		await using var session = await factory.CreateAsync(TargetOf(window, 400, 200));
 		await session.StartAsync();
@@ -126,7 +126,7 @@ public sealed class WgcCaptureIntegrationTests
 		using var window = CreateWindow();
 		var (_, pipeline) = CreatePipeline();
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => null), () => null);
-		var factory = new WindowsCaptureSessionFactory(sink);
+		using var factory = new WindowsCaptureSessionFactory(sink);
 
 		await using var session = await factory.CreateAsync(TargetOf(window, 400, 200));
 		await session.StartAsync();
@@ -141,6 +141,38 @@ public sealed class WgcCaptureIntegrationTests
 	}
 
 	[Fact]
+	public async Task ChangingSelectedRoiKeepsTheCurrentFramePool()
+	{
+		using var window = CreateWindow();
+		var (_, pipeline) = CreatePipeline();
+		var firstRoi = new Rect2D(10, 10, 120, 80);
+		var nextRoi = new Rect2D(40, 30, 160, 100);
+		CaptureRoute? selectedRoute = new(firstRoi, 1);
+		pipeline.BeginSession(SessionId, 1, 1);
+		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => selectedRoute), () => selectedRoute);
+		var ledger = new CaptureResourceLedger();
+		using var factory = new WindowsCaptureSessionFactory(sink, ledger);
+		await using var session = await factory.CreateAsync(TargetOf(window, 400, 200));
+		await session.StartAsync();
+		await sink.FirstPatternFrame.WaitAsync(Watchdog);
+		var deliveredBeforeRoiChange = sink.Delivered;
+
+		selectedRoute = new CaptureRoute(nextRoi, 1);
+		window.ChangeContent();
+		var deadline = Stopwatch.StartNew();
+		while (sink.Delivered <= deliveredBeforeRoiChange && deadline.Elapsed < Watchdog)
+		{
+			await Task.Delay(20);
+		}
+
+		Assert.True(sink.Delivered > deliveredBeforeRoiChange, "ROI変更後のフレームが届きませんでした。");
+		Assert.Equal(1, ledger.Created(CaptureResourceKind.FramePool));
+		Assert.Equal(0, ledger.Disposed(CaptureResourceKind.FramePool));
+		await session.StopAsync();
+		Assert.Equal(1, ledger.Disposed(CaptureResourceKind.FramePool));
+	}
+
+	[Fact]
 	public async Task RepeatedStartAndStopReleaseEveryWgcResourceAndStopDeliveringFrames()
 	{
 		using var window = CreateWindow();
@@ -149,12 +181,14 @@ public sealed class WgcCaptureIntegrationTests
 		pipeline.BeginSession(SessionId, 1, 1);
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => new CaptureRoute(roi, 1)), () => new CaptureRoute(roi, 1));
 		var ledger = new CaptureResourceLedger();
-		var factory = new WindowsCaptureSessionFactory(sink, ledger);
+		using var factory = new WindowsCaptureSessionFactory(sink, ledger);
 		var target = TargetOf(window, 400, 200);
 
-		// 初回は共通の初期化資源(D3D・WinRTの静的資源)を確保するため、ハンドル数の基準には含めない
+		// 初回に共有D3Dデバイスを作成し、その後のすべてのセッションで再利用する。
 		await RunOnceAsync(factory, target, sink);
 		await AssertAllReleasedAsync(ledger, 0);
+		Assert.Equal(1, ledger.Created(CaptureResourceKind.D3DDevice));
+		Assert.Equal(0, ledger.Disposed(CaptureResourceKind.D3DDevice));
 		var handlesBefore = HandleCount();
 
 		// 主指標: 1周ごとに、その周で作った資源が1個も残らないこと。1周1個の漏れでも、その周で確実に検出できる
@@ -171,6 +205,9 @@ public sealed class WgcCaptureIntegrationTests
 		var delivered = sink.Delivered;
 		await Task.Delay(500);
 		Assert.Equal(delivered, sink.Delivered);
+		factory.Dispose();
+		Assert.Equal(1, ledger.Disposed(CaptureResourceKind.D3DDevice));
+		Assert.Empty(ledger.Unreleased());
 	}
 
 	private const int HandleGrowthLimit = 60;
@@ -182,17 +219,18 @@ public sealed class WgcCaptureIntegrationTests
 	private static async Task AssertAllReleasedAsync(CaptureResourceLedger ledger, int round)
 	{
 		var deadline = Stopwatch.StartNew();
-		while (ledger.Unreleased().Count != 0 && deadline.Elapsed < TimeSpan.FromSeconds(5))
+		while (ledger.Unreleased().Any(entry => entry.Kind != CaptureResourceKind.D3DDevice) && deadline.Elapsed < TimeSpan.FromSeconds(5))
 		{
 			await Task.Delay(20);
 		}
-		var unreleased = ledger.Unreleased();
-		Assert.True(unreleased.Count == 0, $"{round}周目で未破棄の資源があります: {string.Join(", ", unreleased.Select(entry => $"{entry.Kind}={entry.Count}"))}");
+		var unreleased = ledger.Unreleased().Where(entry => entry.Kind != CaptureResourceKind.D3DDevice).ToArray();
+		Assert.True(unreleased.Length == 0, $"{round}周目で未破棄の資源があります: {string.Join(", ", unreleased.Select(entry => $"{entry.Kind}={entry.Count}"))}");
 		// 計測が効いていること(フックが外れて常に0個になる見逃しを防ぐ)
 		foreach (var kind in new[] { CaptureResourceKind.CaptureItem, CaptureResourceKind.D3DDevice, CaptureResourceKind.FramePool, CaptureResourceKind.CaptureSession, CaptureResourceKind.TargetWatcher })
 		{
-			Assert.Equal(round + 1, ledger.Created(kind));
+			Assert.Equal(kind == CaptureResourceKind.D3DDevice ? 1 : round + 1, ledger.Created(kind));
 		}
+		Assert.Equal(0, ledger.Disposed(CaptureResourceKind.D3DDevice));
 		// 毎周、読み出し経路(SoftwareBitmap)も少なくとも1個は計測されていること
 		Assert.True(ledger.Created(CaptureResourceKind.SoftwareBitmap) >= round + 1, $"{round}周目までのSoftwareBitmap生成数が不足しています: {ledger.Created(CaptureResourceKind.SoftwareBitmap)}");
 	}
@@ -230,7 +268,7 @@ public sealed class WgcCaptureIntegrationTests
 		var roi = new Rect2D(0, 0, 200, 100);
 		pipeline.BeginSession(SessionId, 1, 1);
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => new CaptureRoute(roi, 1)), () => new CaptureRoute(roi, 1));
-		var factory = new WindowsCaptureSessionFactory(sink);
+		using var factory = new WindowsCaptureSessionFactory(sink);
 
 		// 対象の状態監視(WinEventフック)はメッセージを処理するスレッドで開始する
 		using var uiThread = new PumpingThread();

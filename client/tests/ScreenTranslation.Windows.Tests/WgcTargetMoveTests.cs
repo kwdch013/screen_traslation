@@ -36,7 +36,7 @@ public sealed class WgcTargetMoveTests
 		}
 	}
 
-	private static async Task<(ICaptureSession Session, PumpingThread Ui)> StartAsync(KnownPatternWindow window, SizeRecordingSink sink, Action<CaptureBounds> onMoved, Action<CaptureInvalidationReason> onInvalidated)
+	private static async Task<(ICaptureSession Session, PumpingThread Ui, WindowsCaptureSessionFactory Factory)> StartAsync(KnownPatternWindow window, SizeRecordingSink sink, Action<CaptureBounds> onMoved, Action<CaptureInvalidationReason> onInvalidated)
 	{
 		var factory = new WindowsCaptureSessionFactory(sink);
 		var target = new CaptureTarget($"hwnd:{window.Handle.ToInt64():X}", CaptureTargetKind.Window, "pattern", new CaptureBounds(0, 0, 400, 200), 96);
@@ -50,7 +50,7 @@ public sealed class WgcTargetMoveTests
 			await created.StartAsync();
 			return created;
 		}).WaitAsync(Watchdog);
-		return (session, ui);
+		return (session, ui, factory);
 	}
 
 	[Fact]
@@ -60,9 +60,10 @@ public sealed class WgcTargetMoveTests
 		var sink = new SizeRecordingSink();
 		var moved = new TaskCompletionSource<CaptureBounds>(TaskCreationOptions.RunContinuationsAsynchronously);
 		var invalidated = new List<CaptureInvalidationReason>();
-		var (session, ui) = await StartAsync(window, sink, bounds => moved.TrySetResult(bounds), reason => { lock (invalidated) invalidated.Add(reason); });
+		var (session, ui, factory) = await StartAsync(window, sink, bounds => moved.TrySetResult(bounds), reason => { lock (invalidated) invalidated.Add(reason); });
 		using var _ = ui;
-		await using var __ = session;
+		using var __ = factory;
+		await using var ___ = session;
 		await sink.FirstFrame.WaitAsync(Watchdog);
 
 		window.MoveTo(120, 80);
@@ -77,9 +78,10 @@ public sealed class WgcTargetMoveTests
 		using var window = new KnownPatternWindow(400, 200, pumpOnOwnThread: true, exStyle: 0);
 		var sink = new SizeRecordingSink();
 		var invalidated = new TaskCompletionSource<CaptureInvalidationReason>(TaskCreationOptions.RunContinuationsAsynchronously);
-		var (session, ui) = await StartAsync(window, sink, _ => { }, reason => invalidated.TrySetResult(reason));
+		var (session, ui, factory) = await StartAsync(window, sink, _ => { }, reason => invalidated.TrySetResult(reason));
 		using var _ = ui;
-		await using var __ = session;
+		using var __ = factory;
+		await using var ___ = session;
 		await sink.FirstFrame.WaitAsync(Watchdog);
 
 		window.Resize(500, 260);

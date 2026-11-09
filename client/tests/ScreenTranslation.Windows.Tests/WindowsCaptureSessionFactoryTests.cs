@@ -15,7 +15,7 @@ public sealed class WindowsCaptureSessionFactoryTests
 	[Fact]
 	public async Task FactoryCreatesDisposableWindowsSessionForSelectedWindow()
 	{
-		var factory = new WindowsCaptureSessionFactory();
+		using var factory = new WindowsCaptureSessionFactory();
 		var target = new CaptureTarget("hwnd:1234", CaptureTargetKind.Window, "test", new CaptureBounds(0, 0, 100, 100), 96);
 
 		var session = await factory.CreateAsync(target);
