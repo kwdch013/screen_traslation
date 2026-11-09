@@ -11,10 +11,12 @@ namespace ScreenTranslation.Windows.Capture;
 public sealed class WindowsCaptureRuntime : IAsyncDisposable
 {
 	private readonly List<TranslationSessionHost> hosts = [];
+	private readonly RuntimeOwnedResource<SharedD3DDevice> devices;
 
 	public WindowsCaptureRuntime()
 	{
 		Targets = new WindowsCaptureTargetCatalog();
+		devices = new RuntimeOwnedResource<SharedD3DDevice>(() => new(Direct3DDeviceFactory.Create()));
 	}
 
 	public ICaptureTargetCatalog Targets { get; }
@@ -25,7 +27,7 @@ public sealed class WindowsCaptureRuntime : IAsyncDisposable
 	/// </summary>
 	public TranslationSessionHost CreateSessionHost(ITranslationTransport transport, IOverlaySurface overlaySurface, TranslationSessionOptions? options = null, IServerReadinessProbe? readinessProbe = null)
 	{
-		var host = new TranslationSessionHost(transport, sink => new WindowsCaptureSessionFactory(sink), overlaySurface, options,
+		var host = new TranslationSessionHost(transport, sink => new WindowsCaptureSessionFactory(sink, null, devices), overlaySurface, options,
 			currentBounds: WindowsCaptureTargetCatalog.TryGetWindowBounds, readinessProbe: readinessProbe);
 		lock (hosts) hosts.Add(host);
 		return host;
@@ -39,9 +41,16 @@ public sealed class WindowsCaptureRuntime : IAsyncDisposable
 			created = [.. hosts];
 			hosts.Clear();
 		}
-		foreach (var host in created)
+		try
 		{
-			await host.DisposeAsync();
+			foreach (var host in created)
+			{
+				await host.DisposeAsync();
+			}
+		}
+		finally
+		{
+			devices.Dispose();
 		}
 	}
 }

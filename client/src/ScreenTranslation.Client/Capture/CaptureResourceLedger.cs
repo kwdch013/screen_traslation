@@ -4,6 +4,7 @@ namespace ScreenTranslation.Client.Capture;
 public enum CaptureResourceKind
 {
 	CaptureItem,
+	/// <summary>取得Runtimeの寿命で共有されるD3Dデバイス。</summary>
 	D3DDevice,
 	FramePool,
 	CaptureSession,

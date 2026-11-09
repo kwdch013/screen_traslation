@@ -46,6 +46,7 @@ public sealed class CaptureLifecycleTests
 	[InlineData(CaptureInvalidationReason.Minimized)]
 	[InlineData(CaptureInvalidationReason.DpiChanged)]
 	[InlineData(CaptureInvalidationReason.CaptureDenied)]
+	[InlineData(CaptureInvalidationReason.DeviceLost)]
 	public async Task InvalidatingTargetStopsAndReleasesWithoutRestart(CaptureInvalidationReason reason)
 	{
 		var factory = new FakeCaptureSessionFactory();

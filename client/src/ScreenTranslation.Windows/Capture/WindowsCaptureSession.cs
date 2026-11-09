@@ -8,14 +8,14 @@ using WinRT;
 
 namespace ScreenTranslation.Windows.Capture;
 
-internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrameSink? sink = null, CaptureResourceLedger? ledger = null) : ICaptureSession, IBoundsReportingCaptureSession
+internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrameSink? sink, CaptureResourceLedger? ledger, RuntimeOwnedResource<SharedD3DDevice> devices) : ICaptureSession, IBoundsReportingCaptureSession
 {
 	private readonly object sync = new();
 	private GraphicsCaptureItem? item;
 	private Direct3D11CaptureFramePool? framePool;
 	private GraphicsCaptureSession? captureSession;
 	private IDisposable? targetWatcher;
-	private IDirect3DDevice? device;
+	private SharedD3DDevice? device;
 	private SizeInt32 poolSize;
 	private bool stopped;
 	private int invalidated;
@@ -36,11 +36,10 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 		{
 			item = WindowsGraphicsCaptureInterop.CreateItem(target);
 			ledger?.RecordCreated(CaptureResourceKind.CaptureItem);
-			device = Direct3DDeviceFactory.Create();
-			ledger?.RecordCreated(CaptureResourceKind.D3DDevice);
+			device = devices.GetOrCreate();
 			poolSize = item.Size;
 			framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
-				device,
+				device.Device,
 				DirectXPixelFormat.B8G8R8A8UIntNormalized,
 				2,
 				poolSize);
@@ -55,8 +54,9 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			targetWatcher = WindowsCaptureTargetWatcher.Start(target, Invalidate, OnBoundsChanged);
 			ledger?.RecordCreated(CaptureResourceKind.TargetWatcher);
 		}
-		catch
+		catch (Exception exception)
 		{
+			InvalidateLostDevice(exception);
 			DisposeResources();
 			throw;
 		}
@@ -121,10 +121,18 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			}
 			sink!.Deliver(captured, route.Value);
 		}
-		catch
+		catch (Exception exception)
 		{
 			// 例外の内容(画素を含みうる)は伝播させず、取得不可として停止する。別方式へのフォールバックはしない
-			Invalidate(CaptureInvalidationReason.CaptureDenied);
+			if (IsDeviceLost(exception))
+			{
+				InvalidateLostDevice(exception);
+				Invalidate(CaptureInvalidationReason.DeviceLost);
+			}
+			else
+			{
+				Invalidate(CaptureInvalidationReason.CaptureDenied);
+			}
 		}
 	}
 
@@ -174,14 +182,13 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 		GraphicsCaptureSession? session;
 		Direct3D11CaptureFramePool? pool;
 		GraphicsCaptureItem? captureItem;
-		IDirect3DDevice? d3dDevice;
 		lock (sync)
 		{
 			(watcher, targetWatcher) = (targetWatcher, null);
 			(session, captureSession) = (captureSession, null);
 			(pool, framePool) = (framePool, null);
 			(captureItem, item) = (item, null);
-			(d3dDevice, device) = (device, null);
+			device = null;
 		}
 
 		Free(CaptureResourceKind.TargetWatcher, watcher);
@@ -197,7 +204,35 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 			captureItem.Closed -= OnItemClosed;
 			ledger?.RecordDisposed(CaptureResourceKind.CaptureItem);
 		}
-		Free(CaptureResourceKind.D3DDevice, d3dDevice as IDisposable);
+	}
+
+	private static bool IsDeviceLost(Exception exception)
+	{
+		for (Exception? current = exception; current is not null; current = current.InnerException)
+		{
+			if (current.HResult is unchecked((int)0x887A0005) or unchecked((int)0x887A0006) or unchecked((int)0x887A0007))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void InvalidateLostDevice(Exception exception)
+	{
+		if (!IsDeviceLost(exception))
+		{
+			return;
+		}
+		SharedD3DDevice? lostDevice;
+		lock (sync)
+		{
+			lostDevice = device;
+		}
+		if (lostDevice is not null)
+		{
+			devices.Invalidate(lostDevice);
+		}
 	}
 
 	/// <summary>破棄と計測を1か所で行う。ledgerがnullなら通常のDisposeだけ行う。</summary>
@@ -281,18 +316,24 @@ internal static class WindowsGraphicsCaptureInterop
 internal static class Direct3DDeviceFactory
 {
 	private static readonly Guid DxgiDeviceId = new("54EC77FA-1377-44E6-8C32-88FD5F44C84C");
+	private static readonly Guid D3D11MultithreadId = new("9B7E4E00-342C-4106-A19F-4F2704F689F0");
 
-	public static IDirect3DDevice Create()
+	public static IDirect3DDevice Create() => Create(out _);
+
+	public static IDirect3DDevice Create(out bool multithreadProtected)
 	{
-		var result = D3D11CreateDevice(IntPtr.Zero, 1, IntPtr.Zero, 0x20, IntPtr.Zero, 0, 7, out var device, out _, out var context);
+		// 0x4はSWITCH_TO_REFであり、マルチスレッド保護にはID3D11Multithreadを使う。
+		const uint deviceFlags = 0x20;
+		var result = D3D11CreateDevice(IntPtr.Zero, 1, IntPtr.Zero, deviceFlags, IntPtr.Zero, 0, 7, out var device, out _, out var context);
 		if (result < 0)
 		{
 			// GPUが無い環境ではソフトウェア描画(WARP)のD3Dデバイスを使う。これは画面取得方式の切替ではなく、取得はWGCのまま
-			result = D3D11CreateDevice(IntPtr.Zero, 5, IntPtr.Zero, 0x20, IntPtr.Zero, 0, 7, out device, out _, out context);
+			result = D3D11CreateDevice(IntPtr.Zero, 5, IntPtr.Zero, deviceFlags, IntPtr.Zero, 0, 7, out device, out _, out context);
 		}
 		Marshal.ThrowExceptionForHR(result);
 		try
 		{
+			multithreadProtected = SetMultithreadProtected(context);
 			var dxgiDeviceId = DxgiDeviceId;
 			Marshal.ThrowExceptionForHR(Marshal.QueryInterface(device, in dxgiDeviceId, out var dxgiDevice));
 			try
@@ -322,10 +363,49 @@ internal static class Direct3DDeviceFactory
 		}
 	}
 
+	private static bool SetMultithreadProtected(IntPtr context)
+	{
+		Marshal.ThrowExceptionForHR(Marshal.QueryInterface(context, in D3D11MultithreadId, out var multithread));
+		try
+		{
+			var table = Marshal.ReadIntPtr(multithread);
+			var setProtected = Marshal.GetDelegateForFunctionPointer<SetMultithreadProtectedDelegate>(Marshal.ReadIntPtr(table, 5 * IntPtr.Size));
+			_ = setProtected(multithread, 1);
+			var protectedState = GetMultithreadProtected(multithread);
+			if (!protectedState)
+			{
+				throw new InvalidOperationException("D3D11のマルチスレッド保護を有効にできませんでした。");
+			}
+			return protectedState;
+		}
+		finally
+		{
+			Marshal.Release(multithread);
+		}
+	}
+
+	private static bool GetMultithreadProtected(IntPtr multithread)
+	{
+		var table = Marshal.ReadIntPtr(multithread);
+		var getProtected = Marshal.GetDelegateForFunctionPointer<GetMultithreadProtectedDelegate>(Marshal.ReadIntPtr(table, 6 * IntPtr.Size));
+		return getProtected(multithread) != 0;
+	}
+
+	[UnmanagedFunctionPointer(CallingConvention.StdCall)]
+	private delegate int SetMultithreadProtectedDelegate(IntPtr self, int enabled);
+	[UnmanagedFunctionPointer(CallingConvention.StdCall)]
+	private delegate int GetMultithreadProtectedDelegate(IntPtr self);
+
 	[DllImport("d3d11.dll", PreserveSig = true)]
 	private static extern int D3D11CreateDevice(IntPtr adapter, int driverType, IntPtr software, uint flags, IntPtr featureLevels, uint featureLevelsCount, uint sdkVersion, out IntPtr device, out int featureLevel, out IntPtr immediateContext);
 	[DllImport("d3d11.dll", PreserveSig = true)]
 	private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
+}
+
+internal sealed class SharedD3DDevice(IDirect3DDevice device) : IDisposable
+{
+	public IDirect3DDevice Device { get; } = device;
+	public void Dispose() => (Device as IDisposable)?.Dispose();
 }
 
 internal static class WindowsMonitorInterop

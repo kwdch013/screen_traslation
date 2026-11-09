@@ -70,6 +70,8 @@ public enum CaptureInvalidationReason
 	Minimized,
 	DpiChanged,
 	CaptureDenied,
+	/// <summary>D3Dデバイスが喪失した。取得を停止し、次回開始時にデバイスを作り直す。</summary>
+	DeviceLost,
 	/// <summary>対象ウィンドウの大きさが変わった。ROIの意味が変わるため、再選択まで取得しない。</summary>
 	Resized
 }
