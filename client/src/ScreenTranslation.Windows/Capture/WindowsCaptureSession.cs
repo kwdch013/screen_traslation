@@ -220,7 +220,16 @@ internal sealed class WindowsCaptureSession(CaptureTarget target, ICapturedFrame
 
 	private void InvalidateLostDevice(Exception exception)
 	{
-		if (IsDeviceLost(exception) && device is { } lostDevice)
+		if (!IsDeviceLost(exception))
+		{
+			return;
+		}
+		SharedD3DDevice? lostDevice;
+		lock (sync)
+		{
+			lostDevice = device;
+		}
+		if (lostDevice is not null)
 		{
 			devices.Invalidate(lostDevice);
 		}
@@ -307,11 +316,14 @@ internal static class WindowsGraphicsCaptureInterop
 internal static class Direct3DDeviceFactory
 {
 	private static readonly Guid DxgiDeviceId = new("54EC77FA-1377-44E6-8C32-88FD5F44C84C");
+	private static readonly Guid DxgiInterfaceAccessId = new("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1");
+	private static readonly Guid D3D11DeviceId = new("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
+	private static readonly Guid D3D11MultithreadId = new("9B7E4E00-342C-4106-A19F-4F2704F689F0");
 
 	public static IDirect3DDevice Create()
 	{
-		// FramePoolは複数ホストのfree-threaded callbackから同じ即時コンテキストを使うため、D3D11のマルチスレッド保護を有効にする。
-		const uint deviceFlags = 0x20 | 0x4;
+		// 0x4はSWITCH_TO_REFであり、マルチスレッド保護にはID3D11Multithreadを使う。
+		const uint deviceFlags = 0x20;
 		var result = D3D11CreateDevice(IntPtr.Zero, 1, IntPtr.Zero, deviceFlags, IntPtr.Zero, 0, 7, out var device, out _, out var context);
 		if (result < 0)
 		{
@@ -321,6 +333,7 @@ internal static class Direct3DDeviceFactory
 		Marshal.ThrowExceptionForHR(result);
 		try
 		{
+			SetMultithreadProtected(context);
 			var dxgiDeviceId = DxgiDeviceId;
 			Marshal.ThrowExceptionForHR(Marshal.QueryInterface(device, in dxgiDeviceId, out var dxgiDevice));
 			try
@@ -348,6 +361,101 @@ internal static class Direct3DDeviceFactory
 			}
 			Marshal.Release(device);
 		}
+	}
+
+	public static bool IsMultithreadProtected(IDirect3DDevice device)
+	{
+		var unknown = Marshal.GetIUnknownForObject(device);
+		try
+		{
+			Marshal.ThrowExceptionForHR(Marshal.QueryInterface(unknown, in DxgiInterfaceAccessId, out var accessPointer));
+			try
+			{
+				var access = (IDirect3DDxgiInterfaceAccess)Marshal.GetObjectForIUnknown(accessPointer);
+				try
+				{
+					Marshal.ThrowExceptionForHR(access.GetInterface(in D3D11DeviceId, out var d3dDevice));
+					try
+					{
+						var immediateContext = GetImmediateContext(d3dDevice);
+						try
+						{
+							return GetMultithreadProtected(immediateContext);
+						}
+						finally
+						{
+							Marshal.Release(immediateContext);
+						}
+					}
+					finally
+					{
+						Marshal.Release(d3dDevice);
+					}
+				}
+				finally
+				{
+					Marshal.ReleaseComObject(access);
+				}
+			}
+			finally
+			{
+				Marshal.Release(accessPointer);
+			}
+		}
+		finally
+		{
+			Marshal.Release(unknown);
+		}
+	}
+
+	private static void SetMultithreadProtected(IntPtr device)
+	{
+		Marshal.ThrowExceptionForHR(Marshal.QueryInterface(device, in D3D11MultithreadId, out var multithread));
+		try
+		{
+			var table = Marshal.ReadIntPtr(multithread);
+			var setProtected = Marshal.GetDelegateForFunctionPointer<SetMultithreadProtectedDelegate>(Marshal.ReadIntPtr(table, 5 * IntPtr.Size));
+			_ = setProtected(multithread, 1);
+			if (!GetMultithreadProtected(multithread))
+			{
+				throw new InvalidOperationException("D3D11のマルチスレッド保護を有効にできませんでした。");
+			}
+		}
+		finally
+		{
+			Marshal.Release(multithread);
+		}
+	}
+
+	private static bool GetMultithreadProtected(IntPtr multithread)
+	{
+		var table = Marshal.ReadIntPtr(multithread);
+		var getProtected = Marshal.GetDelegateForFunctionPointer<GetMultithreadProtectedDelegate>(Marshal.ReadIntPtr(table, 6 * IntPtr.Size));
+		return getProtected(multithread) != 0;
+	}
+
+	private static IntPtr GetImmediateContext(IntPtr device)
+	{
+		var table = Marshal.ReadIntPtr(device);
+		var getImmediateContext = Marshal.GetDelegateForFunctionPointer<GetImmediateContextDelegate>(Marshal.ReadIntPtr(table, 40 * IntPtr.Size));
+		getImmediateContext(device, out var context);
+		return context != IntPtr.Zero ? context : throw new InvalidOperationException("D3D11即時コンテキストを取得できませんでした。");
+	}
+
+	[UnmanagedFunctionPointer(CallingConvention.StdCall)]
+	private delegate int SetMultithreadProtectedDelegate(IntPtr self, int enabled);
+	[UnmanagedFunctionPointer(CallingConvention.StdCall)]
+	private delegate int GetMultithreadProtectedDelegate(IntPtr self);
+	[UnmanagedFunctionPointer(CallingConvention.StdCall)]
+	private delegate void GetImmediateContextDelegate(IntPtr self, out IntPtr context);
+
+	[ComImport]
+	[Guid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1")]
+	[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+	private interface IDirect3DDxgiInterfaceAccess
+	{
+		[PreserveSig]
+		int GetInterface(in Guid iid, out IntPtr result);
 	}
 
 	[DllImport("d3d11.dll", PreserveSig = true)]

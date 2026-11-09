@@ -91,6 +91,20 @@ public sealed class WgcCaptureIntegrationTests
 	}
 
 	[Fact]
+	public void CreatedD3DDeviceEnablesMultithreadProtection()
+	{
+		var device = Direct3DDeviceFactory.Create();
+		try
+		{
+			Assert.True(Direct3DDeviceFactory.IsMultithreadProtected(device));
+		}
+		finally
+		{
+			(device as IDisposable)?.Dispose();
+		}
+	}
+
+	[Fact]
 	public async Task WgcCapturedPixelsMatchTheSelectedRoiAndAreSentWithoutScaling()
 	{
 		using var window = CreateWindow();
