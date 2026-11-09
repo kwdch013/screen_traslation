@@ -93,10 +93,10 @@ public sealed class WgcCaptureIntegrationTests
 	[Fact]
 	public void CreatedD3DDeviceEnablesMultithreadProtection()
 	{
-		var device = Direct3DDeviceFactory.Create();
+		var device = Direct3DDeviceFactory.Create(out var multithreadProtected);
 		try
 		{
-			Assert.True(Direct3DDeviceFactory.IsMultithreadProtected(device));
+			Assert.True(multithreadProtected);
 		}
 		finally
 		{
