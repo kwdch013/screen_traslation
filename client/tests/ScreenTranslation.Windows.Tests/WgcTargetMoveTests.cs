@@ -36,10 +36,11 @@ public sealed class WgcTargetMoveTests
 		}
 	}
 
-	private static async Task<(ICaptureSession Session, PumpingThread Ui, WindowsCaptureSessionFactory Factory)> StartAsync(KnownPatternWindow window, SizeRecordingSink sink, Action<CaptureBounds> onMoved, Action<CaptureInvalidationReason> onInvalidated)
+	private static async Task<(ICaptureSession Session, PumpingThread Ui, WindowsCaptureSessionFactory Factory, CaptureTarget Target)> StartAsync(KnownPatternWindow window, SizeRecordingSink sink, Action<CaptureBounds> onMoved, Action<CaptureInvalidationReason> onInvalidated)
 	{
 		var factory = new WindowsCaptureSessionFactory(sink);
-		var target = new CaptureTarget($"hwnd:{window.Handle.ToInt64():X}", CaptureTargetKind.Window, "pattern", new CaptureBounds(0, 0, 400, 200), 96);
+		var target = WindowsCaptureTargetCatalog.TryCreateWindowTarget(window.Handle, "pattern", 96, WindowsWindowBounds.Provider)
+			?? throw new InvalidOperationException("試験用ウィンドウの可視フレーム境界を取得できませんでした。");
 		// 対象の状態監視(WinEventフック)はメッセージを処理するスレッドで開始する
 		var ui = new PumpingThread();
 		var session = await ui.InvokeAsync(async () =>
@@ -50,7 +51,7 @@ public sealed class WgcTargetMoveTests
 			await created.StartAsync();
 			return created;
 		}).WaitAsync(Watchdog);
-		return (session, ui, factory);
+		return (session, ui, factory, target);
 	}
 
 	[Fact]
@@ -60,7 +61,7 @@ public sealed class WgcTargetMoveTests
 		var sink = new SizeRecordingSink();
 		var moved = new TaskCompletionSource<CaptureBounds>(TaskCreationOptions.RunContinuationsAsynchronously);
 		var invalidated = new List<CaptureInvalidationReason>();
-		var (session, ui, factory) = await StartAsync(window, sink, bounds => moved.TrySetResult(bounds), reason => { lock (invalidated) invalidated.Add(reason); });
+		var (session, ui, factory, target) = await StartAsync(window, sink, bounds => moved.TrySetResult(bounds), reason => { lock (invalidated) invalidated.Add(reason); });
 		using var _ = ui;
 		using var __ = factory;
 		await using var ___ = session;
@@ -68,7 +69,10 @@ public sealed class WgcTargetMoveTests
 
 		window.MoveTo(120, 80);
 
-		Assert.Equal(new CaptureBounds(120, 80, 520, 280), await moved.Task.WaitAsync(Watchdog));
+		var reported = await moved.Task.WaitAsync(Watchdog);
+		Assert.Equal(WindowsCaptureTargetCatalog.TryGetWindowBounds(target), reported);
+		Assert.Equal(400, reported.Width);
+		Assert.Equal(200, reported.Height);
 		lock (invalidated) Assert.Empty(invalidated);
 	}
 
@@ -78,7 +82,7 @@ public sealed class WgcTargetMoveTests
 		using var window = new KnownPatternWindow(400, 200, pumpOnOwnThread: true, exStyle: 0);
 		var sink = new SizeRecordingSink();
 		var invalidated = new TaskCompletionSource<CaptureInvalidationReason>(TaskCreationOptions.RunContinuationsAsynchronously);
-		var (session, ui, factory) = await StartAsync(window, sink, _ => { }, reason => invalidated.TrySetResult(reason));
+		var (session, ui, factory, _) = await StartAsync(window, sink, _ => { }, reason => invalidated.TrySetResult(reason));
 		using var _ = ui;
 		using var __ = factory;
 		await using var ___ = session;

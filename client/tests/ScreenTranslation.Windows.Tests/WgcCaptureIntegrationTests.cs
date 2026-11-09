@@ -79,8 +79,9 @@ public sealed class WgcCaptureIntegrationTests
 	/// <summary>WGCは WS_EX_NOACTIVATE のウィンドウを取得対象にできない(E_INVALIDARG)ため、通常の表示属性で作る。</summary>
 	private static KnownPatternWindow CreateWindow() => new(400, 200, pumpOnOwnThread: true, exStyle: 0);
 
-	private static CaptureTarget TargetOf(KnownPatternWindow window, int width, int height) =>
-		new($"hwnd:{window.Handle.ToInt64():X}", CaptureTargetKind.Window, "pattern", new CaptureBounds(0, 0, width, height), 96);
+	private static CaptureTarget TargetOf(KnownPatternWindow window) =>
+		WindowsCaptureTargetCatalog.TryCreateWindowTarget(window.Handle, "pattern", 96, WindowsWindowBounds.Provider)
+		?? throw new InvalidOperationException("試験用ウィンドウの可視フレーム境界を取得できませんでした。");
 
 	private static (Receiver Receiver, CaptureSendPipeline Pipeline) CreatePipeline()
 	{
@@ -114,7 +115,7 @@ public sealed class WgcCaptureIntegrationTests
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => new CaptureRoute(roi, 1)), () => new CaptureRoute(roi, 1));
 		using var factory = new WindowsCaptureSessionFactory(sink);
 
-		await using var session = await factory.CreateAsync(TargetOf(window, 400, 200));
+		await using var session = await factory.CreateAsync(TargetOf(window));
 		await session.StartAsync();
 		var frame = await sink.FirstPatternFrame.WaitAsync(Watchdog);
 
@@ -142,7 +143,7 @@ public sealed class WgcCaptureIntegrationTests
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => null), () => null);
 		using var factory = new WindowsCaptureSessionFactory(sink);
 
-		await using var session = await factory.CreateAsync(TargetOf(window, 400, 200));
+		await using var session = await factory.CreateAsync(TargetOf(window));
 		await session.StartAsync();
 		var deadline = Stopwatch.StartNew();
 		while (sink.Begun == 0 && deadline.Elapsed < Watchdog)
@@ -166,7 +167,7 @@ public sealed class WgcCaptureIntegrationTests
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => selectedRoute), () => selectedRoute);
 		var ledger = new CaptureResourceLedger();
 		using var factory = new WindowsCaptureSessionFactory(sink, ledger);
-		await using var session = await factory.CreateAsync(TargetOf(window, 400, 200));
+		await using var session = await factory.CreateAsync(TargetOf(window));
 		await session.StartAsync();
 		await sink.FirstPatternFrame.WaitAsync(Watchdog);
 		var deliveredBeforeRoiChange = sink.Delivered;
@@ -196,7 +197,7 @@ public sealed class WgcCaptureIntegrationTests
 		var sink = new PatternSink(new CaptureFrameRouter(pipeline, () => new CaptureRoute(roi, 1)), () => new CaptureRoute(roi, 1));
 		var ledger = new CaptureResourceLedger();
 		using var factory = new WindowsCaptureSessionFactory(sink, ledger);
-		var target = TargetOf(window, 400, 200);
+		var target = TargetOf(window);
 
 		// 初回に共有D3Dデバイスを作成し、その後のすべてのセッションで再利用する。
 		await RunOnceAsync(factory, target, sink);
@@ -289,7 +290,7 @@ public sealed class WgcCaptureIntegrationTests
 		var invalidated = new TaskCompletionSource<CaptureInvalidationReason>(TaskCreationOptions.RunContinuationsAsynchronously);
 		var session = await uiThread.InvokeAsync(async () =>
 		{
-			var created = await factory.CreateAsync(TargetOf(window, 400, 200));
+			var created = await factory.CreateAsync(TargetOf(window));
 			created.Invalidated += reason => invalidated.TrySetResult(reason);
 			await created.StartAsync();
 			return created;

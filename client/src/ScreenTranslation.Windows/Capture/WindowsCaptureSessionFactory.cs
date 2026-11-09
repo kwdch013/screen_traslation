@@ -8,6 +8,7 @@ public sealed class WindowsCaptureSessionFactory : ICaptureSessionFactory, IDisp
 	private readonly CaptureResourceLedger? ledger;
 	private readonly RuntimeOwnedResource<SharedD3DDevice> devices;
 	private readonly bool ownsDevices;
+	private readonly IWindowBoundsProvider? windowBoundsProvider;
 
 	/// <param name="sink">取得フレームの渡し先。nullなら画素を読み出さず、対象の有効性だけを監視する。</param>
 	/// <param name="ledger">取得資源の生成・破棄を数える試験用の計測フック。通常はnull。</param>
@@ -16,11 +17,12 @@ public sealed class WindowsCaptureSessionFactory : ICaptureSessionFactory, IDisp
 	{
 	}
 
-	internal WindowsCaptureSessionFactory(ICapturedFrameSink? sink, CaptureResourceLedger? ledger, RuntimeOwnedResource<SharedD3DDevice>? devices)
+	internal WindowsCaptureSessionFactory(ICapturedFrameSink? sink, CaptureResourceLedger? ledger, RuntimeOwnedResource<SharedD3DDevice>? devices, IWindowBoundsProvider? windowBoundsProvider = null)
 	{
 		this.sink = sink;
 		this.ledger = ledger;
 		this.devices = devices ?? new RuntimeOwnedResource<SharedD3DDevice>(() => new(Direct3DDeviceFactory.Create()), ledger);
+		this.windowBoundsProvider = windowBoundsProvider;
 		ownsDevices = devices is null;
 	}
 
@@ -32,7 +34,7 @@ public sealed class WindowsCaptureSessionFactory : ICaptureSessionFactory, IDisp
 			throw new PlatformNotSupportedException("Windows Graphics CaptureはWindowsでのみ利用できます。");
 		}
 		cancellationToken.ThrowIfCancellationRequested();
-		return ValueTask.FromResult<ICaptureSession>(new WindowsCaptureSession(target, sink, ledger, devices));
+		return ValueTask.FromResult<ICaptureSession>(new WindowsCaptureSession(target, sink, ledger, devices, windowBoundsProvider));
 	}
 
 	public void Dispose()
