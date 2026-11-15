@@ -139,7 +139,7 @@ class KeepaliveAuthenticationTests(unittest.IsolatedAsyncioTestCase):
 		old = await self.sessions.start("device-a")
 		stale = await self.open_stream(self.token_a)
 		await self.sessions.stop(old.session_id, "device-a")
-		new = await self.sessions.start("device-b")
+		await self.sessions.start("device-b")
 		await self.clock.advance(4.0)
 		await stale.send_text(keepalive(old.session_id, old.generation))
 		self.assertEqual(stale.close_code, 1008)
