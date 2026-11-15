@@ -726,17 +726,19 @@ docker compose -f server/compose.test.yml --profile integration run --build --rm
 
 ```bash
 python3 -m venv .venv-container && .venv-container/bin/pip install -r server/requirements-dev.txt
-SERVER_CONTAINER_TEST=1 [SERVER_TEST_MODELS_FROM=<準備済みモデルvolume名>] \
+SERVER_CONTAINER_TEST=1 [SERVER_TEST_MODELS_FROM=<server/compose.ymlで準備したvolume名>] \
 	.venv-container/bin/python -B -m unittest discover -s server/tests/container -v
 ```
 
 | 環境変数 | 内容 |
 | --- | --- |
 | `SERVER_CONTAINER_TEST` | `1`のときだけ実行(必須) |
-| `SERVER_TEST_MODELS_FROM` | 準備済みモデルvolumeの名前。**読み取り専用**で借り、試験専用volumeへ複製して取得時間を省く(任意)。複製後も`prepare-model`を通すので外向き通信は必要。未指定ならモデル全体を取得する(約115MiB以上) |
+| `SERVER_TEST_MODELS_FROM` | UID 10001の複製処理が内容を読める、準備済みモデルvolumeの名前。**読み取り専用**で借り、試験専用volumeへ複製して取得時間を省く(任意)。複製後も`prepare-model`を通すので外向き通信は必要。`server/compose.yml`の`prepare-model`で用意したvolumeを指定できます。`server/compose.test.yml`の`prepare-model`で用意したvolumeは、rootで作られた`xdg-cache/Microsoft`をUID 10001の複製処理が読めず、複製時に`Permission denied`で失敗するため指定できません。未指定なら試験用`prepare-model`がモデル全体を取得します(約115MiB以上)。 |
 | `SERVER_TEST_IMAGE` | 使うイメージ名(未指定は`screen-translation-server:local`。他の作業と共有しないよう指定を推奨) |
 | `SERVER_TEST_COMPOSE_FILES` | 追加のcompose(`:`区切り)。ネットワークのアドレスプールが枯渇した環境で、自分専用の外部ネットワークへ向ける等に使う |
 | `SERVER_TEST_KEEP` | `1`で試験後の片付けを省略(失敗調査用。プロジェクト名を出力) |
+
+使えるvolumeは、本番構成の準備手順(`docker compose -p <モデル準備用プロジェクト名> -f server/compose.yml --profile model run --rm prepare-model`)で用意し、そのvolume名を指定してください。このサービスはUID 10001で実行されるため、試験用composeでrootが作るvolumeとは所有者が異なります。取得時間を省く必要がなければ`SERVER_TEST_MODELS_FROM`を指定せず、試験ハーネスに準備させてください。
 
 試験ごとにランダムなプロジェクト名、空きポート、一時CA・証明書(OSの信頼ストアには触れない)、管理/端末tokenを生成し、終了時に**そのプロジェクトのvolume・networkだけ**を`down --volumes`で消します。待機は期限付きのポーリング(ready、healthy)で、固定sleepを同期条件にしていません。
 
@@ -787,7 +789,7 @@ Roadmap #70(R2)の完了要件として、#196のハーネスを拡張し、**�
 
 ```bash
 SERVER_CONTAINER_TEST=1 SERVER_TEST_IMAGE=<専用のイメージ名> [SERVER_TEST_PROJECT=<専用のプロジェクト名>] \
-	[SERVER_TEST_MODELS_FROM=<準備済みモデルvolume名>] \
+	[SERVER_TEST_MODELS_FROM=<server/compose.ymlで準備したvolume名>] \
 	.venv-container/bin/python -B -m unittest discover -s server/tests/container -p 'test_container_roadmap.py' -v
 ```
 
