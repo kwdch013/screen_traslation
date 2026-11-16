@@ -51,9 +51,11 @@ jobs:
         run: docker build --target frontend-test --tag frontend-test:ci .
 
       - name: Lint (ruff)
+        env:
+          PYTHONPATH: src:server/src
         run: |
           pip install -r requirements-dev.txt
-          ruff check src scripts tests/ai_gate
+          ruff check src scripts tests/ai_gate server/src server/tests
 
       # GitHub Actions キャッシュにレイヤを載せてビルド時間を短縮
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
