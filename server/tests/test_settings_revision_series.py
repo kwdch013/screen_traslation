@@ -14,7 +14,7 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from _api_support import ADMIN, BASE_URL, DEVICE, binary_frame, make_app
-from app.contracts import Frame, Rect, TextRegion
+from app.contracts import Rect, TextRegion
 from screen_translation_server.glossary_runtime import GlossaryRuntime
 from screen_translation_server.pipeline import TranslationPipeline
 
