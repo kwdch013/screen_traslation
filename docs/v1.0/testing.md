@@ -525,7 +525,7 @@ OCRは`server/src/screen_translation_server/engines/robust_ocr.py`(server専用�
 
 背景: #182の独立レビューで、1920x1080の1フレームが2.2〜2.9秒(要件のOCR予算 約1000 msを超過)、全面ランダムノイズが44〜127秒かかり出力0件、改善前との比較が未測定、pipelineの5秒期限後にTesseractが残るかが未確認でした。
 
-**測定の再現**: `docker compose -f server/compose.test.yml --profile measure run --build --rm measure`(`server/tests/tools/measure_ocr_time.py`)。コンテナは2 CPU・外部通信なし、各条件で初回1回を除き15回。画像は字幕帯(28pxの文字1〜4行)を持つ決定的な合成画像で、複雑=斜め縞+グラデーション背景。時間はOCR1回(前処理+Tesseract)の壁時計で、画像のデコード・翻訳・通信は含みません。共有ホスト(他コンテナが動作中、ロードアベレージ4前後)での測定のため、絶対値は揺れます。p95は15回なので最大に近い値です。**これは#109の標準ROI集合300件×3回の判定の代わりではありません。**
+**測定の再現**: `docker compose -f server/compose.test.yml --profile measure run --build --rm measure`(`server/tests/tools/measure_ocr_time.py`)。現在の既定サイズは600x120・960x200・1280x300、病的入力は1280x300です。いずれもサーバーが受け付けるROI上限内です。コンテナは2 CPU・外部通信なし、各条件で初回1回を除き15回。画像は字幕帯(28pxの文字1〜4行)を持つ決定的な合成画像で、複雑=斜め縞+グラデーション背景。時間はOCR1回(前処理+Tesseract)の壁時計で、画像のデコード・翻訳・通信は含みません。共有ホスト(他コンテナが動作中、ロードアベレージ4前後)での測定のため、絶対値は揺れます。p95は15回なので最大に近い値です。**これは#109の標準ROI集合300件×3回の判定の代わりではありません。**
 
 | ROI | 背景 | 改善前(前処理なし・#182前) 中央値/p95 ms | #182後・本Task前 中央値/p95 ms | 本Task後 中央値/p95 ms | 本Task後の期限打切 |
 | --- | --- | --- | --- | --- | --- |
