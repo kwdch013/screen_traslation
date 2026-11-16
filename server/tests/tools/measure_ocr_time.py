@@ -1,6 +1,6 @@
 """OCR処理時間の測定(再現用。単体試験・結合試験の合否には使わない)。
 
-標準ROIとフル画面の画像を決定的に生成し、エンジンごとにOCR1回の壁時計時間(中央値・p95・最大)を表で出す。
+標準ROIの画像を決定的に生成し、エンジンごとにOCR1回の壁時計時間(中央値・p95・最大)を表で出す。
 CPU制限は呼び出し側(compose の cpus: 2)で与える。実行手順は docs/v1.0/testing.md を参照。
 
 	docker compose -f server/compose.test.yml --profile measure run --build --rm measure
@@ -28,11 +28,12 @@ LINES = (
 	"Do you want to save your progress?",
 	"Return to the village before night.",
 )
-SIZES = {"600x120": (600, 120), "960x200": (960, 200), "1280x300": (1280, 300), "1920x1080": (1920, 1080)}
+SIZES = {"600x120": (600, 120), "960x200": (960, 200), "1280x300": (1280, 300)}
+PATHOLOGICAL_SIZES = ("1280x300",)
 
 
 def text_image(width: int, height: int, complex_background: bool) -> Image.Image:
-	"""字幕帯を持つ画像。フル画面でも字幕は数行だけで、残りは背景(実際の画面に近い)。"""
+	"""字幕帯を持つ画像。"""
 	if complex_background:
 		# 斜めの縞+グラデーション。ゲーム画面のような「文字の下に模様がある」背景(全面ノイズは病的入力で別扱い)
 		image = Image.new("RGB", (width, height), (20, 30, 70))
@@ -92,7 +93,7 @@ def measure_pathological(repeats: int) -> None:
 	print("\n| ROI | 入力 | 戻るまで 中央値ms | 最大ms | 打切/完了 |")
 	print("| --- | --- | --- | --- | --- |")
 	engine = RobustTesseractOcrEngine(language="eng", min_confidence=0.45)
-	for size_name in ("1280x300", "1920x1080"):
+	for size_name in PATHOLOGICAL_SIZES:
 		width, height = SIZES[size_name]
 		samples, cut = [], 0
 		for _ in range(repeats):
